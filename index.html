@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Gacha Survivors</title>
+<style>
+  :root { --ui: 1; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden; background: #05060d;
+    color: #e8ecf5; touch-action: none; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    font-family: "Segoe UI Variable Display", "Segoe UI", Inter, system-ui,
+                 -apple-system, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  }
+  #app { position: fixed; inset: 0; }
+  canvas#game {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    display: block; image-rendering: -webkit-optimize-contrast;
+  }
+  #boot {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px; z-index: 50;
+    background: #05060d; transition: opacity .35s ease;
+  }
+  #boot.done { opacity: 0; pointer-events: none; }
+  #boot h1 {
+    font-size: clamp(28px, 6vw, 64px); font-weight: 800; letter-spacing: .08em;
+    background: linear-gradient(92deg, #ffd76a, #ff5fa2 45%, #6ad8ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  #bootbar { width: min(420px, 70vw); height: 6px; border-radius: 3px; background: #1a1f33; overflow: hidden; }
+  #bootbar i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #6ad8ff, #ff5fa2); transition: width .18s ease; }
+  #bootmsg { font-size: 13px; color: #8e97b5; letter-spacing: .04em; }
+  #fatal {
+    position: absolute; inset: 0; z-index: 100; display: none; padding: 24px;
+    overflow: auto; background: #12060c; color: #ffb4c6; font: 13px/1.5 ui-monospace, Consolas, monospace;
+  }
+  #fatal h2 { color: #ff6f91; font-size: 18px; margin-bottom: 10px; font-family: inherit; }
+  #fatal pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+  <div id="boot">
+    <h1>GACHA SURVIVORS</h1>
+    <div id="bootbar"><i></i></div>
+    <div id="bootmsg">booting…</div>
+  </div>
+  <div id="fatal"><h2>The run derailed.</h2><pre id="fatalmsg"></pre></div>
+</div>
+<script type="module">
+  // Surface module-level failures instead of dying to a silent blank canvas.
+  const showFatal = (msg) => {
+    const el = document.getElementById('fatal');
+    document.getElementById('fatalmsg').textContent = msg;
+    el.style.display = 'block';
+  };
+  window.addEventListener('error', (e) => showFatal((e.error && e.error.stack) || e.message));
+  window.addEventListener('unhandledrejection', (e) => showFatal(String((e.reason && e.reason.stack) || e.reason)));
+  import('./src/main.js').catch((e) => showFatal(
+    (e && e.stack ? e.stack : String(e)) +
+    '\n\nIf this says "Cross origin requests are only supported for..." you opened' +
+    '\nindex.html from the filesystem. ES modules need a server. Run:\n\n    npx serve .\n'
+  ));
+</script>
+</body>
+</html>

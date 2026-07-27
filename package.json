@@ -1,0 +1,15 @@
+{
+  "name": "gacha-survivors",
+  "version": "0.9.0",
+  "private": true,
+  "description": "An anime/VTuber roguelike bullet-heaven. HTML5 + Canvas 2D, vanilla ES modules, zero runtime dependencies, no build step.",
+  "type": "module",
+  "scripts": {
+    "start": "npx --yes serve . -l 8080",
+    "test": "node tests/run.js",
+    "sim": "node sim.js",
+    "sim:all": "node sim.js --all"
+  },
+  "engines": { "node": ">=16" },
+  "//": "type:module exists so `node sim.js` and `node tests/run.js` can import the same ES modules the browser does. It is NOT a build step — index.html still opens and runs with nothing installed."
+}

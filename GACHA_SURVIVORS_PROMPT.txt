@@ -1,0 +1,1819 @@
+================================================================================
+                    G A C H A   S U R V I V O R S
+        BUILD PROMPT — Anime/VTuber Roguelike Bullet-Heaven (Vampire-Survivors-like)
+================================================================================
+
+HOW TO USE THIS FILE
+--------------------
+Paste this entire document into a coding agent (Claude Code, Cursor, etc.) as the
+task prompt. It is a complete design + technical specification. The agent should
+build the game in the milestone order given at the bottom (SECTION 16) and check
+its work against the acceptance criteria (SECTION 17).
+
+If the agent has a limited context window, feed it SECTION 1 + SECTION 16 first,
+then hand it one content section at a time (characters, then stages, then enemies,
+then upgrades, then gacha).
+
+NAMING CONVENTION (IMPORTANT FOR THE IMPLEMENTER)
+-------------------------------------------------
+Every character, stage, boss, and notable enemy carries TWO names:
+
+  GAME NAME  — the shipping name (e.g. "Shiro Same")
+  REF NAME   — the real anime/VTuber character it is modeled on, written in
+               brackets like [REF: Gawr Gura — Hololive EN]
+
+The REF name exists so that during early development nobody has to ask "wait,
+which one is the shark again?" It tells you exactly what the animation, palette,
+voice, and vibe should be copying. Put it in the data as a `ref` field, surface
+it in the F3 debug overlay and in dev-build character select, and gate it behind
+`DEV_MODE` so it never appears in a shipping build.
+
+  DEV_MODE = true  ->  character select reads "Shiro Same  [Gawr Gura]"
+  DEV_MODE = false ->  character select reads "Shiro Same"
+
+Flip one constant and every ref name disappears from the UI. Keep the two fields
+separate everywhere — never concatenate them into a single display string.
+
+>>> THE ONE-TO-ONE RULE (do not break this) <<<
+Every playable character maps to EXACTLY ONE real counterpart. Never a blend,
+never "X's look with Y's moves." The `ref` field holds one name, not a list.
+
+This is a design constraint, not bookkeeping. A character built from three
+sources has no silhouette and no voice — you can't animate it, you can't write
+barks for it, and a player can't recognise it. A character built from one source
+writes itself: you already know how they stand, what they shout, and what their
+ability should look like.
+
+Practical consequence: if a move you want belongs to a DIFFERENT character from
+the same series, you don't get it. That move is a reason to ADD that character
+as their own roster slot, not a reason to graft it on. This is exactly what
+happened between revisions of this document:
+  - Yamikage is Sasuke, so he uses lightning, black flame, and Sharingan
+    foresight. Shadow Clones and Substitution were withheld from him because
+    they are Naruto's. Naruto then joined the roster as Uzu (★4) and inherited
+    that exact withheld moveset. Nothing had to be rewritten — the rule had
+    already kept the moves clean and unclaimed.
+Two series now field two characters each (Naruto, Dragon Ball). That is FINE and
+does not violate anything. The constraint is not "one character per series" —
+it is:
+  (a) each character's `ref` names exactly one person, and
+  (b) no move, weapon, or signature effect appears on two characters.
+Same-series pairs must be visibly and mechanically distinct: put them at the
+same rarity, make them read as rivals or family, and give them opposite play
+patterns. Yamikage is a slow inevitable damage-over-time character; Uzu is a
+swarm-of-clones character. Sora charges a single enormous attack; Han wants to
+be hit. If two same-series characters ever start feeling interchangeable, one of
+them is wrong.
+
+Stages and bosses follow the same rule; only the STAGE ITSELF may reference a
+whole series rather than one character, since a location isn't a person.
+
+(Practical note: shipping a game with the ref names visible, or with art/voice
+copied 1:1, is a takedown waiting to happen. The dual-name setup means that's a
+one-line decision later instead of a rename-everything refactor. Build with the
+refs; ship with the game names.)
+
+
+================================================================================
+QUICK REFERENCE MAP — GAME NAME <-> REAL CHARACTER
+================================================================================
+Scan this table when you need to know what something is supposed to look like.
+
+  ID                  GAME NAME         REF (exactly one, always)   SOURCE
+  ------------------  ----------------  --------------------------  ----------
+  ★3
+  mochi               Mochi             Mokona                      Rayearth
+  alto                Alto              Kirito                      Sword Art
+                                                                    Online
+  ★4
+  hoshino_rei         Hoshino Rei       Hoshimachi Suisei           Hololive JP
+  yamikage            Yamikage          Sasuke Uchiha               Naruto
+  uzu                 Uzu               Naruto Uzumaki              Naruto
+  captain_yuli        Captain Yuli      Levi Ackerman               Attack on
+                                                                    Titan
+  kagura              Kagura            Tamamo-no-Mae               Fate/GO
+  unit_09             Unit-09 "Ai-chan" Kizuna AI                   VTuber (the
+                                                                    original)
+  ★5
+  rin                 Rin               Tanjiro Kamado              Demon Slayer
+  niten               Niten             Musashi Miyamoto            Vagabond
+  shiro_same          Shiro Same        Gawr Gura                   Hololive EN
+  reika               Reika             Mikoto Misaka               A Certain
+                                                                    Scientific
+                                                                    Railgun
+  nekromina           Nekromina         Mori Calliope               Hololive EN
+  hikari              Hikari "Hi-chan"  Takanashi Kiara             Hololive EN
+  akane               Akane             Houshou Marine              Hololive JP
+  kira                Kira              Light Yagami                Death Note
+  ★6
+  sovereign_alicia    Sovereign Alicia  Kiryu Coco                  Hololive JP
+  sora                Sora              Goku                        Dragon Ball
+  han                 Han               Gohan                       Dragon Ball
+
+  19 characters: 12 anime / 7 VTubers.
+
+  RIVAL PAIRS — two series intentionally field two characters each, placed at
+  matching rarity so they are always balanced against one another:
+    Naruto      -> Yamikage (Sasuke) and Uzu (Naruto), both ★4
+    Dragon Ball -> Sora (Goku) and Han (Gohan), both ★6, with an explicit
+                   owned-both synergy on Sora's Spirit Bomb and Han's special
+  Their kits are strictly disjoint — no move appears on both. See the one-to-one
+  rule above for why that is the actual constraint, not series exclusivity.
+
+  STAGES
+  ------------------  ----------------  --------------------------------------
+  cherry_academy      Cherry Blossom    Assassination Classroom + Kaguya-sama
+                      Academy           (the Student Council President boss)
+  neon_akiba          Neon Akiba        Akihabara as seen in Steins;Gate /
+                      District          Oreimo / Durarara
+  wall_amaris         Ruins of Wall     Attack on Titan (Wall Maria, Shiganshina)
+                      Amaris
+  hidden_ember        Hidden Ember      Naruto (Hidden Leaf Village)
+                      Village
+  tatami_halls        The Endless       Demon Slayer (the Infinity Castle)
+                      Tatami Halls
+  sunken_reef         Sunken Idol Reef  One Piece (Fishman Island) +
+                                        Hololive EN's underwater shark theming
+  zenith_stage        The Zenith Stage  original finale — every previous
+                                        stage's silhouette on the horizon
+
+================================================================================
+SECTION 0 — THE ONE-PARAGRAPH PITCH
+================================================================================
+
+You are building GACHA SURVIVORS: a top-down, single-stick, auto-attacking
+roguelike "bullet heaven" where the player survives 15–25 minute runs against
+escalating waves of anime-flavored monsters. Every playable character is a
+distinct anime or VTuber archetype with THREE signature moves — a unique
+auto-attack (fires automatically), a special ability (manual, on cooldown), and
+an escape move (manual, short cooldown, grants i-frames) — all of which express
+that character's personality. Between runs, players spend gacha currency earned
+in-run to pull for new characters and signature relics from a rate-up banner
+system with pity. Stages are pastiches of iconic anime locales, each with its own
+mob table, hazard, modifier, and boss. During a run you level up by collecting XP
+gems and pick from generic stat upgrades, plus rare character-flavored relics that
+drop from chests and bosses and fundamentally change how a build plays.
+
+The feel target: "Vampire Survivors x Honkai-style gacha x anime convention
+energy." Loud, fast, screen-filling, extremely readable, and funny.
+
+================================================================================
+SECTION 1 — TECH STACK & HARD CONSTRAINTS
+================================================================================
+
+REQUIRED:
+- HTML5 + Canvas 2D. Vanilla JavaScript (ES modules). No build step required —
+  it must run by opening index.html (or via a trivial `npx serve`).
+- Zero external runtime dependencies. No frameworks, no CDN links, no fonts
+  fetched from the network. Everything self-contained and offline-playable.
+- Fixed timestep simulation at 60Hz (accumulator pattern), rendering decoupled
+  and interpolated. The game must NOT be frame-rate dependent.
+- Target: 2,000+ simultaneous entities at a stable 60 FPS on a mid-range laptop.
+- Persistence: localStorage, single JSON blob under key `gachaSurvivors.save.v1`,
+  with a `schemaVersion` field and a migration function stub.
+- Seedable RNG (mulberry32 or xorshift128). ALL randomness routes through it.
+  Two RNG streams: `run` (seeded per run, so runs are reproducible for debugging)
+  and `meta` (gacha pulls — seeded from a persisted counter so you cannot
+  save-scum by reloading).
+- DEV_MODE flag in `/src/core/config.js`, defaulting to `true` during
+  development and readable from the URL (`?dev=0`). When true, every UI surface
+  that shows a name (character select, codex, boss intro card, F3 overlay,
+  results screen) ALSO shows the `ref` field in a dimmed bracket next to it.
+  Implement this once, in a single `displayName(entity)` helper — never sprinkle
+  `if (DEV_MODE)` through the UI code. One helper, one flag, one flip to ship.
+    displayName(e) => DEV_MODE && e.ref ? `${e.name} [${e.ref}]` : e.name
+
+PERFORMANCE RULES (non-negotiable — enforce these from day one, not as a retrofit):
+- Object pooling for enemies, projectiles, XP gems, damage numbers, particles.
+  Zero allocation in the hot loop. No `new` inside update().
+- Spatial hash grid (cell size ~64px) for all collision broadphase. Never do
+  O(n²) checks.
+- XP gem merging: when gem count exceeds 400, merge nearby gems into higher-value
+  gems. Same for gold.
+- Off-screen enemies: cull rendering, cheapen updates (movement only, no AI
+  targeting), and teleport enemies that drift more than 1.5 screens away to the
+  far side of the arena.
+- Damage numbers capped at 60 on screen, pooled, and aggregated (if the same
+  enemy is hit 5 times in 200ms, stack into one number).
+- Cap particles at 800; drop oldest first.
+- Include an FPS/entity-count debug overlay toggled with F3.
+
+INPUT:
+- Keyboard: WASD/Arrows to move, SPACE = escape move, E or RMB = special,
+  ESC = pause, F3 = debug, TAB = show detailed stats.
+- Mouse: optional aim mode for aimed characters (default is auto-aim at nearest
+  / most valuable target — see per-character targeting rules).
+- Gamepad: left stick move, A/X = escape, B/Circle = special. Use the Gamepad API.
+- Touch: virtual stick bottom-left, two ability buttons bottom-right. Layout must
+  not overlap the HUD.
+
+ART & AUDIO (placeholder-first, upgrade-later):
+- Do NOT block on art. Every entity renders from a data-driven "visual" object:
+  `{ shape: 'circle'|'capsule'|'diamond'|'star'|'sprite', color, outline, size,
+     emoji?, sheet?, frames? }`.
+- Ship with emoji + procedurally drawn shapes as the default look. Every entity
+  must still be readable at a glance: enemies are cool-toned with a dark outline,
+  player projectiles are bright and saturated, pickups pulse.
+- Build a `SpriteAtlas` module with a documented drop-in path so real art can
+  replace placeholders later without touching gameplay code.
+- Audio: WebAudio synthesized SFX (square/saw blips for hits, noise burst for
+  explosions, rising arpeggio for level-up). One music track slot per stage that
+  gracefully no-ops if the file is missing. NEVER let a missing asset crash the
+  game — all asset loads are try/catch with fallback.
+
+CODE ARCHITECTURE:
+  /index.html
+  /src/main.js            — bootstrap, game loop, scene manager
+  /src/core/              — rng.js, pool.js, spatialHash.js, input.js, audio.js,
+                            save.js, math.js, events.js, timer.js
+  /src/render/            — camera.js, renderer.js, particles.js, damageNumbers.js,
+                            screenShake.js, spriteAtlas.js
+  /src/game/              — run.js (the run state machine), player.js, enemy.js,
+                            projectile.js, pickup.js, waveDirector.js,
+                            damage.js (single choke point for ALL damage),
+                            statusEffects.js
+  /src/data/              — characters.js, enemies.js, stages.js, waves.js,
+                            upgrades.js, relics.js, gacha.js, evolutions.js
+  /src/ui/                — hud.js, menus.js, levelUpScreen.js, gachaScreen.js,
+                            resultsScreen.js, roster.js, shrine.js
+  /src/scenes/            — bootScene, hubScene, stageSelectScene, runScene,
+                            resultsScene, gachaScene
+
+  ALL content lives in /src/data as plain data objects. Gameplay code reads data;
+  it never hardcodes a character name, an enemy stat, or a wave. Adding a new
+  character must require editing exactly ONE file.
+
+================================================================================
+SECTION 2 — CORE GAME LOOP
+================================================================================
+
+META LOOP:
+  Hub ("The Studio") -> pick character -> pick stage -> RUN -> results screen
+  (earn Star Fragments + Gold + XP) -> spend on gacha pulls & Shrine upgrades ->
+  unlock harder stages -> repeat.
+
+RUN LOOP (the 60 seconds that must feel great):
+  Move -> auto-attack fires on its own -> enemies die -> XP gems drop -> gems get
+  vacuumed in -> level up -> pause + choose 1 of 3 upgrades -> power spikes ->
+  screen fills with more enemies -> use escape move to slip a pincer -> use
+  special to clear a swarm -> chest drops -> take a relic -> build comes online ->
+  survive the boss at the timer.
+
+RUN STRUCTURE:
+- Default run length: 20 minutes (stage-dependent, see SECTION 7).
+- A boss spawns at the halfway mark and at the end. Surviving the final boss =
+  VICTORY. Dying = run ends, but you KEEP all currency earned (never punish the
+  player by voiding their run rewards — this is a roguelite, not a punishment box).
+- At the run's hard time limit, if the player is still alive after the final boss
+  dies, the stage ends in victory. If they somehow stall, THE DIRECTOR spawns
+  (SECTION 8) — an unkillable sweeper that ends the run.
+- Pausing is instant and free. Level-up choice screens pause the sim entirely.
+
+================================================================================
+SECTION 3 — PLAYER CONTROL & GAME FEEL
+================================================================================
+
+MOVEMENT:
+- 8-directional, analog on stick. No acceleration ramp longer than 80ms — this
+  genre lives on precise dodging. Base move speed 165 px/s (tunable per character).
+- The player has a small hitbox (radius 9px) drawn smaller than the sprite. Be
+  generous. Players should feel like they *earned* the dodge.
+- No collision with enemies (you walk through them, taking contact damage on a
+  per-enemy 0.5s tick). No enemy-on-enemy hard collision, but apply soft
+  separation forces so hordes spread into readable blobs instead of one pixel-thin
+  conga line.
+
+DAMAGE & DEFENSE:
+- Contact damage has a 0.5s per-enemy internal cooldown and a global 0.25s
+  i-frame after ANY damage taken, with a white flash + 120ms hitstop-lite
+  (slow the sim to 0.35x for 60ms — only on player damage, never on enemy death).
+- Armor reduces flat damage: `final = max(1, incoming - armor)`.
+- Dodge chance is a flat roll, capped at 60%, shows a "MISS" popup.
+
+JUICE CHECKLIST (implement all of these — they are the difference between a
+prototype and a game):
+- Hit flash (enemy tints white for 60ms)
+- Knockback on hit, scaled by damage, resisted by enemy weight
+- Screen shake: tiny on special, medium on boss slam, big on nova ults. Have a
+  shake INTENSITY setting, and a "reduce screen shake" accessibility toggle.
+- Damage numbers: white normal, yellow crit (bigger + pops harder), purple DoT
+- Death effects: small enemies pop into 4 particles; elites explode with a ring
+- XP gem magnet arc: gems accelerate toward the player with easing, not linearly
+- Level-up: freeze frame, radial flash, ascending chime, the 3 cards fly in
+- Low HP: red vignette that pulses with a heartbeat SFX under 25% HP
+- Kill streak counter that appears at 25+ kills in 3 seconds
+- Every special ability has a distinct screen effect (color grade, ring, zoom)
+
+CAMERA:
+- Follows the player with a light deadzone (24px) and smooth lerp (0.15).
+- Slight lookahead in the movement direction (up to 40px).
+- Punch-out zoom (1.0 -> 1.06) over 0.4s when a special fires. Never zoom in
+  during combat — readability wins over drama.
+
+================================================================================
+SECTION 4 — THE CHARACTER SYSTEM
+================================================================================
+
+Every playable character has EXACTLY four gameplay pillars:
+
+  1. AUTO ATTACK — fires automatically, no input. This is 70% of the character's
+     damage and the core of their identity. Must be visually unmistakable.
+  2. SPECIAL ABILITY — manual, 12–30s cooldown. Big, loud, build-defining.
+  3. ESCAPE MOVE — manual, 4–9s cooldown. Grants i-frames. Movement/defense.
+     Every character MUST have one — it is the skill-expression button.
+  4. PASSIVE — always-on trait that shapes which upgrades you want.
+
+Plus: base stats, a personality (2–3 barks that pop as speech bubbles), and a
+SIGNATURE RELIC (SECTION 11) that supercharges them but is usable by anyone.
+
+CHARACTER DATA SCHEMA (copy this exactly):
+
+  {
+    id: 'shiro_same',
+    name: 'Shiro Same',              // shipping name — always safe to display
+    ref: 'Gawr Gura',                // DEV ONLY. Shown when DEV_MODE === true.
+    refSource: 'Hololive EN',        // DEV ONLY. Where the ref comes from.
+    refNotes: 'Blue/white hair, shark hoodie with a tail, blue-grey eyes, ' +
+              'tiny, chaotic, trident. Palette: #5fd6ff / #ffffff / #0b3d5c.',
+    epithet: 'The Sharkbite Idol',
+    rarity: 5,                       // 3 | 4 | 5 | 6
+    archetype: 'Deep-Sea VTuber',
+    element: 'water',                // water|fire|lightning|shadow|spirit|steel|light
+    visual: { shape: 'capsule', color: '#5fd6ff', accent: '#0b3d5c', emoji: '🦈' },
+    stats: {
+      hp: 110, armor: 0, moveSpeed: 172, pickupRadius: 46,
+      damageMult: 1.0, attackSpeedMult: 1.0, areaMult: 1.0,
+      critChance: 0.05, critMult: 2.0, cooldownMult: 1.0, luck: 0
+    },
+    autoAttack: { id: 'bubble_bullets', /* see behavior table */ },
+    special:    { id: 'feeding_frenzy', cooldown: 22 },
+    escape:     { id: 'riptide', cooldown: 6, iframes: 0.5 },
+    passive:    { id: 'blood_in_the_water' },
+    signatureRelic: 'chum_bucket',
+    starLevel: 1,                    // 1..5, from gacha dupes
+    barks: { spawn: "Chomp chomp, let's GO!", levelUp: "Ooooh, shiny!",
+             lowHp: "N-not cute! Not cute at all!" }
+  }
+
+STAR LEVELS (from gacha duplicates, SECTION 6):
+  S1: base
+  S2: +8% HP, +8% auto-attack damage
+  S3: SPECIAL UPGRADE — the special ability gains an extra effect (listed per
+      character below)
+  S4: +15% HP, +15% auto-attack damage, -10% all cooldowns
+  S5: ESCAPE UPGRADE — the escape move gains an extra effect + charges go 1 -> 2
+
+TARGETING MODES (each auto attack declares one):
+  nearest | lowestHp | highestHp | randomInRange | facing | aroundSelf |
+  mouseAim | densestCluster (uses the spatial hash to pick the fullest cell)
+
+--------------------------------------------------------------------------------
+                        ★★★  3-STAR ROSTER (Starters)  ★★★
+   Available from the start / very common pulls. Simple, honest, still fun.
+--------------------------------------------------------------------------------
+
+[1] MOCHI — "The Pocket Dimension"
+    [REF: MOKONA (Magic Knight Rayearth / Tsubasa / xxxHolic)]
+    Ref notes: small, round, white, black bead eyes, long ears, a single red gem
+    on the forehead. Bounces instead of walking. Says "puu!" constantly.
+    Canonically swallows objects into an infinite stomach and spits them back
+    out, and hops between dimensions. Every ability comes from those two facts.
+    Element: spirit. Rarity 3.
+    AUTO — "Puu!": spits a stored object out of its mouth at the nearest enemy.
+           The projectile is RANDOM each shot (anvil, teapot, fish, boulder,
+           another Mochi) with damage 6–18 and a matching impact effect. Fires
+           every 1.0s. Targeting: nearest. Purely cosmetic variety, but it makes
+           the starter character endlessly watchable — do not cut this.
+    SPECIAL — "SECRET TECHNIQUE No. 108" (18s): Mochi opens its mouth impossibly
+           wide and disgorges EVERYTHING at once — 20 random objects erupt in a
+           140px radius for 90 total damage, with heavy knockback.
+    ESCAPE — "Dimension Hop" (5s): vanishes into a rift and drops out of another
+           rift 200px away. 0.6s invulnerable. Both rifts damage enemies (20).
+    PASSIVE — "Infinite Stomach": +25% pickup radius, and pickups are stored and
+           auto-collected even if you die before touching them.
+    S3: Secret Technique No. 108 also spits out a free pickup.
+    S5: Dimension Hop leaves both rifts open for 3s as damaging portals.
+    RELIC: "The 109th Secret Technique" — every 8th auto-attack spits a boulder
+           instead (4x damage, knockback).
+
+[2] ALTO — "The Solo Player"
+    [REF: KIRITO (Sword Art Online)]
+    Ref notes: black coat over black gear, black hair with bangs over the eyes,
+    dual-wielding one sword forward and one reversed. Floating translucent-blue
+    game menus open with a swipe gesture. Should read as "MMO player who takes
+    it far too seriously." HP bar renders as an SAO-style segmented bar for him.
+    Element: steel. Rarity 3.
+    AUTO — "Sword Skill: Vertical Arc": a 120° melee arc in the facing
+           direction, 16 damage, range 85px, every 0.8s. Every 5th swing is a
+           charged Sword Skill — 3x damage, double range, and the blade leaves
+           the glowing cyan trail SAO uses for activated skills. Targeting:
+           facing.
+    SPECIAL — "STARBURST STREAM" (20s): a 16-hit dual-blade combo executed on
+           the nearest cluster over 2.5s, 22 damage per hit, each hit auto-
+           retargeting to the closest living enemy. He is invulnerable for the
+           first 1.0s. The hit counter renders on screen as it climbs.
+    ESCAPE — "Switch!" (7s): vanishes for 0.8s (fully invulnerable, immune to
+           slows), reappears 200px in the movement direction with an afterimage.
+    PASSIVE — "Beater": +2% damage per player level this run (uncapped). He
+           grinds and everyone resents him for it.
+    S3: Starburst Stream extends to 24 hits.
+    S5: Switch! leaves a "system error" glitch zone dealing damage over time.
+    RELIC: "Unique Skill: Dual Blades" — every 4th auto-attack swings twice.
+
+--------------------------------------------------------------------------------
+                        ★★★★  4-STAR ROSTER (Rare)  ★★★★
+--------------------------------------------------------------------------------
+
+[3] HOSHINO REI — "Reirei, the Encore Idol"
+    [REF: HOSHIMACHI SUISEI (Hololive JP)]
+    Ref notes: blue-black bob with a star hairpin, one visible blue eye, navy
+    and white idol outfit with a star-and-comet motif, cape. Comet imagery
+    everywhere — her name literally means "comet". Extremely competitive, a
+    Tetris obsessive, and the "I am an idol AND I will end you" energy is the
+    whole character. Fanbase name: Hoshiyomi ("star gazers").
+    Element: light. Rarity 4.
+    AUTO — "Comet Shards": bouncing star shards that ricochet to up to 4 enemies,
+           gaining +15% damage per bounce. 18 base damage, every 1.0s.
+           Targeting: nearest.
+    SPECIAL — "STELLAR ENCORE" (24s): the stage lights drop and a comet crashes
+           behind her. For 8s she projects an aura (200px) that heals 4 HP/s and
+           grants +25% attack speed, while pulsing damaging soundwave rings every
+           0.8s (30 damage).
+    ESCAPE — "Comet Trail" (6s): a 150px streaking dash with a long blue comet
+           tail, 0.5s invulnerable, leaving a glittering decoy that taunts for
+           2.5s.
+    PASSIVE — "Hoshiyomi": every 10 kills drops a small heart (heals 3 HP).
+    S3: Stellar Encore also revives you once if you would die during its duration.
+    S5: Comet Trail grants a 1-hit shield after the dash.
+    RELIC: "Hoshiyomi Penlight" — auras are 40% larger and pulse 25% faster.
+           (Absurd on any aura character.)
+    EASTER EGG: on a level-up while she is equipped, 5% chance the upgrade cards
+           fall into place as tetrominoes. She will comment on it.
+
+[4] YAMIKAGE — "The Avenger"
+    [REF: SASUKE UCHIHA (Naruto)]
+    Ref notes: dark blue high-collar shirt, white arm wraps, black duck-tail
+    hair, red Sharingan eyes that spin when he uses anything. Permanently
+    brooding, monologues about revenge mid-fight. Every ability here is his own
+    — lightning (Chidori), black flame (Amaterasu), Sharingan foresight. He does
+    NOT get shadow clones or substitution; those belong to a different ninja and
+    that character is a separate future roster slot.
+    Element: shadow. Rarity 4.
+    AUTO — "Shuriken Volley": 3 shuriken in a tight spread, pierce 1, 15 damage
+           each, every 0.65s. Every 4th volley is wire-strung and curves back
+           through the enemies a second time. Targeting: nearest.
+    SPECIAL — "AMATERASU" (26s): marks the 5 nearest enemies with inextinguishable
+           BLACK FLAME. Burns for 40 damage/s until the target dies — the burn
+           never expires and cannot be cleansed. Spreads to any enemy that
+           touches a burning one. Slow, inevitable, and terrifying to watch
+           chew through a horde.
+    ESCAPE — "Body Flicker" (5s): a lightning-fast blink 190px in the movement
+           direction, leaving a crackling Chidori afterimage that damages
+           anything it passes through (60).
+    PASSIVE — "Sharingan": +18% dodge chance, and enemy telegraphs are shown
+           0.3s earlier for him (the tell literally appears sooner on screen).
+    S3: Amaterasu marks 8 enemies and the flames leave burning ground.
+    S5: Body Flicker gains a second charge; ending it next to a burning enemy
+        detonates the black flame for 150 in a 120px radius.
+    RELIC: "Susanoo Fragment" — every 12s a spectral ribcage forms around you
+           and fully blocks the next hit taken.
+
+[5] UZU — "The Spiral"
+    [REF: NARUTO UZUMAKI (Naruto)]
+    Ref notes: spiky blond hair, blue eyes, three whisker marks on each cheek,
+    orange-and-black jumpsuit, forehead protector. Loud, relentlessly optimistic,
+    physically incapable of giving up. Deliberately placed at the SAME rarity as
+    Yamikage (Sasuke) — they are a matched rival pair and should always be pulled,
+    displayed, and balanced against each other. He inherits the exact moveset
+    that was withheld from Yamikage under the one-to-one rule.
+    Element: spirit. Rarity 4.
+    AUTO — "Kage Bunshin Barrage": 3 shadow clones puff into existence around the
+           nearest enemy, strike simultaneously for 12 each, and vanish. Every
+           0.7s. Because the clones appear AT the target, this is the only
+           auto-attack in the game with no travel time and no line of sight
+           requirement. Targeting: nearest.
+    SPECIAL — "SHADOW CLONE JUTSU" (26s): summons 4 persistent clones for 10s.
+           They mirror your auto-attack at 60% damage, drift around you, and
+           taunt nearby enemies. They are individually killable (30 HP each).
+    ESCAPE — "Substitution Jutsu" (5s): a log takes the hit in his place and he
+           reappears BEHIND the nearest enemy, which eats a guaranteed backstab
+           crit (250%). The log should be a real, visible, comically ordinary log.
+    PASSIVE — "Never Gives Up": every 10 kills spawns one bonus clone that
+           persists until killed (max 5). The clone army builds over a run.
+    S3: Shadow Clone Jutsu summons 6 clones, and holding the button makes them
+        converge into a single RASENGAN slam — 320 damage in a 180px spiral that
+        drags enemies inward.
+    S5: Substitution Jutsu gains a second charge and the log detonates.
+    RELIC: "Nine-Tails Chakra" — below 50% HP, gain +40% attack speed and a
+           burning chakra cloak that damages enemies within 90px.
+
+[6] CAPTAIN YULI — "Humanity's Strongest"
+    [REF: LEVI ACKERMAN (Attack on Titan)]
+    Ref notes: short, black undercut hair, white cravat, Survey Corps jacket
+    with the Wings of Freedom, full ODM harness. Flat, unimpressed expression at
+    all times. Fights by spinning mid-air through a target rather than swinging
+    once. Obsessive about cleanliness — his idle animation is wiping his blades.
+    Element: steel. Rarity 4.
+    AUTO — "Twin Blade Cross": rapid alternating slashes in a short 90° arc
+           (70px), 11 damage, every 0.35s. Highest raw DPS in the game, but you
+           must be in melee. Targeting: facing.
+    SPECIAL — "NAPE STRIKE" (18s): grapples to the highest-max-HP enemy on screen
+           and executes: 200 damage +12% of the target's MAX HP. Doubles against
+           Large enemies. Full i-frames during the flight.
+    ESCAPE — "Grapple Line" (7s): fires an anchor 320px in the aim direction and
+           zips there. Invulnerable in flight, damages enemies along the line.
+    PASSIVE — "Devotion": +45% damage vs. Large and Elite enemies.
+    S3: Nape Strike hits the top 3 highest-HP enemies.
+    S5: Grapple Line refunds instantly if it kills something mid-flight.
+    RELIC: "Thunder Spear" — every 6th attack detonates in a 100px blast.
+
+[7] KAGURA — "The Nine-Tailed Casteress"
+    [REF: TAMAMO-NO-MAE (Fate/Grand Order)]
+    Ref notes: long pink hair, golden fox ears, nine enormous fox tails, blue-
+    and-white miko outfit with detached sleeves, carries a polished bronze
+    mirror. Aggressively affectionate one moment and murderous the next.
+    Catchphrase is a fox noise. Everything about her is shrine-fox iconography —
+    ofuda, torii gates, foxfire, and Inari worship.
+    Element: spirit. Rarity 4.
+    AUTO — "Ofuda Talismans": 2 slow-flying homing paper charms that stick to an
+           enemy and detonate after 0.8s for 22 damage in a small AoE.
+           Every 1.1s. Targeting: randomInRange (prefers unmarked enemies).
+    SPECIAL — "NINE-TAIL BLAZE" (25s): summons 9 foxfire wisps that orbit her and
+           then seek targets independently, 45 damage each, burning for 3s.
+    ESCAPE — "Torii Warp" (8s): first press plants a torii gate; second press
+           (within 10s) teleports back to it with a purifying burst (60 damage,
+           knockback). If not used, the gate expires and refunds half the CD.
+    PASSIVE — "Purification": 12% chance on kill to drop a spirit orb worth 3x XP.
+    S3: Nine-Tail Blaze wisps leave burning foxfire trails.
+    S5: Torii Warp gates become permanent for the run (max 2) and can be re-used.
+    RELIC: "Inari's Blessing" — burn/DoT effects deal +50% damage and last +2s.
+
+[8] UNIT-09 "AI-CHAN" — "Super A.I."
+    [REF: KIZUNA AI (the original VTuber)]
+    Ref notes: brown hair with a huge pink ribbon shaped like headset ears,
+    white-and-pink hoodie dress, thigh-high boots, pink eyes. Relentlessly
+    cheerful, gestures with her whole body, insists she is a super-intelligent
+    AI while doing extremely un-AI things. Her UI should look like a streaming
+    overlay: subscriber counter, chat ticker, a little "LIVE" dot.
+    Element: lightning. Rarity 4.
+    AUTO — "Channel Beam": alternating left/right energy bolts fired from her
+           ribbon-ears, 13 damage, pierce 1, every 0.5s. Perfectly accurate.
+           Targeting: nearest.
+    SPECIAL — "SUPER A.I. MODE" (22s): for 6s, fire rate is DOUBLED and every
+           shot splits into 3 on impact. She takes +25% damage during it
+           (glorious risk/reward). Screen tints electric pink, the UI glitches,
+           and the subscriber counter spins upward.
+    ESCAPE — "ERROR!" (6s): she blue-screens. 0.7s invulnerable, then a burst of
+           corrupted data (160px) that STUNS enemies for 1.5s and deals 50
+           damage. She apologizes to chat afterwards.
+    PASSIVE — "Firmware Update": each level-up permanently grants +2% attack
+           speed this run (stacks forever).
+    S3: Super A.I. Mode no longer applies the +25% damage-taken penalty.
+    S5: ERROR! also disables enemy ranged attacks for 4s.
+    RELIC: "Singularity Patch" — at 6+ stacks of any buff, gain +30% damage
+           and your outline glows hot pink.
+
+--------------------------------------------------------------------------------
+                     ★★★★★  5-STAR ROSTER (Ultra Rare)  ★★★★★
+--------------------------------------------------------------------------------
+
+[9] RIN — "Breath of the Rising Sun"
+    [REF: TANJIRO KAMADO (Demon Slayer)]
+    Ref notes: burgundy hair tied back, red-brown eyes, a scar on the forehead,
+    hanafuda earrings, black-and-green checkered haori, a large wooden box
+    strapped to his back. Earnest, gentle, apologises to things he kills. He
+    starts every run in Water Breathing and unleashes Sun Breathing as his
+    special — that arc from water to fire IS the character, so the special must
+    visually change his whole palette from blue to orange when it fires.
+    Element: water (special converts to fire). Rarity 5.
+    AUTO — "First Form: Water Surface Slash": a flowing crescent wave that travels
+           180px and pierces 3, 30 damage, every 0.7s. The slash trail is drawn as
+           a painted water ribbon — this must look GORGEOUS. Targeting: facing
+           (auto-turns to nearest).
+    SPECIAL — "HINOKAMI KAGURA: DANCE OF THE FIRE GOD" (24s): he drops into the
+           Sun Breathing stance and performs a spinning circular dance for 3s,
+           carving overlapping rings of flame around himself (25 damage per tick,
+           8 ticks, 240px radius). Unstoppable — immune to knockback and slows —
+           and everything hit BURNS for 4s. Screen shifts to orange firelight.
+    ESCAPE — "Second Form: Water Wheel" (5s): a forward cartwheel dash 200px with
+           full i-frames, carving a vertical water wheel that damages (45) along
+           the entire path.
+    PASSIVE — "Total Concentration Breathing": standing still for 1.0s makes the
+           NEXT auto attack deal +120% damage and pierce infinitely. Rewards
+           rhythm play — hold still, breathe, swing.
+    S3: Dance of the Fire God lasts 5s and pulls enemies inward.
+    S5: Water Wheel gains 2 charges and leaves a healing water trail.
+    RELIC: "Nichirin Blade (Crimson)" — attacks apply SUNLIGHT: prevents elite
+           and boss regeneration and deals 4% max HP per second for 4s.
+
+[10] NITEN — "The Sword Saint"
+    [REF: MUSASHI MIYAMOTO (as depicted in VAGABOND)]
+    Ref notes: ragged, sun-darkened ronin. Wild unwashed hair tied back roughly,
+    torn dark kimono, no armour, bare feet. Scarred, hollow-eyed, and completely
+    still until he isn't. He fights with a long sword in the right hand and a
+    short sword in the left simultaneously — Niten Ichi-ryū, "two heavens as
+    one" — which no one else in the roster does. Where Rin's swordplay is
+    flowing and beautiful, Musashi's is brutal, economical, and ugly on purpose.
+    Use the Vagabond depiction specifically: ink-wash aesthetic, heavy blacks,
+    a single red accent for blood. Do NOT use the Fate/GO version — that is a
+    different character design entirely and this roster is one-ref-per-slot.
+    Element: steel. Rarity 5.
+    AUTO — "Niten Ichi-ryū": alternates two distinct strikes. Odd swings are the
+           LONG SWORD — a wide 150° arc, 26 damage, 110px reach. Even swings are
+           the SHORT SWORD — a fast forward thrust, 18 damage, pierces 3, 70px.
+           Every 0.6s. The alternation is visible and audible, and several
+           upgrades in the pool interact with only one of the two.
+           Targeting: facing.
+    SPECIAL — "THE BATTLE OF ICHIJŌJI" (28s): he plants himself and enters a
+           counter-stance for 6s. Every enemy that enters melee range is cut down
+           automatically — one clean instant strike per enemy, 90 damage, with a
+           crescent slash that carries 200px beyond them. He cannot move during
+           it and takes 50% reduced damage. Named for the duel where Musashi
+           fought an entire school alone; it should feel exactly like that.
+    ESCAPE — "The Void" (7s): a 0.4s PARRY WINDOW, not a dash. If he is struck
+           during the window he takes zero damage, and releases a 360° counter
+           for 200 damage with full knockback. If nothing hits him, he simply
+           steps 120px and the cooldown is halved. The highest skill ceiling
+           in the game — a defensive button that rewards reading the enemy
+           instead of mashing.
+    PASSIVE — "Dokkōdō (The Way of Walking Alone)": +30% damage and +15% dodge
+           while you have no active minions, clones, or summons. He does not
+           fight alongside anyone, and the build rewards you for respecting that.
+    S3: The Battle of Ichijōji lasts 9s and he can walk at half speed during it.
+    S5: The Void's parry window widens to 0.7s and a successful parry fully
+        refunds the cooldown — perfect play means a permanent guard.
+    RELIC: "Two Heavens As One" — every second auto-attack is a guaranteed crit.
+           (Extraordinary on him because his auto already alternates; merely very
+           good on everyone else.)
+
+[11] SHIRO SAME — "The Sharkbite Idol"
+    [REF: GAWR GURA (Hololive EN)]
+    Ref notes: pale blue/white twin-tail hair, shark hoodie with a functional
+    tail and dorsal fin, blue-grey eyes, very small, holds a trident she rarely
+    uses correctly. Palette #5fd6ff / #ffffff / #0b3d5c. Signature greeting is
+    a shark-jaw hand gesture — use it as her spawn animation.
+    Element: water. Rarity 5.
+    AUTO — "Bubble Bullets": a fan of 5 bubbles that drift, then POP into 3
+           shrapnel shards each. 10 damage per bubble, 7 per shard. Every 0.9s.
+           Targeting: densestCluster.
+    SPECIAL — "FEEDING FRENZY" (26s): she submerges into a shadow fin and dashes
+           through the arena 6 times over 4s, each dash dealing 80 damage in a
+           wide line and healing her 5 HP per enemy hit. Invulnerable throughout.
+           This is the best "oh god I'm surrounded" button in the game.
+    ESCAPE — "Riptide" (6s): dashes 210px, dragging every enemy she passes along
+           behind her, then flinging them. Sets up combos with AoE.
+    PASSIVE — "Blood in the Water": +35% damage to enemies below 40% HP.
+    S3: Feeding Frenzy gains 3 extra dashes and leaves a whirlpool at the end.
+    S5: Riptide applies BLEED (2% max HP/s for 4s) to everything it drags.
+    RELIC: "Chum Bucket" — every 20s, drop a chum pile that pulls all enemies in
+           a 250px radius toward it. Crowd control as a consumable.
+
+[12] REIKA — "The Level 5 Railgun Esper"
+    [REF: MIKOTO MISAKA (A Certain Scientific Railgun)]
+    Ref notes: short brown bob, Tokiwadai winter uniform with the brown skirt,
+    shorts underneath, lightning arcing off the bangs when angry. The arcade
+    token flick, the orange hitscan beam, "Iron Sand", and "Level 5" are all
+    hers verbatim. Her whole kit is electromagnetism — lean into it.
+    Element: lightning. Rarity 5.
+    AUTO — "Coin Flick / RAILGUN": flips a coin, then fires a hitscan orange beam
+           that pierces EVERYTHING across the full screen. 85 damage. Slow: every
+           1.6s. Beam leaves an ionized trail that arcs for 1s. Targeting: the
+           line through the most enemies (compute via spatial hash).
+    SPECIAL — "IRON SAND STORM" (28s): a swirling magnetic sand vortex (220px) at
+           the cursor for 6s. Ticks 30 damage every 0.3s and pulls enemies inward.
+    ESCAPE — "Magnetic Repulsion" (7s): pushes ALL enemies within 300px violently
+           away, deals 40 damage, and slides her 150px backward. 0.6s i-frames.
+    PASSIVE — "Static Field": every 3s, chain lightning arcs from her to up to 5
+           nearby enemies for 20 damage.
+    S3: Iron Sand Storm creates a second smaller vortex on expiry.
+    S5: Magnetic Repulsion also reflects all enemy projectiles.
+    RELIC: "Level 5 Clearance" — piercing attacks gain +12% damage per enemy
+           already pierced (uncapped). Turns her railgun into a screen-deleter.
+
+[13] NEKROMINA — "The Grave Idol"
+    [REF: MORI CALLIOPE (Hololive EN)]
+    Ref notes: long pink hair, red eyes, black-and-red reaper coat with a high
+    collar, a tiny top hat pinned at an angle, and a full-size scythe she rests
+    on her shoulder. She is Death's apprentice and also a rapper — that exact
+    duality is the character, so her attacks should carry a beat: the auto
+    attack fires on a rhythm and the special drops on the downbeat. Her fanbase
+    is canonically called the "Deadbeats", which is what her minions are.
+    Element: shadow. Rarity 5.
+    AUTO — "Reaper's Rhythm": she sweeps the scythe in a rotating arc around
+           herself, releasing 3 crescent waves, 16 damage, every 0.8s. Fires on
+           a steady beat — the SFX should be percussive and loopable.
+           Targeting: aroundSelf (rotating spread).
+    SPECIAL — "SUMMON: DEADBEATS" (25s): raises 5 hooded skeleton fans for 15s.
+           They chase and attack independently (20 damage per hit, 45 HP each)
+           and inherit 30% of your damage bonuses. They bob in time with the
+           auto-attack rhythm because of course they do.
+    ESCAPE — "Phase Out" (6s): becomes intangible for 1.2s — walks THROUGH
+           enemies, immune to everything, +40% move speed. Longest i-frame window
+           in the game, but no burst damage attached.
+    PASSIVE — "Necro-Harvest": every 25 kills, permanently raise a zombie
+           follower for the rest of the run (max 4). They are weak but they stack.
+    S3: Deadbeats explode for 60 damage when they expire or die.
+    S5: Phase Out resurrects one nearby corpse as a Deadbeat.
+    RELIC: "Grave Idol Mic" — minion cap +3 and minions gain +25% attack speed.
+
+[14] HIKARI — "Hi-chan, the Phoenix Idol"
+    [REF: TAKANASHI KIARA (Hololive EN)]
+    Ref notes: orange/red hair with the phoenix crest, feathered orange-and-gold
+    outfit, bird-wing accents on the arms, aggressively upbeat. Her canonical
+    gimmick IS resurrection — she reincarnates instead of dying, which is
+    exactly what the "Undying" passive models. Fire feathers everywhere.
+    Element: fire. Rarity 5.
+    AUTO — "Feather Flare": launches 4 burning feathers in a wide arc that stick
+           into the ground and burn for 3s (18 impact + 10/s burn in a 60px pool).
+           Every 1.0s. Targeting: densestCluster.
+    SPECIAL — "REBIRTH NOVA" (27s): she explodes in a 320px fire nova for 220
+           damage, then heals 25% of her max HP over 3s. Everything hit burns.
+    ESCAPE — "Ember Dash" (5s): 200px dash with i-frames, leaving a 3s fire trail
+           dealing 15/s.
+    PASSIVE — "Undying": ONCE PER RUN, on lethal damage, revive at 50% HP with a
+           free Rebirth Nova and 2s of invulnerability. (This is the single most
+           valuable passive in the game — she is the "learn the boss" character.)
+    S3: Rebirth Nova leaves a burning field for 6s.
+    S5: Ember Dash's fire trail chases the nearest enemy.
+    RELIC: "Ashes of the Eternal Encore" — when Undying triggers (or if already
+           used, once more), you also gain +100% damage for 10s.
+
+[15] AKANE — "Captain of the Treasure Ship"
+    [REF: HOUSHOU MARINE (Hololive JP)]
+    Ref notes: everything is RED. Long black twin-tails with red ribbons, a red
+    pirate captain's coat worn open over a red-and-white outfit, a huge red
+    tricorn hat with a plume, gold trim, an eyepatch motif, a cutlass at the hip.
+    Enormous personality — loud, theatrical, filthy-minded, immediately switches
+    to an over-the-top pirate voice. Greets everyone with "Ahoy!". Her fanbase
+    are her crew. Her hub idle should be her sprawled on a treasure pile.
+    Element: fire (gunpowder). Rarity 5.
+    AUTO — "Buccaneer's Cutlass": a wide 140° cutlass arc, 24 damage, 100px
+           reach, every 0.65s. Every 3rd swing she instead fires a FLINTLOCK
+           shot — hitscan, pierces 4, 45 damage, with a satisfying puff of
+           smoke. Targeting: facing.
+    SPECIAL — "BROADSIDE!" (27s): a ghostly galleon fades into view along one
+           edge of the screen, runs out its guns, and fires a full broadside.
+           14 cannonballs arc across the arena over 2.5s, each exploding for 70
+           damage in a 110px radius. She points and shouts the whole time. The
+           impact points are telegraphed, so it is aimable chaos rather than
+           random chaos.
+    ESCAPE — "Barrel Roll" (6s): she dives into a rum barrel and rolls 220px.
+           Fully invulnerable, damages anything rolled over (30), and the barrel
+           shatters on arrival leaving a rum puddle that ignites if anything
+           fire-based touches it (60 damage, 4s burn).
+    PASSIVE — "Treasure Sense": chests and Treasure Carriers spawn 50% more
+           often, and their location is permanently marked on screen with a
+           compass arrow at the edge of the view. Turns her into the run's
+           designated looter — she is the best character in the game to farm on.
+    S3: Broadside fires 22 cannonballs and the galleon stays for a second volley.
+    S5: Barrel Roll can be held to keep rolling up to 1.5s, and the rum puddle
+        ignites automatically.
+    RELIC: "Captain's Rum" — every 45s, automatically drink: heal 20% max HP and
+           gain +40% damage for 8s.
+
+[16] KIRA — "The God of the New World"
+    [REF: LIGHT YAGAMI (Death Note)]
+    Ref notes: immaculate high-school student. Neat brown hair, brown eyes,
+    school blazer and tie, perfect posture. Carries a plain black notebook. He
+    never physically fights — his idle is standing still, writing. The single
+    most important art direction note in this document: his violence is entirely
+    off-screen and administrative, and every effect should reinforce that. No
+    impact frames, no swings. Enemies simply stop and fall over.
+    His moment of triumph is a manic grin and a lot of red backlighting.
+    Element: shadow. Rarity 5.
+    AUTO — "Write the Name": every 0.6s he writes one name. The nearest UNMARKED
+           enemy gets a small countdown timer above its head. When the timer
+           expires after 3s, that enemy DIES INSTANTLY regardless of its current
+           or maximum HP. Bosses and elites cannot be written (canonically he
+           needs a face and a name) — they instead take 400 damage when the
+           timer resolves. Targeting: nearest unmarked.
+           >>> DESIGN NOTE: this completely ignores enemy HP scaling, which makes
+           him weak in the first 3 minutes and monstrous at minute 18 when
+           everything else has 40x HP. He is throughput-limited, not damage-
+           limited — every upgrade that raises attack SPEED is enormous for him
+           and every upgrade that raises DAMAGE does nothing. That is the most
+           distinct build identity on the roster; protect it in balancing.
+    SPECIAL — "SHINIGAMI EYES" (30s): for 8s he sees every name and lifespan in
+           the world. All pending timers resolve INSTANTLY, his write rate
+           triples, and marks apply in a 200px radius rather than one at a time.
+           COST: he pays 25% of his current HP the moment it is cast — the
+           canonical price is half your remaining lifespan, and it should sting.
+    ESCAPE — "Just As Planned" (7s): he steps back, adjusts his cuffs, and is
+           simply no longer a suspect. 1.5s untargetable — enemies lose track of
+           him entirely and wander — and every enemy that was targeting him is
+           immediately marked with a death timer.
+    PASSIVE — "A God Must Be Just": every enemy killed by a death timer grants a
+           permanent +0.5% write speed for the rest of the run, uncapped. He
+           accelerates all run long, which is the arc.
+    S3: Shinigami Eyes lasts 12s and the HP cost drops to 10%.
+    S5: Just As Planned also resets the timers on every marked enemy to zero.
+    RELIC: "Potato Chip Gambit" — every 30s, the next name written marks 6
+           enemies at once. (The animation must be him eating a single potato
+           chip with enormous dramatic intensity. Non-negotiable.)
+
+--------------------------------------------------------------------------------
+                    ★★★★★★  6-STAR ROSTER (Limited / UR)  ★★★★★★
+   These appear ONLY on limited rate-up banners. 0.8% base rate. Hard pity 90.
+--------------------------------------------------------------------------------
+
+[17] SOVEREIGN ALICIA — "The Dragon Queen Who Streams"
+    [REF: KIRYU COCO (Hololive JP)]
+    Ref notes: blonde hair with an orange-red gradient at the tips, curved
+    dragon horns, a long scaled tail, wing accessories at the hips, orange eyes.
+    Loud, brash, extremely confident, speaks in a booming broadcast voice. She
+    runs a morning news segment in-universe — use that for her hub idle: she is
+    reading headlines at a desk when you walk past. The dragon form is canon
+    to her, so Apotheosis is her own transformation, not a borrowed one.
+    Element: fire. Rarity 6.
+    AUTO — "Dragonfang Volley": 3 seeking dragon-head projectiles that curve
+           aggressively, 32 damage each, every 1.0s. Targeting: nearest x3.
+    SPECIAL — "APOTHEOSIS" (35s): she transforms into a full dragon for 8s.
+           While transformed: 2.2x size, immune to knockback, +50% move speed,
+           +40% damage taken reduction, and the auto attack is REPLACED with a
+           continuous breath cone (70 damage/s, 300px range, applies burn).
+           This is the most spectacular thing in the game — full screen tint,
+           camera pull-out to 0.9 zoom, wing-beat SFX.
+    ESCAPE — "Wingbeat" (7s): flies for 1.2s — fully invulnerable, passes over
+           everything, +80% move speed, and lands with a gust dealing 90 damage
+           in a 200px radius.
+    PASSIVE — "Hoard": every 100 gold collected this run grants a permanent +1%
+           damage for the run.
+    S3: Apotheosis duration +4s and the breath applies a stacking armor shred.
+    S5: Wingbeat's landing gust becomes a meteor strike (250 damage).
+    RELIC: "Crown of the World-Eater" — while above 80% HP, +35% all damage.
+
+[18] SORA — "The Boy Who Fell From The Sky"
+    [REF: GOKU (Dragon Ball)]
+    Ref notes: spiky black hair, orange gi with a blue undershirt and belt,
+    blue wristbands and boots. Permanently cheerful, slightly dim, only fully
+    engaged when someone stronger shows up. Ki is visible as a white-gold aura
+    that flares when he charges. His three moves are all his own: hand-to-hand
+    rush, the Spirit Bomb, and Ultra Instinct's silver-eyed auto-dodge.
+    Element: light. Rarity 6.
+    AUTO — "Rapid Fist": a 3-hit ki-charged melee combo (14 / 14 / 30 damage) in
+           the facing direction, every 0.9s. Damage scales +4% per upgrade taken
+           this run (uncapped — he is a late-run monster and an early-run wet
+           noodle, which is exactly the arc). Targeting: facing.
+    SPECIAL — "SPIRIT BOMB" (32s): he plants his feet and raises both arms.
+           Charges for 1.5s during which he CANNOT move and is vulnerable — the
+           whole arena dims and motes of light stream in from off-screen. Then he
+           hurls a growing blue orb at the largest enemy cluster: 400 damage in a
+           300px blast, +25 damage for every character you own in the roster.
+           On detonation, spectral silhouettes of your entire owned roster flash
+           around the blast for one frame — everyone lending their energy.
+           (This is the gacha system's love letter to itself: the single
+           strongest attack in the game literally scales with your collection.)
+    ESCAPE — "ULTRA INSTINCT" (9s): 1.8s of total invulnerability with NO
+           movement bonus. His eyes go silver, the aura turns white, and his body
+           slips every attack on its own while he stands perfectly still. Pure,
+           honest, unglamorous defense. You cannot be hurt. That's the move.
+    PASSIVE — "Zenkai": every level-up offers 4 upgrade choices instead of 3 with
+           one free reroll, and each time you drop below 25% HP you permanently
+           gain +12% damage for the rest of the run (max 5 stacks). He gets
+           stronger every single time he nearly dies.
+    S3: Spirit Bomb charge time drops to 0.8s and the blast radius grows to 420px.
+    S5: Ultra Instinct also fully heals you the first time it is used each run.
+    RELIC: "Kaio-ken" — using your escape move grants +50% damage and +30% attack
+           speed for 6s, at the cost of 10% of your max HP as recoil. Pure
+           risk/reward, and it turns every defensive button into an offensive one.
+
+[19] HAN — "The Reluctant Successor"
+    [REF: GOHAN (Dragon Ball)]
+    Ref notes: use the Cell Games design specifically — spiky black hair, purple
+    gi with a blue undershirt, a single shoulder pad, small and young. He is a
+    gentle, bookish kid who does not want to fight, right up until the moment he
+    does, at which point his hair goes gold, his eyes go teal, and lightning
+    crawls over his aura. That transition is the entire character, so the
+    transformation must be the loudest visual event in the game: full stop of
+    the music, a held silent beat, then the aura detonates.
+    Deliberately placed at the SAME rarity as Sora (Goku) — father and son, both
+    6★, and the Spirit Bomb's roster-scaling gets an explicit bonus if you own
+    both (see below).
+    Element: light. Rarity 6.
+    AUTO — "Masenko": a two-handed energy blast fired from the forehead. A fast
+           beam that pierces everything in a line for 40 damage, every 0.85s.
+           Clean, efficient, and unglamorous — he is not showing off.
+           Targeting: densestCluster.
+    SPECIAL — "FATHER-SON KAMEHAMEHA" (34s): he braces both hands at his side and
+           charges for 1.2s, then fires a continuous beam for 2.5s (120 damage
+           per 0.2s tick, 160px wide). At the halfway point a second, spectral
+           pair of hands materialises over his — the beam DOUBLES in width and
+           damage for the remainder. If you also own Sora, the spectral hands are
+           unmistakably his and the bonus is +150% instead of +100%.
+    ESCAPE — "Great Saiyaman Pose!" (8s): he stops dead and performs an elaborate,
+           deeply embarrassing justice pose over 1.2s. Fully invulnerable for the
+           entire duration, and every enemy within 200px is STUNNED for 1.5s out
+           of sheer confusion. It is both a genuine panic button and the funniest
+           animation in the game. Commit to it completely.
+    PASSIVE — "Hidden Potential": taking damage fills a RAGE meter (shown as a
+           second bar under his HP). At 100% he transforms for 15s: +80% damage,
+           +30% move speed, immune to knockback, gold aura with crawling
+           lightning, and his Masenko fires twice per volley. The meter empties
+           afterward and must be refilled. He is the only character in the game
+           who is REWARDED for being hit, which makes him play completely
+           differently from everyone else — he wades in instead of kiting.
+    S3: Rage fills 40% faster and the transformation lasts 22s.
+    S5: Great Saiyaman Pose also fully fills the Rage meter once per 60s.
+    RELIC: "The Cell Games" — dropping below 25% HP instantly fills your Rage or
+           special meter and grants 2s of invulnerability. Once every 90s.
+
+--------------------------------------------------------------------------------
+IMPLEMENTATION NOTE FOR ABILITIES:
+Implement abilities as a registry of pure functions keyed by id:
+  AbilityRegistry['feeding_frenzy'] = { onCast(player, ctx) {...},
+                                        onTick(player, ctx, dt) {...},
+                                        onEnd(player, ctx) {...} }
+Never branch on character id in gameplay code. Adding character #18 must mean
+adding one data object + up to 4 registry entries. Nothing else.
+--------------------------------------------------------------------------------
+
+================================================================================
+SECTION 5 — CURRENCIES
+================================================================================
+
+  GOLD (⭐ common)      — dropped by enemies and chests. Spent in the SHRINE on
+                          permanent meta upgrades. Also used for gacha "Gold
+                          Tickets" (a slow, F2P-friendly pull path).
+  STAR FRAGMENTS (💎)   — the premium pull currency. Sources: first-clear of each
+                          stage (50), each boss killed (5–20), daily first win
+                          (30), achievements, and 8 per run completed. NEVER
+                          sold for real money in this build — this is a
+                          single-player game and the gacha is a progression toy,
+                          not a monetization scheme. Be generous.
+  PULL TICKETS (🎟)      — direct single-pull items. Drop from stage mastery.
+  FAN LETTERS (💌)       — the dupe currency. Duplicate characters convert into
+                          Fan Letters for that specific character, used to raise
+                          Star Levels. A generic "Universal Fan Letter" also
+                          exists (from milestone pity) usable on any character.
+
+TARGET ECONOMY: a player should be able to make roughly one 10-pull per 3–4
+completed runs early on. Never gate content behind grinding walls.
+
+================================================================================
+SECTION 6 — THE GACHA SYSTEM
+================================================================================
+
+BANNER TYPES:
+  1. STANDARD BANNER ("Debut Stage") — always available. Contains all 3/4/5-star
+     characters. No 6-stars.
+  2. RATE-UP BANNER ("Limited Collab") — one featured 6-star + three featured
+     5-stars. Rotates. This is where 6-stars exist.
+  3. BEGINNER BANNER ("First Impressions") — 20% discount, one-time, 10 pulls,
+     GUARANTEED at least one 5-star within the first 10.
+  4. RELIC BANNER ("Signature Gear") — pulls signature relics (SECTION 11) that
+     become permanently available as in-run drops once owned.
+
+BASE RATES:
+    6★ : 0.8%
+    5★ : 7.2%
+    4★ : 32.0%
+    3★ : 60.0%
+
+PITY (implement exactly — this is the part players actually feel):
+  - SOFT PITY for 5★+: starting at pull 51 without a 5★ or higher, the combined
+    5★+ rate increases by +6% per pull. It will therefore always resolve by ~pull 62.
+  - HARD PITY for 5★+: pull 70 guarantees a 5★ or higher.
+  - HARD PITY for 6★ (rate-up banners only): pull 90 guarantees a 6★.
+  - 50/50 RULE: when you win a 6★, it is 50% the featured character. If you LOSE
+    the 50/50, the NEXT 6★ is guaranteed to be featured (store a
+    `guaranteedFeatured` flag per banner).
+  - 10-PULL GUARANTEE: every 10-pull contains at least one 4★ or higher.
+  - Pity counters persist across sessions and are stored PER BANNER TYPE, except
+    the 5★ counter which is shared between Standard and Rate-Up.
+  - Display the pity counter openly in the UI ("58/70 to guaranteed ★5"). Hiding
+    it is hostile; showing it is delightful.
+
+DUPLICATES:
+    3★ dupe -> 5 Fan Letters      4★ dupe -> 15 Fan Letters
+    5★ dupe -> 40 Fan Letters     6★ dupe -> 100 Fan Letters
+  Star Level costs (per character):
+    S1->S2: 20   S2->S3: 50   S3->S4: 100   S4->S5: 200
+  Fan Letters are character-specific; Universal Fan Letters can substitute at a
+  2:1 rate.
+  3-STAR OVERFLOW: once a 3-star character is at S5, further duplicates of them
+  convert to UNIVERSAL Fan Letters at full value instead of dead currency. With
+  only two 3-stars in the pool this triggers early and often — see the KNOWN GAP
+  note in SECTION 18 for why, and for the two candidate long-term fixes.
+
+PULL PRESENTATION (do not skimp here — the pull animation IS the reward):
+  - A rift/star opens. Color-coded beam by highest rarity in the batch:
+      blue = 3★ only, purple = at least one 4★, GOLD = at least one 5★,
+      RAINBOW + screen shake + a held beat of silence = 6★.
+  - 10-pulls play a single combined beam, then reveal cards one at a time with
+    a SKIP button that is always available and always instant.
+  - New characters get a full-screen splash with their epithet and a bark.
+  - Dupes show "+40 💌" with a satisfying counter tick.
+  - Rarity reveal must be SKIPPABLE from the first frame. Respect the player.
+
+ANTI-SAVE-SCUM: the gacha RNG stream's seed and call counter are persisted BEFORE
+the results are shown. Reloading gives the same result.
+
+GACHA DATA SCHEMA:
+  {
+    id: 'banner_dragon_queen',
+    name: 'Sovereign of Cinders',
+    type: 'rateup',
+    featured6: 'sovereign_alicia',
+    featured5: ['rin', 'reika', 'hikari'],
+    pool: { 3: [...ids], 4: [...ids], 5: [...ids], 6: ['sovereign_alicia'] },
+    costSingle: 160, costTen: 1600, currency: 'starFragments'
+  }
+
+================================================================================
+SECTION 7 — STAGES
+================================================================================
+
+Each stage is an anime-locale pastiche with: a tileset/palette, an arena type, a
+signature HAZARD, a STAGE MODIFIER (a rule twist), a mob table, an elite, a
+mid-boss at the halfway point, a final boss, and a unique reward.
+
+Arenas are large (4000x4000 px) and wrap softly — the player can roam, but
+enemies always find them. Include destructible scenery for pickups.
+
+STAGE DATA SCHEMA:
+  {
+    id: 'neon_akiba', name: 'Neon Akiba District', duration: 20*60,
+    unlock: { stage: 'cherry_academy', cleared: true },
+    palette: { bg: '#0a0616', accent: '#ff2d95', fog: '#1b0f33' },
+    hazards: ['traffic_lanes'],
+    modifier: 'crowded_streets',
+    mobTable: [ /* see waves */ ],
+    midBoss: 'mascot_prime', boss: 'the_algorithm',
+    firstClearReward: { starFragments: 50, unlocks: ['relic_neon_visor'] }
+  }
+
+--------------------------------------------------------------------------------
+STAGE 1 — CHERRY BLOSSOM ACADEMY (ROOFTOPS)
+  [REF: ASSASSINATION CLASSROOM (Kunugigaoka) + KAGUYA-SAMA (Shuchiin Academy)]
+  [BOSS REF: Student Council President ≈ KAGUYA SHINOMIYA / MIYUKI SHIROGANE]
+  [MID-BOSS REF: Delinquent Senpai ≈ RYUJI TAKASU (Toradora) / generic sukeban]
+  Vibe: school anime. Falling petals, chain-link fences, sunset gradient, a lone
+  desk on the roof. The tutorial stage — welcoming and gorgeous.
+  Duration: 15 min. Difficulty: ★
+  Hazard: none (this stage teaches).
+  Modifier: "Youth" — +20% XP gain. Levels come fast so the player learns upgrades.
+  Mobs: Mob Student, Cursed Desk, Chalk Wraith, Gym Uniform Ghoul
+  Elite: The Perfect Attendance Award (a floating trophy that summons students)
+  Mid-boss: Delinquent Senpai (charges in a straight line, telegraphed)
+  BOSS: THE STUDENT COUNCIL PRESIDENT — fights with a chalkboard-katana and a
+    clipboard. Three phases: (1) paperwork barrage — homing document projectiles,
+    (2) summons the disciplinary committee, (3) "DETENTION" — a shrinking arena
+    ring of red tape that must be dodged while she does a rotating sweep attack.
+  Reward: 50💎, unlocks Stage 2.
+
+STAGE 2 — NEON AKIBA DISTRICT
+  [REF: AKIHABARA as shot in STEINS;GATE + OREIMO + DURARARA (Ikebukuro at night)]
+  [BOSS REF: The Algorithm — original. Visually: the Wired from SERIAL
+   EXPERIMENTS LAIN crossed with a giant recommendation feed]
+  [MID-BOSS REF: Mascot Prime ≈ the Chiitan/Funassyi school of cursed mascots]
+  Vibe: night city, arcade signage, vending machines, rain reflections, maid-cafe
+  flyers spinning past. Extremely pink and cyan.
+  Duration: 20 min. Difficulty: ★★
+  Hazard: TRAFFIC LANES — 3 horizontal lanes where trucks periodically barrel
+    through. They deal heavy damage to the player AND flatten enemies (learn to
+    bait them). Telegraphed 1.5s in advance with headlights + horn.
+  Modifier: "Crowded Streets" — +25% enemy count, -10% enemy HP.
+  Mobs: Gacha-Addict Zombie, Camera Drone, Mascot Suit, Antifan Swarm, Neon Otaku
+  Elite: GACHA GOLEM — a walking capsule machine. Killing it drops 3 random
+    upgrade capsules. Very tanky, no attacks, runs away from you. Comedy elite.
+  Mid-boss: Mascot Prime (a giant mascot suit that splits into 4 smaller ones)
+  BOSS: THE ALGORITHM — a colossal floating eye made of stacked recommendation
+    feeds. Attacks: infinite-scroll laser columns, "SUBSCRIBE" popups that home
+    in and must be dodged (they are literally UI elements invading the game
+    field), and a phase where it clones your own build's projectiles back at you.
+  Reward: 50💎, Relic: Neon Visor.
+
+STAGE 3 — RUINS OF WALL AMARIS
+  [REF: ATTACK ON TITAN — Wall Maria / the fall of Shiganshina District]
+  [BOSS REF: The Colossus = the COLOSSAL TITAN, steam vents and all]
+  [MID-BOSS REF: The Armored = the ARMORED TITAN]
+  [ELITE REF: Abnormal = AoT's "abnormal" titans; nape weak point is canon]
+  Vibe: shattered stone walls, grey sky, smoke, a ruined town. Bleak and epic.
+  Duration: 20 min. Difficulty: ★★★
+  Hazard: COLLAPSING WALLS — rubble falls in telegraphed zones, creating cover
+    that blocks enemy pathing but also boxes you in.
+  Modifier: "Titan's Shadow" — LARGE enemies have +100% HP but drop 3x XP.
+    Rewards Yuli, anti-large builds, and execute effects.
+  Mobs: Husk Wanderer, Crawler Husk, Sprinting Husk (fast!), Rubble Golem
+  Elite: ABNORMAL — a husk that sprints erratically, ignores everything else, and
+    beelines the player. Genuinely scary. Has a nape weak point that takes 3x.
+  Mid-boss: The Armored (immune to damage except on the exposed nape)
+  BOSS: THE COLOSSUS — occupies a quarter of the screen. You fight its HANDS and
+    must climb steam vents to reach the nape. Attacks: steam blasts, ground-slam
+    shockwaves, grabbing the player (mash to escape). Weak points glow.
+  Reward: 50💎, Relic: Anchor Gear.
+
+STAGE 4 — HIDDEN EMBER VILLAGE
+  [REF: NARUTO — the Hidden Leaf Village (Konoha), rooftops and Hokage faces]
+  [BOSS REF: The Sealed Beast = KURAMA, the Nine-Tailed Fox, fought while
+   chained by seals — tail destruction is the Kurama-vs-seal imagery]
+  [MID-BOSS REF: The Twin Fangs ≈ SAKON & UKON (Sound Four) / the Demon
+   Brothers — the "kill both or one revives the other" gimmick]
+  Vibe: ninja village at night, wooden rooftops, paper lanterns, bamboo, mist.
+  Duration: 20 min. Difficulty: ★★★
+  Hazard: SMOKE BOMBS — periodic clouds that reduce your visibility radius to
+    300px. Enemies still come. Terrifying and great.
+  Modifier: "Shinobi Rules" — all enemies move +20% faster; player gains +15%
+    dodge chance.
+  Mobs: Genin Shade, Kunai Bat, Trap Scroll (stationary mine), Ambusher (spawns
+    from smoke directly next to you — always telegraphed 0.6s with a leaf swirl)
+  Elite: SEALED VESSEL — a chained monk that periodically breaks a seal, buffing
+    every enemy on screen. Kill it fast or the run gets ugly.
+  Mid-boss: The Twin Fangs (two elite ninjas that must be killed within 5s of
+    each other or the survivor revives the other at 50% HP)
+  BOSS: THE SEALED BEAST — a nine-tailed fire fox the size of a building, fought
+    while it's chained. Each tail you destroy grants a permanent buff for the
+    fight but makes it enrage. Attacks: tail sweeps, a beam charge, and a
+    fire-fox summon phase.
+  Reward: 50💎, Relic: Nine-Seal Ward.
+
+STAGE 5 — THE ENDLESS TATAMI HALLS
+  [REF: DEMON SLAYER — the Infinity Castle (Muzan's dimension). Copy the
+   rotating-room architecture and the biwa-summoned reconfiguration]
+  [BOSS REF: Kagutsuchi ≈ AKAZA (four-armed melee pressure) + DOMA (fan
+   attacks); the eye-color telegraph replaces the Upper Rank eye kanji]
+  [ELITE REF: Upper Rank Remnant ≈ the lesser Twelve Kizuki]
+  Vibe: an impossible Escher palace of shifting tatami rooms, paper doors, and
+  upside-down staircases hanging in a void. Deep indigo and blood red.
+  Duration: 22 min. Difficulty: ★★★★
+  Hazard: SHIFTING ROOMS — every 45s the arena reconfigures: walls slide,
+    corridors form, and the player is repositioned. Telegraphed with a rumble.
+  Modifier: "Demon Moon" — enemies regenerate 1% max HP/s. Anti-heal and DoT
+    effects become critical (this is where Rin's Sunlight relic shines).
+  Mobs: Lesser Oni, Blood Doll, Ceiling Crawler, Paper Lantern Wisp
+  Elite: UPPER RANK REMNANT — teleports, mimics your escape move, and taunts you
+    with a text bubble every time it dodges.
+  Mid-boss: The Drum Oni (rotates the room by hitting drums on his back)
+  BOSS: KAGUTSUCHI, UPPER RANK OF THE FLAME — a four-armed oni with two katana
+    and two whips. THREE distinct movesets he cycles between, telegraphed by the
+    color of his eyes (red = charge, blue = ranged fan, white = arena-wide
+    slash you must escape-move through). The skill-check boss of the game.
+  Reward: 50💎, Relic: Everblade Fragment.
+
+STAGE 6 — SUNKEN IDOL REEF
+  [REF: ONE PIECE — Fishman Island (bubble-coral, giant sunken architecture)
+   crossed with Hololive EN's Atlantis/shark theming]
+  [BOSS REF: The Kraken Producer ≈ SURUME, One Piece's kraken — same
+   per-tentacle health-bar structure]
+  [MID-BOSS REF: Tide Warden ≈ HODY JONES' shielded escort / a giant Sea King]
+  Vibe: a drowned concert stadium on the ocean floor. Bioluminescent coral,
+  floating stage lights, whale song, schools of fish, a sunken jumbotron.
+  Duration: 20 min. Difficulty: ★★★★
+  Hazard: RISING TIDE — the water level rises and falls; in "high tide" the
+    player moves 20% slower but so do enemies, and everything floats (knockback
+    is doubled). Cycles every 60s.
+  Modifier: "Deep Pressure" — pickup radius halved, but gold value tripled.
+  Mobs: Anglerfish Fan, Jellyfish Chorus (explodes on death), Coral Crab,
+    Drowned Roadie, Eel Swarm
+  Elite: THE ENCORE SIREN — heals and shields nearby enemies while singing.
+    Interrupt her by dealing 300 damage in 2 seconds.
+  Mid-boss: Tide Warden (a giant crab with a shielded front — flank it)
+  BOSS: THE KRAKEN PRODUCER — eight tentacles, each with its own HP bar, wearing
+    a tiny headset. Destroying tentacles removes its attacks one by one. Final
+    phase: it pulls the entire arena into a whirlpool and you fight on a
+    shrinking platform. Absolutely absurd. Perfect.
+  Reward: 50💎, Relic: Abyssal Setlist.
+
+STAGE 7 — THE ZENITH STAGE (FINALE)
+  [REF: original. Tonally: the final Cell Games arena (DRAGON BALL Z) staged as
+   a Hololive 3D concert, with the EVANGELION instrumentality sky]
+  [BOSS REF: The Final Form — the "fight a copy of yourself" boss. Reference
+   points: Naruto vs. Dark Naruto, Ichigo vs. White Ichigo (Hollow Ichigo)]
+  Vibe: a concert arena at the end of the world. Floating debris, an aurora sky,
+  a crowd of a million silhouettes, and every previous stage's silhouette
+  visible on the horizon. Peak anime.
+  Duration: 25 min. Difficulty: ★★★★★
+  Unlock: clear stages 1–6.
+  Hazard: SPOTLIGHTS — roaming light circles. Standing in one grants +50% damage
+    but marks you: every ranged enemy targets you.
+  Modifier: "Grand Finale" — every 5 minutes, a previous stage's BOSS spawns as
+    an elite. All rewards +50%.
+  Mobs: everything, mixed from all previous tables.
+  BOSS: THE FINAL FORM — a shapeshifting entity that transforms through pastiches
+    of each previous boss, then reveals its true form: a mirror of the PLAYER'S
+    OWN CHARACTER, using their auto-attack, special, and escape move at 120%
+    power. Beating yourself is the theme. Nail this.
+  Reward: 200💎, unlocks ENDLESS MODE and the "Encore" difficulty tier.
+
+ENDLESS MODE ("Overtime"): any cleared stage, no time limit, difficulty scales
+forever. Leaderboard by time survived. Score = time + kills + level.
+
+DIFFICULTY TIERS (unlock per-stage after first clear):
+  Debut (base) -> Encore (+50% HP, +25% speed, +30% rewards) ->
+  Legend (+150% HP, +50% speed, elites spawn 2x, +80% rewards) ->
+  Kamige (+400% HP, all mobs gain one elite affix, +150% rewards)
+
+================================================================================
+SECTION 8 — WAVE SYSTEM & THE DIRECTOR
+================================================================================
+
+The wave system is a TIMELINE, not a state machine. Each stage has an ordered
+list of wave events keyed by time. The WaveDirector reads the timeline every
+second and spawns accordingly.
+
+WAVE EVENT SCHEMA:
+  {
+    t: 180,                       // seconds into the run
+    type: 'spawn',                // spawn | swarm | ring | elite | boss | event
+    enemy: 'gacha_zombie',
+    count: 40,
+    pattern: 'edge_random',       // see patterns below
+    duration: 20,                 // spread the spawns over N seconds (0 = burst)
+    modifiers: { hpMult: 1.0, speedMult: 1.0, affix: null }
+  }
+
+SPAWN PATTERNS:
+  edge_random    — from random points just off-screen (default)
+  edge_side      — a wall of enemies from one screen edge (left/right/top/bottom)
+  ring           — a full circle around the player at radius 700, closing in
+  cluster        — a dense blob from one point (the "oh no" pattern)
+  chase_line     — a long snaking line that follows the player's path
+  ambush         — spawn directly near the player, ALWAYS with a 0.7s telegraph
+  scatter_interior — spawn at random points inside the arena, not just edges
+
+STANDARD 20-MINUTE DENSITY CURVE (tune per stage, but this is the shape):
+  0:00–2:00   — 15–30 enemies on screen. Teaching. One mob type.
+  2:00–5:00   — 40–70. Second mob type introduced. First ring wave at 3:30.
+  5:00        — FIRST ELITE. Drops a chest.
+  5:00–9:00   — 80–130. Three mob types mixing. Swarms every 45s.
+  10:00       — MID-BOSS. Screen clears first (satisfying), then the boss.
+  10:00–15:00 — 140–220. Elite packs. Two elites simultaneously at 13:00.
+  15:00–19:00 — 250–400. This is the "screen is fully covered" phase the genre
+                exists for. Player's build should be deleting hundreds/second.
+  19:00       — brief calm (5 seconds of NOTHING — the silence before the boss).
+  19:05       — FINAL BOSS.
+
+SCALING FORMULAS:
+  enemyHp(base, t)     = base * (1 + 0.115 * t_minutes) * difficultyMult
+                         * stageMult
+  enemyDamage(base, t) = base * (1 + 0.06 * t_minutes) * difficultyMult
+  enemySpeed(base, t)  = base * (1 + 0.012 * t_minutes)  // capped at 1.5x
+  xpValue(base, t)     = base * (1 + 0.09 * t_minutes)
+  spawnRate(t)         = baseRate * (1 + 0.18 * t_minutes)
+
+  Enemy HP must scale SLOWER than a good player's DPS growth. The fantasy is
+  becoming overwhelmingly powerful. If minute 18 feels like minute 3, you have
+  failed. Target: a well-built player kills a common mob in 1 hit by minute 12.
+
+THE DIRECTOR (adaptive difficulty — subtle, never obvious):
+  Track a `pressure` value = (enemies within 300px) + (recent damage taken * 3).
+  - If pressure < 20 for 15 straight seconds: increase spawn rate by up to 25%
+    and pull the next wave event forward.
+  - If the player is below 25% HP: reduce spawn rate 15% for 10s and increase
+    heart drop chance. Do not announce this. Never let it be detectable.
+  - Never modify enemy stats. Only spawn rate and pickup luck. Players can feel
+    stat cheating and they hate it.
+
+THE REAPER / "SHOW'S OVER":
+  If the player exceeds the stage's hard time limit (duration + 3 min), spawn
+  THE STAGE MANAGER — an unkillable (999,999 HP) figure with a clipboard who
+  walks toward the player at increasing speed and one-shots them. He says
+  "That's a wrap." This is the genre-standard hard stop. He is also worth a
+  hidden achievement if you survive 60 seconds while he chases you.
+
+================================================================================
+SECTION 9 — ENEMIES
+================================================================================
+
+BEHAVIOR ARCHETYPES (implement as reusable AI functions, not per-enemy code):
+  chaser       — moves directly at the player
+  swarmer      — chaser with flocking separation; spawns in packs of 8–20
+  charger      — pauses, telegraphs 0.8s, then dashes fast in a straight line
+  ranged       — keeps distance ~350px, fires projectiles on a timer
+  exploder     — chases, then detonates in an AoE (with a visible fuse + beep)
+  splitter     — on death, spawns 2–3 smaller versions
+  orbiter      — circles the player at a fixed radius, hard to hit
+  summoner     — stationary-ish, spawns fodder every 4s, high priority target
+  shielder     — has a directional shield; immune from the front, flank it
+  dasher       — teleport/blink toward the player every 3s
+  tank         — slow, huge HP, high knockback resistance, big contact damage
+  healer       — heals nearby enemies; must be killed first (mark it with an icon)
+  leech        — attaches to the player and drains until shaken off (move 200px)
+
+ENEMY DATA SCHEMA:
+  {
+    id: 'gacha_zombie', name: 'Gacha-Addict Zombie', tier: 1,
+    ref: 'Akihabara crowd shots (Steins;Gate)',   // DEV ONLY, same as characters
+    size: 'small',                 // small | medium | large
+    hp: 12, damage: 6, speed: 62, weight: 1, xp: 1, goldChance: 0.06,
+    behavior: 'swarmer',
+    visual: { shape: 'circle', color: '#8fa2c9', emoji: '🧟', size: 14 },
+    affixes: []                    // elites roll from the affix table
+  }
+
+--- TIER 1: FODDER (die instantly by mid-game, exist to be mowed down) ---
+  Mob Student        chaser    hp 10  dmg 5  spd 58   "an unnamed background character"
+  Chibi Ghost        swarmer   hp 8   dmg 4  spd 70   floats, slight sine wave movement
+  Slime Kouhai       swarmer   hp 12  dmg 5  spd 52   splits once into 2 tiny slimes
+  Crow Familiar      orbiter   hp 9   dmg 6  spd 95   fast, circles, annoying
+  Gacha-Addict Zombie swarmer  hp 12  dmg 6  spd 62   drops extra gold, shambles
+  Husk Wanderer      chaser    hp 20  dmg 8  spd 40   slow, relentless, in huge numbers
+
+--- TIER 2: PRESSURE (require positioning) ---
+  Cursed Desk        charger   hp 40  dmg 14 spd 45/240  telegraphed lunge
+  Kunai Bat          ranged    hp 28  dmg 9  spd 80   fires 3 kunai in a spread
+  Camera Drone       ranged    hp 32  dmg 10 spd 90   fires a slow tracking laser
+  Mascot Suit        tank      hp 90  dmg 16 spd 35   very high knockback resist
+  Jellyfish Chorus   exploder  hp 25  dmg 22 spd 55   3s fuse, 90px blast, chains
+  Genin Shade        dasher    hp 35  dmg 12 spd 70   blinks 150px toward you
+  Coral Crab         shielder  hp 60  dmg 13 spd 45   frontal shield, 90% reduction
+  Antifan Swarm      swarmer   hp 6   dmg 3  spd 105  spawns 25 at a time, very fast
+
+--- TIER 3: THREATS (mid-late game, must be respected) ---
+  Oni Bruiser        tank      hp 220 dmg 28 spd 48   ground-slam AoE every 5s
+  Blood Doll         splitter  hp 80  dmg 15 spd 60   splits into 3, then 2 each
+  Ronin Shade        charger   hp 130 dmg 32 spd 50/300  long dash, leaves a slash
+  Sprinting Husk     chaser    hp 70  dmg 24 spd 145  terrifyingly fast
+  Ceiling Crawler    ambusher  hp 95  dmg 26 spd 88   drops from above, telegraphed
+  Paper Lantern Wisp summoner  hp 110 dmg 10 spd 30   spawns 4 chibi ghosts / 4s
+  Encore Siren       healer    hp 160 dmg 12 spd 40   heals 15/s to allies in 250px
+  Trap Scroll        static    hp 30  dmg 40 spd 0    mine; visible, avoidable
+  Eel Swarm          leech     hp 45  dmg 8/s spd 100 attaches and drains
+
+--- ENEMY REF NOTES (dev-only, for art direction) ---
+  Mob Student        generic background character, deliberately faceless/grey
+  Chibi Ghost        the little soot-sprite/obake ghosts (Spirited Away)
+  Slime Kouhai       the classic JRPG/Slime-isekai blue slime
+  Crow Familiar      Karasu-tengu crows (Demon Slayer's Kasugai crows)
+  Gacha-Addict Zombie Akihabara crowd shots, phone in hand, dead eyes
+  Husk Wanderer      Attack on Titan basic titan, vacant grin, lurching walk
+  Cursed Desk        Tsukumogami (100-year object spirits) — a school desk one
+  Kunai Bat          Naruto-verse summon animal + kunai
+  Camera Drone       Psycho-Pass / Ghost in the Shell surveillance drone
+  Mascot Suit        cursed regional mascot (Chiitan energy)
+  Jellyfish Chorus   Nausicaä's drifting spores crossed with a jellyfish
+  Genin Shade        Naruto genin silhouette, body-flicker blink
+  Coral Crab         One Piece Fishman Island fauna
+  Antifan Swarm      faceless internet-mob silhouettes with speech bubbles
+  Oni Bruiser        classic Japanese oni: red skin, horns, kanabo club
+  Blood Doll         Junji Ito doll horror / Demon Slayer's blood art
+  Ronin Shade        Rurouni Kenshin / Samurai Champloo wandering swordsman
+  Sprinting Husk     AoT abnormal titan sprint — this should be scary
+  Ceiling Crawler    Parasyte / Tokyo Ghoul ceiling-drop ambush
+  Paper Lantern Wisp Chochin-obake (lantern yokai), one eye, long tongue
+  Encore Siren       an idol-group backup singer, but wrong
+  Trap Scroll        Naruto explosive tag (paper bomb)
+  Eel Swarm          One Piece sea creature swarm
+
+--- ELITES (one per stage minimum; always drop a chest) ---
+  Elites are Tier-2/3 enemies with 8x HP, a gold outline, a health bar, a name
+  plate, and 1–3 AFFIXES rolled from:
+    Volatile   — explodes on death for 120 damage in 200px
+    Vampiric   — heals for 30% of damage dealt
+    Warded     — takes -60% damage from the front
+    Frenzied   — +80% move speed below 50% HP
+    Splitting  — spawns 4 tier-1 enemies every 5s
+    Chilling   — leaves a slowing frost trail
+    Reflective — returns 15% of damage taken as a projectile
+    Colossal   — 2x size, 2x contact damage, immune to knockback
+  Named elites (Gacha Golem, Abnormal, Sealed Vessel, Upper Rank Remnant,
+  Encore Siren, Perfect Attendance Award) have hand-authored behavior — see
+  their stage entries.
+
+--- BOSSES ---
+  Every boss needs: a health bar with named phases, at least 3 distinct attacks,
+  clear 0.8–1.2s telegraphs on everything lethal, an intro card (name + epithet
+  + a one-line quote), a death animation with slow-mo, and a guaranteed drop of
+  1 relic + 1 chest + Star Fragments. Bosses do NOT get contact damage — they
+  hurt you with attacks you can read and dodge. This is the difference between
+  "hard" and "unfair."
+
+  Boss telegraph color language (be consistent across the whole game):
+    RED    = damage zone, will hurt you, get out
+    YELLOW = charging/wind-up, an attack is coming from this direction
+    BLUE   = safe zone / the one place you should stand
+    WHITE  = unavoidable, use your escape move NOW
+
+================================================================================
+SECTION 10 — LEVELING & GENERIC UPGRADES
+================================================================================
+
+XP: enemies drop gems (blue=1, green=5, red=25, gold=100). Gems are pulled in
+within `pickupRadius`, with a magnet arc.
+
+XP CURVE:  xpNeeded(level) = ceil(9 * level^1.32)
+  L1->2: 9, L5->6: 76, L10->11: 190, L20->21: 475, L40->41: 1180
+Expect a good run to reach level 45–70.
+
+On level-up: freeze the sim, show 3 upgrade cards (4 for Sora, via his Zenkai
+passive).
+Each card: name, icon, tier, current level (e.g. "Sharp Edge — Lv 3/8"), and a
+plain-language description with the ACTUAL numbers. Never write "increases
+damage" — write "+12% damage (now +36% total)."
+
+REROLL: 1 free reroll per run, +1 per Shrine upgrade. Also a BANISH (remove an
+upgrade from the pool for this run) and a SKIP (take 30 gold instead).
+
+--- GENERIC UPGRADES (each has 8 levels; values are PER LEVEL) ---
+  Sharp Edge          +12% damage
+  Rapid Fire          +9% attack speed
+  Extra Shot          +1 projectile (only 4 levels, this one is huge)
+  Wide Reach          +14% area/size of all attacks
+  Long Haul           +18% projectile speed & range
+  Piercing Will       +1 pierce (5 levels)
+  Keen Eye            +5% crit chance
+  Killing Blow        +25% crit damage
+  Swift Boots         +8% move speed
+  Iron Body           +18 max HP
+  Second Wind         +0.4 HP/s regeneration
+  Guardian Plate      +1 armor (flat reduction)
+  Lodestone           +22% pickup radius
+  Scholar             +12% XP gain
+  Cursed Coin         +20% gold gain
+  Four-Leaf           +1 luck (affects chest quality & rare drop rates)
+  Quick Recovery      -8% all cooldowns
+  Phantom Step        +5% dodge chance (cap 60%)
+  Bloodthirst         +1.5% lifesteal
+  Vengeance           reflect 12% of contact damage back
+  Second Chance       +1 revive at 50% HP (max 2 levels, appears rarely)
+  Momentum            +3% damage per second of continuous movement (max +30%)
+
+--- IN-RUN MAP PICKUPS (spawned by the world, not from level-ups) ---
+  ❤  Heart          heals 20% max HP
+  🧲 Magnet         pulls every XP gem on the map to you
+  💣 Bomb           kills every non-elite enemy on screen (drops their XP)
+  💰 Coin Pile      15–60 gold
+  🍱 Bento Box      +10% damage for 60s (stackable buff, shows a timer)
+  ⏳ Hourglass      slows all enemies 50% for 8s
+  📦 CHEST          the big one — see below
+  ⛩  Shrine/Altar   a stationary interactable: offer 25% of current HP for a
+                    random relic, or offer 200 gold for a guaranteed upgrade.
+                    One per stage, in a random location. Risk/reward.
+  🎁 Treasure Carrier — a rare fleeing enemy with 500 HP that runs from you and
+                    despawns in 20s. Kill it for a guaranteed chest. Everyone
+                    will chase it and it will get them killed. Perfect.
+
+CHESTS: dropped by elites, treasure carriers, and bosses. Opening plays a slot
+machine animation and awards 1, 3, or 5 upgrades based on luck:
+    1 upgrade: 65%   |   3 upgrades: 30%   |   5 upgrades: 5%
+  A "Gold Chest" (boss / treasure carrier only) always awards 3–5 and has a
+  25% chance to contain a RELIC instead of stat upgrades.
+
+--- EVOLUTIONS (the endgame build payoff) ---
+  When a generic upgrade hits max level AND you hold the matching relic/pickup,
+  the next chest offers an EVOLUTION. Evolutions are dramatic, not incremental.
+    Extra Shot (max) + Hoshiyomi Penlight            -> ENCORE BARRAGE
+        Your auto-attack fires a full 360° ring every 4th shot.
+    Piercing Will (max) + Level 5 Clearance          -> ORBITAL RAILGUN
+        Every 6s, a screen-wide beam fires automatically from above.
+    Bloodthirst (max) + Chum Bucket                  -> FEEDING GROUNDS
+        Enemies below 25% HP are executed instantly and heal you.
+    Sharp Edge (max) + Nichirin Blade (Crimson)      -> TOTAL CONCENTRATION
+        Your first attack after standing still deals 8x damage and pierces all.
+    Quick Recovery (max) + Singularity Patch         -> ZERO COOLDOWN
+        Your escape move has no cooldown. (Yes, really. Let them cook.)
+    Iron Body (max) + Crown of the World-Eater       -> DRAGONHIDE
+        Take no damage from any single hit below 10% of your max HP.
+    Second Wind (max) + Ashes of the Eternal Encore  -> PHOENIX HEART
+        Reviving triggers a full-screen nova and refills all cooldowns.
+    Guardian Plate (max) + Susanoo Fragment          -> FULL SUSANOO
+        The ribcage becomes a permanent spectral warrior that blocks a hit
+        every 4s and swings a blade at anything that gets close.
+  Display evolution recipes in the pause menu so players can HUNT them. A hidden
+  recipe is a wasted recipe.
+
+================================================================================
+SECTION 11 — RARE UNIQUE RELICS (CHARACTER-FLAVORED)
+================================================================================
+
+Relics are the rare, run-defining, personality-carrying upgrades. Rules:
+  - Each relic is tied to a character but USABLE BY ANYONE.
+  - RESONANCE: if you are playing the character the relic belongs to, its effect
+    is 50% stronger and it gets a golden border + a bark. Chase this.
+  - Only 3 relic slots per run. Finding a 4th prompts a swap decision.
+  - Sources: gold chests (25%), boss guaranteed drop (1), shrine offering,
+    treasure carriers, and the Relic Banner (which permanently adds a relic to
+    the in-run drop pool).
+  - Relics are NOT stat sticks. Every one must change a decision the player makes.
+
+RELIC LIST (19 signature + 5 stage relics):
+
+  SIGNATURES (see each character above for full text):
+   109th Secret Technique (Mochi)  — every 8th auto-attack spits a boulder (4x)
+   Unique Skill: Dual Blades (Alto)— every 4th auto-attack swings twice
+   Hoshiyomi Penlight (Rei)        — auras +40% size, +25% pulse rate
+   Susanoo Fragment (Yamikage)     — every 12s, fully block the next hit taken
+   Nine-Tails Chakra (Uzu)         — below 50% HP: +40% attack speed + a burning
+                                     chakra cloak damaging enemies within 90px
+   Thunder Spear (Yuli)            — every 6th attack detonates for 100px AoE
+   Inari's Blessing (Kagura)       — DoTs +50% damage, +2s duration
+   Singularity Patch (Ai-chan)     — at 6+ buff stacks, +30% damage
+   Nichirin Blade Crimson (Rin)    — SUNLIGHT: no enemy regen, 4% max HP/s burn
+   Two Heavens As One (Niten)      — every 2nd auto-attack is a guaranteed crit
+   Chum Bucket (Shiro Same)        — a chum pile pulls enemies in every 20s
+   Level 5 Clearance (Reika)       — pierces gain +12% damage per enemy pierced
+   Grave Idol Mic (Nekromina)      — minion cap +3, minions +25% attack speed
+   Ashes of the Encore (Hikari)    — revives grant +100% damage for 10s
+   Captain's Rum (Akane)           — every 45s: heal 20% max HP, +40% damage 8s
+   Potato Chip Gambit (Kira)       — every 30s the next name marks 6 enemies
+   Crown of the World-Eater (Alicia) — above 80% HP: +35% all damage
+   Kaio-ken (Sora)                 — escape move grants +50% damage / +30% attack
+                                     speed for 6s, costs 10% max HP
+   The Cell Games (Han)            — below 25% HP: instantly fill your rage or
+                                     special meter + 2s invulnerability / 90s
+
+  STAGE RELICS (first-clear rewards — thematic, weird, build-warping):
+   Neon Visor (Akiba)      — enemies you can SEE on screen take +10% damage;
+                             the smoke/darkness hazards no longer obscure you
+   Anchor Gear (Wall)      — your escape move travels 60% farther and damages
+   Nine-Seal Ward (Ember)  — the first hit you take every 10s is fully negated
+   Everblade Fragment (Halls) — killing an elite refunds all cooldowns
+   Abyssal Setlist (Reef)  — every 30s your NEXT attack is a guaranteed crit
+                             dealing 400% damage (the "hold it, hold it" relic)
+
+RELIC NAME ORIGINS (dev-only — every signature relic comes from ITS OWN
+character's source, never someone else's; same one-to-one rule as the roster):
+   109th Secret Technique  Mokona's "Secret Technique No. 1–108" running gag
+   Unique Skill Dual Blades Kirito's actual unique skill name in SAO
+   Hoshiyomi Penlight      Hoshimachi Suisei's fanbase name
+   Susanoo Fragment        Sasuke's Susanoo ribcage manifestation
+   Nine-Tails Chakra       Kurama's chakra cloak, Naruto's not Sasuke's
+   Thunder Spear           Attack on Titan, verbatim anti-titan weapon
+   Inari's Blessing        Tamamo-no-Mae's Inari/fox-deity lineage
+   Singularity Patch       Kizuna AI's "super AI" claim
+   Nichirin Blade          Demon Slayer, verbatim — blades that change color
+   Two Heavens As One      Niten Ichi-ryū, Musashi's actual two-sword school
+   Chum Bucket             Gawr Gura's fanbase are called "chumbuds"
+   Level 5 Clearance       Academy City esper ranks (Misaka is a Level 5)
+   Grave Idol Mic          Mori Calliope's rap/reaper duality
+   Ashes of the Encore     Takanashi Kiara's phoenix reincarnation gimmick
+   Captain's Rum           Houshou Marine's pirate-captain persona
+   Potato Chip Gambit      Light hiding a TV in a bag of crisps, iconically
+   Crown of World-Eater    Kiryu Coco's dragon-royalty framing
+   Kaio-ken                Goku's multiplier technique, recoil damage and all
+   The Cell Games          Gohan's Super Saiyan 2 awakening, verbatim
+   Neon Visor              Steins;Gate's future gadget lab-goggles
+   Anchor Gear             AoT ODM gear
+   Nine-Seal Ward          Naruto's Eight Trigrams Sealing Style
+   Everblade Fragment      Demon Slayer's scarlet crimson Nichirin ore
+   Abyssal Setlist         One Piece Fishman Island + idol concert setlist
+
+RELIC DATA SCHEMA:
+  {
+    id: 'chum_bucket', name: 'Chum Bucket', owner: 'shiro_same',
+    ref: 'Gawr Gura — "chumbuds" fanbase name',   // DEV ONLY
+    rarity: 'legendary',
+    desc: 'Every 20s, drop a chum pile that pulls enemies within 250px toward it.',
+    resonanceDesc: 'RESONANCE: 12s cooldown, 375px radius.',
+    hooks: ['onInterval'], params: { interval: 20, radius: 250 }
+  }
+
+================================================================================
+SECTION 12 — META PROGRESSION ("THE STUDIO")
+================================================================================
+
+The hub is a cozy VTuber studio: desks, monitors, a shrine in the corner, a
+gacha machine that visibly rattles, and your owned characters milling about as
+idle sprites (they react when clicked — free personality, cheap to build).
+
+HUB NODES:
+  1. STAGE SELECT      — pick stage + difficulty tier; shows best time & rewards
+  2. ROSTER            — view/equip characters, see star levels, spend Fan Letters
+  3. GACHA MACHINE     — banners, pity counters, pull history (last 100 pulls)
+  4. THE SHRINE        — permanent meta upgrades bought with GOLD:
+       Might      +2% damage           (10 levels, cost 100 * 1.55^n)
+       Vitality   +3% max HP           (10 levels)
+       Alacrity   +2% move speed       (5 levels)
+       Fortune    +3% gold gain        (8 levels)
+       Insight    +2% XP gain          (8 levels)
+       Rerolls    +1 level-up reroll   (3 levels)
+       Banish     +1 level-up banish   (3 levels)
+       Revival    +1 starting revive   (2 levels, expensive)
+       Greed      +1 starting luck     (5 levels)
+       Curse      +10% enemy count AND +8% all rewards (5 levels — opt-in
+                  difficulty; this is the best value upgrade for good players
+                  and a trap for bad ones. Label it honestly.)
+     ALWAYS include a full REFUND button (free). Let players experiment.
+  5. ACHIEVEMENTS      — ~40 of them, each granting 💎 or an unlock. Examples:
+       "Survive 10 minutes"                          -> 20💎
+       "Kill 10,000 enemies total"                   -> unlocks Curse
+       "Beat a boss without taking damage"           -> 50💎
+       "Reach level 60 in one run"                   -> Relic Banner unlock
+       "Own 10 characters"                           -> Universal Fan Letters x50
+       "Survive 60s against the Stage Manager"       -> a secret character slot
+       "Lose a 50/50"                                -> 100💎 (a consolation gift,
+                                                        and a very funny toast)
+  6. BOND LEVELS       — playing a character raises their bond (1 per run, +1 per
+     boss killed). Bond 5/10/15 grants +5% HP / a new bark set / a costume tint.
+  7. CODEX             — every enemy, boss, relic, and character you've seen,
+     with flavor text. This is where the world-building lives.
+
+RESULTS SCREEN (after every run):
+  Time survived, level reached, kills, damage dealt, DPS graph over time,
+  gold earned, Star Fragments earned, relics found, and the killing blow that
+  ended you (with a screenshot-style freeze frame). Then a big juicy
+  currency-tick animation. Make losing feel like progress, because it is.
+
+================================================================================
+SECTION 13 — UI/UX SPECIFICATION
+================================================================================
+
+IN-RUN HUD (keep the center 70% of the screen COMPLETELY CLEAR):
+  TOP-CENTER    — run timer (large, monospace), current wave name if any
+  TOP-LEFT      — HP bar (thick, with a delayed white "damage taken" ghost bar),
+                  armor pips, revive icons
+  TOP-RIGHT     — kill count, gold, level
+  BOTTOM-CENTER — XP bar spanning the screen width, with level number
+  BOTTOM-LEFT   — SPECIAL and ESCAPE icons with radial cooldown sweeps. When
+                  ready they PULSE. This is the most important HUD element after
+                  the HP bar — the player must never have to think about whether
+                  their escape is up.
+  BOTTOM-RIGHT  — relic icons (max 3) + active buff timers
+  BOSS          — a boss health bar drops from the top with the name and epithet
+
+MENUS:
+  - Everything is keyboard AND mouse AND gamepad navigable. Test all three.
+  - Every screen has a visible "back" affordance and responds to ESC/B.
+  - Font: a bold, wide sans (system font stack — no network fetches). Big text.
+  - Language: punchy, in-character, funny. Loading tips are barks from characters.
+
+SETTINGS (required, not optional):
+  Master/SFX/Music volume, screen shake intensity (incl. OFF), damage number
+  density (all / crits only / off), flashing effects reduction, colorblind-safe
+  enemy outlines, UI scale, auto-aim toggle, and a "hold vs toggle" option for
+  abilities. Also: a DELETE SAVE button behind a confirmation.
+
+ACCESSIBILITY: no critical information conveyed by color alone (pair every color
+telegraph with a shape or icon). Photosensitivity: the reduce-flashing setting
+must genuinely cap flash frequency at 3Hz.
+
+================================================================================
+SECTION 14 — BALANCE TARGETS (use these as tests, not vibes)
+================================================================================
+
+  - A 3★ character with no upgrades should kill a Tier-1 fodder enemy in 1–2
+    hits at minute 0, and in 3–4 hits at minute 15 (before upgrades).
+  - A well-built player at minute 15 should be doing 8,000–15,000 DPS.
+  - Time-to-kill on a stage boss: 25–50 seconds for an average build.
+  - A run should produce 15–25 level-ups.
+  - The player should take damage roughly every 20–40 seconds in the mid-game.
+    Never zero (boring), never constant (unfair).
+  - A full 20-minute run should award 250–450 gold and 8–25 Star Fragments.
+  - No single upgrade should be mandatory. If playtesting shows "Extra Shot" is
+    picked 95% of the time, nerf it — homogeneous builds kill this genre.
+  - Every character should have at least two viable build paths. Write them down
+    in a comment next to the character data.
+
+BUILD A BALANCE HARNESS: a headless mode (`?sim=1&char=rin&stage=2&seed=42`) that
+runs the simulation at 100x speed with a scripted "average player" (moves away
+from the densest enemy cluster, always picks the highest-damage upgrade, uses
+abilities off cooldown) and prints DPS/level/death time to the console. Run it
+across all characters x all stages to find outliers. This is not optional — you
+cannot hand-balance 19 characters.
+
+  SPECIAL CASE — KIRA (Light Yagami): his instant-kill timers ignore enemy HP
+  entirely, so the standard DPS metric reports him as infinite. The harness must
+  measure him on ENEMIES KILLED PER SECOND instead, and must separately verify
+  that he is genuinely weak before minute 4. If he clears early waves at the
+  same rate as anyone else, his write rate is too high.
+
+================================================================================
+SECTION 15 — CONTENT SUMMARY (what "done" contains)
+================================================================================
+  19 playable characters (2x 3★, 6x 4★, 8x 5★, 3x 6★)
+  19 signature relics + 5 stage relics = 24 relics
+  22 generic upgrades (8 levels each)
+  8 evolutions
+  7 stages + endless mode + 4 difficulty tiers
+  ~23 enemy types + 6 named elites + 8 elite affixes + 7 bosses + 7 mid-bosses
+  10 pickup types + chests + shrines + treasure carriers
+  4 gacha banners with full pity
+  10 shrine upgrades, ~40 achievements, bond levels, codex
+
+================================================================================
+SECTION 16 — BUILD ORDER (MILESTONES)
+================================================================================
+Build in this order. Each milestone must be PLAYABLE and COMMITTED before moving
+on. Do not build the gacha before the game is fun — a boring game with a great
+gacha is still boring.
+
+  M0  Skeleton: canvas, fixed-timestep loop, camera, input, RNG, pools, spatial
+      hash, debug overlay. A square you can move around a scrolling arena.
+  M1  Combat core: one character (Alto), one auto-attack, one enemy (chaser),
+      damage pipeline, hit flash, knockback, damage numbers, death particles.
+      >>> GATE: is moving and killing things ALREADY satisfying? If not, fix it
+      here. Everything after this only multiplies whatever fun exists now.
+  M2  Waves & enemies: WaveDirector + timeline, 8 enemy types, all behavior
+      archetypes, spawn patterns, scaling formulas, the Director.
+  M3  Progression: XP gems, magnet, level-up screen, all 22 generic upgrades,
+      reroll/banish/skip, pickups, chests. A full 15-minute loop of Stage 1.
+  M4  Characters: the ability registry, all 4 pillars, all 19 characters,
+      star levels. Character select screen.
+  M5  Stages & bosses: all 7 stages with hazards + modifiers, elites + affixes,
+      all mid-bosses and bosses with telegraphs and phases.
+  M6  Relics & evolutions: 22 relics with resonance, 7 evolutions, shrines,
+      treasure carriers.
+  M7  Meta: save system, hub, gacha with full pity + presentation, shrine,
+      achievements, bonds, codex, results screen.
+  M8  Juice & polish pass: every item in the SECTION 3 juice checklist, audio,
+      settings, accessibility, gamepad/touch.
+  M9  Balance: build the sim harness, run it, tune, then playtest by hand.
+
+================================================================================
+SECTION 17 — ACCEPTANCE CRITERIA
+================================================================================
+Verify every one of these before calling it finished:
+
+  [ ] Opens from index.html with no build step and no network requests.
+  [ ] 60 FPS with 2,000 entities on screen. Verified with the F3 overlay.
+  [ ] Zero allocations in the update loop (check with a heap profile).
+  [ ] A full 20-minute run can be completed without an error in the console.
+  [ ] All 19 characters are playable and their 3 moves visually distinct.
+  [ ] Every escape move grants i-frames and reliably escapes a full surround.
+  [ ] All 7 bosses have telegraphs, phases, and are dodgeable without damage.
+  [ ] Gacha pity resolves exactly at the documented pull counts (unit-test it).
+  [ ] Gacha cannot be save-scummed by reloading.
+  [ ] Save/load survives a browser restart and a schemaVersion bump.
+  [ ] Keyboard, mouse, gamepad, and touch all fully playable.
+  [ ] Screen shake OFF, flashing reduction, and colorblind mode all work.
+  [ ] Every upgrade card shows real numbers, not vague adjectives.
+  [ ] Losing a run still awards all currency earned.
+  [ ] No crash if an audio or image asset is missing.
+  [ ] The balance harness runs all 19 characters and reports no character more
+      than 35% above or below the median clear time (Kira measured on kills/sec,
+      not DPS).
+  [ ] DEV_MODE = true shows every ref name; DEV_MODE = false shows none of them
+      anywhere in the UI (grep the built output for a ref string to confirm).
+  [ ] Every character, stage, boss, elite, and relic has a populated `ref` field.
+  [ ] ONE-TO-ONE CHECK: every character's `ref` names exactly one person, no
+      source appears on two characters, and no character's abilities belong to
+      anyone but their own ref. Write this as an actual unit test over
+      characters.js — it is the easiest rule in the document to break by accident
+      when adding content later.
+
+================================================================================
+SECTION 18 — STRETCH GOALS (only after M9)
+================================================================================
+  - Local co-op (2 players, one screen, shared XP)
+  - Daily seeded challenge with a fixed character + fixed upgrade offers
+  - Character costumes/skins earned via bond levels
+  - A "Director's Cut" mutator system (pick 3 challenge modifiers for +rewards)
+  - Boss rush mode
+  - Replay export (the run is seeded, so a replay is just a seed + input log)
+  - Steam-style stat tracking page and a personal-bests board
+
+  ROSTER EXPANSION — the second character per series
+  Because of the one-to-one rule, every source in the launch roster still has
+  obvious unclaimed characters, and each one arrives with a kit already written
+  by the moves the launch character was NOT allowed to take. This is the cheapest
+  content pipeline in the game — each addition is one data object plus up to four
+  ability-registry entries.
+    Death Note    -> L: no attacks at all. A pure deduction character who marks
+                     and debuffs, sits in a crouch, and counters Kira's timers.
+                     The obvious rival pair for the roster's strangest kit.
+    Demon Slayer  -> GIYU TOMIOKA: Eleventh Form: Dead Calm — a stationary
+                     perfect-parry stance. Note this overlaps Niten's parry, so
+                     differentiate hard or skip him.
+    Attack on Titan -> MIKASA ACKERMAN: dual ODM blades, red scarf, a revenge
+                     mechanic that triggers when an ally minion dies.
+    Dragon Ball   -> VEGETA: Final Flash (long charge, enormous line damage),
+                     Galick Gun, and a pride mechanic that scales with never
+                     having used your escape move. Would make three from this
+                     series — acceptable only if he plays unlike both Sora and Han.
+    SAO           -> ASUNA: Lightning Flash, a rapier rush with the fastest
+                     auto-attack in the game.
+    Vagabond      -> KOJIRO SASAKI: the drying-pole longsword and the Tsubame
+                     Gaeshi swallow-cut. Musashi's actual rival — a natural pair.
+    Hololive      -> any of the dozens not yet used; the VTuber side scales
+                     essentially without limit.
+  Ship the launch 19 first. Do not start #20 before M9 is signed off.
+
+  >>> KNOWN GAP: THE ★3 POOL IS THIN <<<
+  The roster carries only TWO 3-star characters (Mochi and Alto), because both
+  other starters were cut. With the documented pull rates, 60% of all pulls
+  resolve to a 3-star — meaning most pulls return one of the same two characters.
+  This is a real pull-feel problem, not a rounding error, and it needs one of
+  these three fixes before the gacha ships:
+    FIX A (recommended) — add two more 3-star characters. Cheapest content in
+      the game and it restores the intended pull distribution. Good archetypes
+      still unclaimed at low rarity: a comedic mascot, a support/healer, a
+      pure-defense character. The roster has no dedicated healer at any rarity,
+      which is the more useful gap to fill.
+    FIX B — rebalance rates to the actual pool: 3★ 35% / 4★ 48% / 5★ 16% /
+      6★ 1%. This works, but 5-stars stop feeling rare and the pity thresholds
+      in SECTION 6 were tuned against the original curve, so retune them too.
+    FIX C (stopgap, implement regardless) — 3-star duplicate overflow: once a
+      3-star reaches S5, further duplicates of it convert to UNIVERSAL Fan
+      Letters at full value instead of dead character-specific currency. This
+      does not fix the pull feel but it stops the excess from being worthless.
+  Ship FIX C now. Pick A or B before the gacha is considered done.
+
+================================================================================
+SECTION 19 — TONE & WRITING GUIDE
+================================================================================
+The game is affectionate parody, never mean-spirited. It loves anime and VTuber
+culture and is laughing WITH it. Characters are warm, silly, and confident.
+Bosses are absurd but genuinely threatening. UI copy is short and punchy.
+Death messages are encouraging, never mocking. Every character gets at least
+one line that makes the player smile.
+
+The single most important design rule in this document:
+    THE PLAYER SHOULD FEEL LIKE THE PROTAGONIST OF THEIR OWN ANIME —
+    outnumbered at first, unstoppable by the end, and always one dodge away
+    from an incredible comeback.
+
+Build that feeling first. Everything else is decoration.
+
+================================================================================
+                                 END OF PROMPT
+================================================================================
