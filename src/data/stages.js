@@ -10,6 +10,31 @@
 //   unlock.stages   ARRAY of stage ids that must be cleared (DECISIONS.md §33 —
 //                   the single-`stage` form could not express Stage 7's "clear
 //                   1–6"). An empty array means "available from the start".
+//   midBoss         the SIGNATURE mid-boss: the one pinned to the halfway anchor,
+//                   the one the stage-select screen previews, and the one that
+//                   pays the full mid-boss loot table.
+//   midBosses       the whole ladder for this stage, in the order it is fought.
+//                   Play report: "add mini bosses to each stage." Every stage now
+//                   runs two or three of these instead of one.
+//
+//                   THE LADDER IS SHARED. bosses.js defines seven mid-bosses and
+//                   they happen to be a clean difficulty staircase — 1,100 /
+//                   1,750 / 2,700 / 4,200 / 6,400 / 10,000 / 15,600 HP — with each
+//                   stage's own sitting on exactly its own rung. So a stage
+//                   borrows the rung BELOW its own for the opener and the rung
+//                   ABOVE it for the closer, rather than inventing creatures that
+//                   would need art, attacks, a codex entry and a name. Nothing is
+//                   invented; the ids are reused across stages, which is also what
+//                   the Zenith Stage's Grand Finale modifier has always done with
+//                   the six stage bosses.
+//
+//                   Combined with the boss HP-over-time scaling in game/boss.js
+//                   the fights land at roughly 1.8x each other. Wall Amaris:
+//                   2,526 -> 4,752 -> 8,944 -> 14,913 for the finale.
+//
+//                   `midBosses` is a fallback list only — the authored timelines
+//                   in waves.js are what actually place these fights, and the
+//                   WaveDirector rebuilds this list from `midBoss` if it is absent.
 //   mobTable[].weight   relative spawn share once the mob is eligible.
 //   mobTable[].from     seconds into the run before this mob may appear at all.
 //   hpMult/xpMult/goldMult  per-stage tuning knobs applied on top of SCALING.
@@ -49,7 +74,12 @@ export const STAGES = [
       { id: 'gym_uniform_ghoul', weight: 10, from: 420 },
     ],
     elite: 'perfect_attendance_award',
+    // The teaching stage gets TWO, not three: one mid-boss to learn the grammar
+    // of a telegraphed fight on, and one late spike to prove it stuck. There is
+    // also no rung below Delinquent Senpai to borrow — he is the bottom of the
+    // whole ladder.
     midBoss: 'delinquent_senpai',
+    midBosses: ['delinquent_senpai', 'mascot_prime'],
     boss: 'student_council_president',
     // "Unlocks Stage 2" is expressed by neon_akiba.unlock, not duplicated here.
     firstClearReward: { starFragments: 50 },
@@ -90,6 +120,7 @@ export const STAGES = [
     ],
     elite: 'gacha_golem',
     midBoss: 'mascot_prime',
+    midBosses: ['delinquent_senpai', 'mascot_prime', 'the_armored'],
     boss: 'the_algorithm',
     firstClearReward: { starFragments: 50, relic: 'neon_visor' },
     // Zombies queueing for capsules carry cash.
@@ -128,6 +159,7 @@ export const STAGES = [
     ],
     elite: 'abnormal',
     midBoss: 'the_armored',
+    midBosses: ['mascot_prime', 'the_armored', 'the_twin_fangs'],
     boss: 'the_colossus',
     firstClearReward: { starFragments: 50, relic: 'anchor_gear' },
     // Titan's Shadow already doubles LARGE HP; the flat knob stays gentle.
@@ -167,6 +199,7 @@ export const STAGES = [
     ],
     elite: 'sealed_vessel',
     midBoss: 'the_twin_fangs',
+    midBosses: ['the_armored', 'the_twin_fangs', 'the_drum_oni'],
     boss: 'the_sealed_beast',
     firstClearReward: { starFragments: 50, relic: 'nine_seal_ward' },
     hpMult: 1.1, xpMult: 1.05, goldMult: 1.05,
@@ -207,6 +240,7 @@ export const STAGES = [
     ],
     elite: 'upper_rank_remnant',
     midBoss: 'the_drum_oni',
+    midBosses: ['the_twin_fangs', 'the_drum_oni', 'tide_warden'],
     boss: 'kagutsuchi',
     firstClearReward: { starFragments: 50, relic: 'everblade_fragment' },
     // The skill-check stage, and two minutes longer than its neighbours.
@@ -248,6 +282,7 @@ export const STAGES = [
     ],
     elite: 'elite_encore_siren',
     midBoss: 'tide_warden',
+    midBosses: ['the_drum_oni', 'tide_warden', 'the_opening_act'],
     boss: 'the_kraken_producer',
     firstClearReward: { starFragments: 50, relic: 'abyssal_setlist' },
     // Deep Pressure already triples gold; the stage knob stays at 1.0.
@@ -328,6 +363,11 @@ export const STAGES = [
     // Both authored in DECISIONS.md §7 — the spec gave Stage 7 neither.
     elite: 'the_understudy',
     midBoss: 'the_opening_act',
+    // The only stage whose ladder runs out at the top, because it OWNS the top.
+    // So all three fights sit in the first half and escalate into the halfway
+    // anchor; the back half is already carried by the Grand Finale modifier
+    // walking a previous stage boss on as an elite every five minutes.
+    midBosses: ['the_drum_oni', 'tide_warden', 'the_opening_act'],
     boss: 'the_final_form',
     // No relic: the reward is Endless Mode. Difficulty tiers unlock per-stage on
     // first clear everywhere (SECTION 7's own tier rule), so Encore is not listed

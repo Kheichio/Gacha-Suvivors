@@ -12,6 +12,20 @@
 //     mid-boss   at 0.50 * duration
 //     calm       at duration - 60s   (5 seconds of NOTHING)
 //     final boss at duration - 55s
+//
+// MID-BOSSES, PLURAL. Every stage now runs two or three mid-boss fights (play
+// report: "add mini bosses to each stage"), so exactly ONE of them can own the
+// halfway anchor. The one whose authored time is nearest 0.50 gets it and is
+// marked `anchor` — that is the stage's SIGNATURE mid-boss, the one named in
+// stages.js `midBoss`, and it is the one that clears the screen first and pays
+// the full mid-boss loot table. The extra mini-bosses keep their authored,
+// scaled times and are spawned with `isMini` set. See waves.js for the ladder.
+//
+// Only one boss is ever live at once: BossController holds a single `active`
+// entity, so a second mid-boss spawned on top of the first would silently turn
+// the first into an inert statue that never attacks again. A mid-boss whose beat
+// arrives while a fight is still going is POSTPONED instead (_postpone), which
+// costs nothing and cannot desync the rest of the timeline.
 
 import { runRng } from '../core/rng.js';
 import { CONFIG } from '../core/config.js';
@@ -59,26 +73,75 @@ export class WaveDirector {
         duration: w.duration || 0,
         modifiers: w.modifiers || null,
         side: w.side || null,
+        anchor: false,
         fired: false,
       };
-      // Re-anchor the three fixed beats exactly.
-      if (w.type === 'midboss') ev.t = D * 0.5;
-      else if (w.type === 'calm') { ev.t = D - 60; ev.duration = feel.preBossCalm; }
+      // Re-anchor the two fixed END beats exactly. The halfway mid-boss anchor is
+      // resolved below, once every mid-boss on the timeline is known.
+      if (w.type === 'calm') { ev.t = D - 60; ev.duration = feel.preBossCalm; }
       else if (w.type === 'boss') ev.t = D - 55;
       this.timeline.push(ev);
     }
-    this.timeline.sort((a, b) => a.t - b.t);
 
     // A stage whose author forgot an anchor still gets one — the acceptance
-    // criteria promise a boss at the halfway mark on every stage.
-    if (!this.timeline.some((e) => e.type === 'midboss') && stage.midBoss) {
-      this.timeline.push({ t: D * 0.5, type: 'midboss', enemy: stage.midBoss, count: 1, fired: false, pattern: 'cluster' });
+    // criteria promise a boss at the halfway mark on every stage. `midBosses` is
+    // the full ladder; `midBoss` alone is the pre-mini-boss shape and still works.
+    if (!this.timeline.some((e) => e.type === 'midboss')) {
+      const ids = (stage.midBosses && stage.midBosses.length)
+        ? stage.midBosses : (stage.midBoss ? [stage.midBoss] : []);
+      for (let i = 0; i < ids.length; i++) {
+        // The signature keeps 0.50; the rest spread evenly across the middle.
+        const f = ids[i] === stage.midBoss || ids.length === 1
+          ? 0.5 : 0.26 + (0.52 * i) / Math.max(1, ids.length - 1);
+        this.timeline.push({ t: D * f, type: 'midboss', enemy: ids[i], count: 1,
+                             anchor: false, fired: false, pattern: 'cluster' });
+      }
     }
     if (!this.timeline.some((e) => e.type === 'boss') && stage.boss) {
-      this.timeline.push({ t: D - 60, type: 'calm', duration: feel.preBossCalm, fired: false });
-      this.timeline.push({ t: D - 55, type: 'boss', enemy: stage.boss, count: 1, fired: false, pattern: 'cluster' });
+      this.timeline.push({ t: D - 60, type: 'calm', duration: feel.preBossCalm, anchor: false, fired: false });
+      this.timeline.push({ t: D - 55, type: 'boss', enemy: stage.boss, count: 1, anchor: false, fired: false, pattern: 'cluster' });
     }
+
+    // The halfway anchor: whichever mid-boss was authored closest to 0.50 is
+    // pinned there exactly, and is thereafter the stage's signature. Picking by
+    // proximity rather than by id means a stage that renames its mid-boss, or
+    // lists the same creature twice, still lands one fight on the halfway beat.
+    let best = -1, bestErr = Infinity;
+    for (let i = 0; i < this.timeline.length; i++) {
+      const ev = this.timeline[i];
+      if (ev.type !== 'midboss') continue;
+      const err = Math.abs(ev.t / D - 0.5);
+      if (err < bestErr) { bestErr = err; best = i; }
+    }
+    if (best >= 0) { this.timeline[best].t = D * 0.5; this.timeline[best].anchor = true; }
+
     this.timeline.sort((a, b) => a.t - b.t);
+  }
+
+  /**
+   * Re-sort after an out-of-band retime — today that is only Run.callBossEarly,
+   * which drags the finale forward for a finished build. Everything already fired
+   * keeps the front of the array so `next` stays exactly "how many events have
+   * happened", which is the invariant the whole update loop is built on.
+   */
+  resort() {
+    this.timeline.sort((a, b) => (a.fired === b.fired ? a.t - b.t : (a.fired ? -1 : 1)));
+    this.next = 0;
+    while (this.next < this.timeline.length && this.timeline[this.next].fired) this.next++;
+  }
+
+  /**
+   * Move the event at `i` to `when` and slide it back into sorted position.
+   * `next` deliberately does NOT advance: index `i` now holds whatever came after
+   * it, and the caller's loop should look at that instead.
+   */
+  _postpone(i, when) {
+    const ev = this.timeline[i];
+    ev.t = when;
+    this.timeline.splice(i, 1);
+    let j = i;
+    while (j < this.timeline.length && this.timeline[j].t < when) j++;
+    this.timeline.splice(j, 0, ev);
   }
 
   update(dt) {
@@ -87,7 +150,15 @@ export class WaveDirector {
 
     // Fire everything whose time has come.
     while (this.next < this.timeline.length && this.timeline[this.next].t <= t) {
-      this._fire(this.timeline[this.next]);
+      const ev = this.timeline[this.next];
+      // One boss at a time, always. Spawning a mid-boss over a live one would
+      // hand BossController a new `active` and leave the old fight standing there
+      // with no AI at all, so the beat waits its turn instead.
+      if (ev.type === 'midboss' && run.boss.isActive) {
+        this._postpone(this.next, t + MIDBOSS_RETRY);
+        continue;
+      }
+      this._fire(ev);
       this.next++;
     }
 
@@ -205,9 +276,14 @@ export class WaveDirector {
       case 'midboss': {
         const def = run.data.bosses.BOSSES_BY_ID[ev.enemy];
         if (!def) break;
-        run.clearFodder();
+        // ONLY the signature mid-boss clears the screen. That wipe is a dramatic
+        // beat and it is also a total XP write-off — every fodder enemy alive is
+        // deleted without dropping a gem — and doing it two or three times a run
+        // would be a silent tax on levelling that nothing on screen explains. A
+        // mini-boss walks in through the crowd, which is what "mini" means.
+        if (ev.anchor) run.clearFodder();
         this.midBossSpawned = true;
-        run.spawnBoss(def, true);
+        run.spawnBoss(def, true, !ev.anchor);
         break;
       }
 
@@ -351,6 +427,9 @@ export class WaveDirector {
 
 const SIDES = ['left', 'right', 'top', 'bottom'];
 const EMPTY = {};
+
+/** Seconds a mid-boss beat waits before retrying when a fight is still live. */
+const MIDBOSS_RETRY = 4;
 
 /** [normalisedTime, enemiesAlive] — SECTION 8's curve as data. */
 const DENSITY = [

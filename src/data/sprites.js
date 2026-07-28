@@ -4,7 +4,7 @@
 // handful of features; `render/pixelArt.js` assembles the actual pixels. Swapping
 // any entry for `{ sheet: 'art/hero.png', frames: 4 }` later changes nothing else.
 //
-// The 19 characters are hand-authored because they are what the player looks at
+// The 24 characters are hand-authored because they are what the player looks at
 // for twenty minutes. Every one is directed off its own entry in characters.js —
 // element, archetype, epithet, weapon, palette — and NO TWO SHARE A SILHOUETTE.
 // The rule the first pass broke was that a palette swap is not a character: the
@@ -246,6 +246,44 @@ export const CHARACTER_SPRITES = {
     weapon: 'book', weaponColor: '#3a3a4a',
   },
 
+  // The white fox broadcaster. Deliberately the OPPOSITE read to the pink
+  // nine-tailed shrine fox: a white SIDETAIL rather than long loose hair, white
+  // fox ears, exactly ONE tail, a modern collared jacket with a tie instead of a
+  // shrine robe, and a fan of contracts in her hand instead of a mirror.
+  yukine: {
+    body: 'humanoid', hair: 'sidetail', hairColor: '#f2f6ff', hairTie: '#3fb6c8',
+    skin: '#fbe0cc', outfit: '#eaf4ff', accent: '#3fb6c8', eyes: '#9ad84a',
+    ears: 'fox', earColor: '#f2f6ff',
+    coat: '#dbe9f7', coatTrim: '#3fb6c8', highCollar: '#dbe9f7',
+    tie: '#2a6fa8', skirt: '#2a3550', shorts: '#1c2438',
+    tails: 1, tailColor: '#cfe6f5',
+    gloves: '#f2f6ff', boots: '#2a3550', bootHeight: 'thigh',
+    aura: '#8fe6ff', weapon: 'cards', weaponColor: '#f4f1ea',
+  },
+  // The apprentice. A blunt lilac BOWL cut with a broad white capelet over a
+  // plain grey-brown travelling dress — the tidiest silhouette on the roster,
+  // and a small frame because she is the youngest person in the party. Bare
+  // orb-cast rather than a blade: her hands are the weapon and they never shake.
+  wren: {
+    body: 'humanoid', young: true,
+    hair: 'bowl', hairColor: '#b08fd6', skin: '#f7d8bc',
+    outfit: '#6a6252', accent: '#f4f1ea', eyes: '#8f6ad6',
+    cape: '#f4f1ea', scarf: '#f4f1ea', skirt: '#5a5244',
+    gloves: '#e8e4dc', boots: '#3a3428',
+    sparks: '#c3a8ff', blush: false, weapon: 'orb', weaponColor: '#c3a8ff',
+  },
+  // The warrior. Shaggy RED hair, a heavy fur-collared coat over mail, wrapped
+  // forearms, one shoulder plate each side, and the enormous two-handed haft he
+  // never puts down. The biggest silhouette in the cast and the only red head.
+  brant: {
+    body: 'humanoid', hair: 'wild', hairColor: '#c8452c', skin: '#f0c9a8',
+    outfit: '#3f4a5c', accent: '#c8452c', eyes: '#5fb6e0',
+    coat: '#2e3a4c', coatTrim: '#8a7a52', scarf: '#8a7a52',
+    pauldrons: '#8a9aa8', harness: '#5a4a38', armWraps: '#c8c2ba',
+    gauntlets: '#8a9aa8', boots: '#2a2218', bootHeight: 'knee',
+    blush: false, weapon: 'hammer', weaponColor: '#b8c2ce',
+  },
+
   // ★6 ----------------------------------------------------------------------
   // The dragon queen. Blonde hair running to orange-red AT THE TIPS, curved
   // great horns under a crown, one long SCALED TAIL rather than a pair of
@@ -283,6 +321,31 @@ export const CHARACTER_SPRITES = {
     cape: '#e8e4dc', sash: '#ffd84a', chest: '#ffd84a',
     gauntlets: '#3f6ad8', boots: '#3f6ad8', bootHeight: 'knee',
     aura: '#ffd84a', weapon: 'none',
+  },
+  // The maid. Blue-violet DRILL twin-tails with white ribbons — the only drills
+  // in the cast — under a white frilled headdress, a red neck ribbon, a white
+  // pinafore and detached cuffs over a navy dress, and the thrown disc that is
+  // the closest this vocabulary gets to a serving tray leaving her hands.
+  aoi: {
+    body: 'humanoid', hair: 'drills', hairColor: '#5b7ce0', hairTie: '#f4f1ea',
+    skin: '#fbe0cc', outfit: '#1e2440', accent: '#f4f1ea', eyes: '#8fb6ff',
+    headband: '#f4f1ea', scarf: '#c8203a',
+    coat: '#f4f1ea', coatTrim: '#4a6ad8', detachedSleeves: '#f4f1ea',
+    skirt: '#1e2440', gloves: '#f4f1ea', boots: '#2a3050', bootHeight: 'knee',
+    aura: '#8fb6ff', weapon: 'chakram', weaponColor: '#e8ecf5',
+  },
+  // The elf. Small frame, long POINTED EARS, a white-silver BRAID with a gold
+  // tie, a white-and-gold robe under a short dark shoulder cape, and a plain
+  // wooden staff. Nothing about her is ornamental: the brief is that she looks
+  // fourteen, is over a thousand, and owns one good coat.
+  mirel: {
+    body: 'humanoid', young: true,
+    hair: 'braid', hairColor: '#f2f6ff', hairTie: '#c8a24a', skin: '#fbe0cc',
+    outfit: '#f7f4ec', accent: '#c8a24a', eyes: '#6ad89a',
+    ears: 'elf', earColor: '#fbe0cc',
+    cape: '#2a2436', coat: '#f2ece0', coatTrim: '#c8a24a', highCollar: '#f2ece0',
+    sash: '#c8a24a', boots: '#5a4a38', bootHeight: 'knee',
+    blush: false, aura: '#dff4e8', weapon: 'staff', weaponColor: '#8a6a4a',
   },
 };
 

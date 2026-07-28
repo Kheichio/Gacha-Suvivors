@@ -161,33 +161,78 @@ function reconcileHoard(run, p, ctx) {
 //     palette: #ff7a1a (gi orange) / #2f6ff0 (undershirt blue)
 // ===========================================================================
 
-const RAPID_FIST_FINISHER = 30;       // the combo is 14 / 14 / 30; def.damage is 14
+const RAPID_FIST_FINISHER = 48;       // def.damage is the jab; this is the last one
 const RAPID_FIST_PER_UPGRADE = 0.04;  // +4% per upgrade taken this run, uncapped
-const RAPID_FIST_REACH = 120;
-const RAPID_FIST_ARC = 1.25;
-const RAPID_FIST_GAP_2 = 0.09;        // the combo's rhythm, in sim seconds
-const RAPID_FIST_GAP_3 = 0.20;
-const JAB_OPTS = { element: 'light', color: '#ffe9b0' };
-const FINISH_OPTS = { element: 'light', color: '#ffffff' };
+// RAPID FIST IS A PUNCH, NOT A SWEEP.
+//
+// It used to fire `meleeArc` at 1.25 radians — a 72-degree cone — three times.
+// That is a sword swing: it sprays to the sides, hits things beside and behind
+// the target, and looks nothing like a martial artist throwing hands. A punch
+// travels in a STRAIGHT LINE, so each one is a narrow forward `lineDamage`,
+// offset a few pixels perpendicular to alternate left and right fist.
+//
+// The COUNT and the RHYTHM both come from the signature weapon's level: one
+// punch at level 1, two by level 4, three by level 7, four once it evolves —
+// and the gap between them divides by the same rate multiplier that shortens
+// the attack interval, so at max level the volley lands almost as one hit.
+//
+// LINE COMPENSATION. A 72-degree cone caught four to eight bodies a swing; a
+// jab down one line catches one to three. Swapping the shape without repricing
+// the hit was a ~5x throughput cut, and the balance sweep found it immediately:
+// sora fell from -45% of median survival to -57%, below every three-star on the
+// board. The straight line is the correct SHAPE and it stays. The per-punch
+// numbers are what pay for it, so a punch hits substantially harder than a
+// sweep tick did and the volley opens at two rather than one.
+const RAPID_FIST_REACH = 148;
+const RAPID_FIST_WIDTH = 23;          // half-width of the jab line
+const RAPID_FIST_OFFSET = 11;         // left/right fist separation
+const RAPID_FIST_GAP = 0.085;         // between punches at level 1, in sim seconds
+const RAPID_FIST_MIN = 2;             // "1-2 right left" — the volley is never one
+const RAPID_FIST_MAX = 4;
+const JAB_FX = { life: 0.17, tier: 0 };
+const JAB_IMPACT = { life: 0.2, size: 13, tier: 0 };
 const RAPID_FIST_FINISH_FX = { speed: 420, life: 0.24, size: 0.7, additive: true };
+const JAB_DMG = { element: 'light', knockback: 70 };
 
-// Combo hits 2 and 3 run off the sim-time scheduler. Both are module-level
-// singletons taking (run, ctx), so a volley creates no closure and no garbage.
-function rapidFistJab(run, ctx) {
+/**
+ * One punch. A module-level singleton taking (run, ctx) so a volley creates no
+ * closure and no garbage, and so the sim-time scheduler stays deterministic.
+ */
+function rapidFistPunch(run, ctx) {
   const p = run.player;
   const host = ctx.comboHost || p;
   if (host !== p && !host.active) return;          // the mirroring minion died
-  H.meleeArc(run, p, host.x, host.y, ctx.comboAngle, RAPID_FIST_ARC,
-             RAPID_FIST_REACH, ctx.comboJab, JAB_OPTS);
-}
-function rapidFistFinish(run, ctx) {
-  const p = run.player;
-  const host = ctx.comboHost || p;
-  if (host !== p && !host.active) return;
-  H.meleeArc(run, p, host.x, host.y, ctx.comboAngle, RAPID_FIST_ARC * 1.35,
-             RAPID_FIST_REACH * 1.2, ctx.comboFinisher, FINISH_OPTS);
-  H.particles.cone(host.x, host.y, ctx.comboAngle, 0.7, 8, '#ffffff', RAPID_FIST_FINISH_FX);
-  H.camera.punch(0.012, 0.12);
+  const i = ctx.punchI++;
+  const last = i >= (ctx.punchN || 1) - 1;
+  const a = ctx.comboAngle;
+
+  // Alternate the fist, but never the DIRECTION — both hands punch down the
+  // same line, which is the whole point.
+  const side = (i & 1) ? 1 : -1;
+  const px = Math.cos(a + HALF_PI) * RAPID_FIST_OFFSET * side;
+  const py = Math.sin(a + HALF_PI) * RAPID_FIST_OFFSET * side;
+  const reach = H.area(p, last ? RAPID_FIST_REACH * 1.18 : RAPID_FIST_REACH);
+  const x0 = host.x + px, y0 = host.y + py;
+  const x1 = x0 + Math.cos(a) * reach, y1 = y0 + Math.sin(a) * reach;
+
+  JAB_DMG.knockback = last ? 160 : 70;
+  H.lineDamage(run, x0, y0, x1, y1, H.area(p, RAPID_FIST_WIDTH),
+               last ? ctx.comboFinisher : ctx.comboJab, H.SRC.AUTO, JAB_DMG);
+
+  const tier = ctx.fxTier || 0;
+  JAB_FX.tier = tier;
+  JAB_FX.life = last ? 0.22 : 0.17;
+  H.effects.beam(x0, y0, x1, y1, last ? 17 : 11,
+                 last ? '#ffffff' : '#ffe9b0', JAB_FX);
+  JAB_IMPACT.tier = tier;
+  JAB_IMPACT.size = last ? 19 : 13;
+  H.effects.impact(x1, y1, last ? '#ffffff' : '#ffe9b0', JAB_IMPACT);
+
+  if (last) {
+    H.particles.cone(x1, y1, a, 0.45, 8, '#ffffff', RAPID_FIST_FINISH_FX);
+    H.camera.punch(0.012, 0.12);
+  }
+  H.audio.play('slash');
 }
 
 const SPIRIT_CHARGE = 1.5;            // S3 drops this to 0.8
@@ -514,15 +559,24 @@ registerAll({
       const o = H.origin(run, p, opts);
       const t = H.target(run, p, ctx.def.targeting, opts);
       const scale = 1 + RAPID_FIST_PER_UPGRADE * upgradeCount(p);
+      const mods = run.weapons ? run.weapons.mods : null;
       ctx.comboHost = o;
       ctx.comboAngle = t.found ? t.angle : (o.facing || 0);
       ctx.comboJab = H.autoDamage(run, p, ctx.def.damage, opts) * scale;
       ctx.comboFinisher = H.autoDamage(run, p, RAPID_FIST_FINISHER, opts) * scale;
-      rapidFistJab(run, ctx);
-      // The rhythm of the combo, on the sim-time scheduler so it stays
-      // deterministic and allocates nothing (module-level fns, never closures).
-      run.scheduler.after(RAPID_FIST_GAP_2, rapidFistJab, run, ctx);
-      run.scheduler.after(RAPID_FIST_GAP_3, rapidFistFinish, run, ctx);
+      // 1 punch -> 4, straight from the signature weapon's own level.
+      ctx.punchN = H.clamp(RAPID_FIST_MIN + (mods ? mods.count : 0),
+                           RAPID_FIST_MIN, RAPID_FIST_MAX);
+      ctx.punchI = 0;
+      ctx.fxTier = (mods && mods.evolved) ? H.FX_TIER.EVOLVED : H.FX_TIER.NORMAL;
+      // The same rate multiplier that shortens his attack interval also closes
+      // the gap between punches, so levelling him visibly speeds the combo up
+      // rather than just repeating it more often.
+      const gap = RAPID_FIST_GAP / (mods ? Math.max(0.5, mods.rate) : 1);
+      rapidFistPunch(run, ctx);
+      for (let i = 1; i < ctx.punchN; i++) {
+        run.scheduler.after(gap * i, rapidFistPunch, run, ctx);
+      }
     },
   },
 

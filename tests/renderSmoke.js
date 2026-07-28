@@ -155,6 +155,8 @@ function nearestEnemy(r) {
 // The renderer, data, run and scenes are imported lazily so that if one of them
 // throws at import time the failure is reported as a test, not a crash.
 let renderer, data, Run, RUN_STATE, camera, input, ACT, save, storage, sceneManager, runScene, w;
+let atlas = null;
+let prewarmedKeys = null;
 let importError = null;
 
 try {
@@ -176,6 +178,16 @@ try {
   runScene = (await import('../src/scenes/runScene.js')).runScene;
   sceneManager = (await import('../src/scenes/sceneManager.js')).sceneManager;
   w = await import('../src/ui/widgets.js');
+  atlas = (await import('../src/render/spriteAtlas.js')).atlas;
+  // Bake the atlas exactly as boot does. Awaited HERE, at module scope, and not
+  // inside an it(): the harness does not await test bodies, so an async test
+  // that rejects is reported as a PASS (see harness.js).
+  await (await import('../src/render/prewarm.js')).prewarmAtlas(data, () => {});
+  // Snapshot what BOOT produced. Comparing against a live `lazyMisses` counter
+  // does not work: every suite shares this atlas singleton and abilityRuntime.js
+  // drives all 24 characters before this file's tests run, so by then everything
+  // has already been registered. The set is the only order-independent answer.
+  prewarmedKeys = new Set(atlas.map.keys());
 } catch (e) {
   importError = e;
 }
@@ -187,6 +199,61 @@ describe('render / the screen is not black', () => {
 
   if (importError) return;
 
+
+  it('nothing rasterises mid-run — every kit and every weapon is baked at boot', () => {
+    // The atlas is the renderer's only source of pixels and everything is meant
+    // to be baked before the first frame. It was not: FORTY distinct effect
+    // descriptors — most character kits, every pickup, every gem, every dropped
+    // relic — rasterised on the frame they first appeared, which is a hitch at
+    // the exact moment a player casts something for the first time.
+    //
+    // This is the test that keeps prewarm.js's EFFECT_VISUALS list honest: an
+    // ability or weapon added with a new descriptor fails the build until that
+    // descriptor is registered, instead of silently costing a frame forever.
+    //
+    // It compares against the KEY SET captured right after prewarmAtlas, not
+    // against a running miss counter: the atlas is a singleton shared by every
+    // suite, and suites that run earlier in the file order already drive whole
+    // characters. A counter measured here is always zero for that reason. A set
+    // difference is the same answer no matter who ran first.
+    const late = [];
+    const report = (label) => {
+      for (const key of atlas.map.keys()) {
+        if (prewarmedKeys.has(key)) continue;
+        prewarmedKeys.add(key);        // report each key once, against the first driver to hit it
+        late.push(`${label}: ${key}`);
+      }
+    };
+    report('before any run (leaked in by an earlier suite)');
+    for (const c of data.characters.CHARACTERS) {
+      const r2 = new Run(data, {
+        characterId: c.id, stageId: data.stages.STAGES[0].id, tierIndex: 0, seed: 5,
+      });
+      // A full, evolved arsenal so every weapon visual fires too.
+      r2.weapons.slots[0].level = 8;
+      r2.weapons.evolve(r2.weapons.slots[0].id);
+      for (const wd of data.weapons.WEAPONS) {
+        const rec = r2.weapons.add(wd.id);
+        if (!rec) break;
+        rec.level = 8;
+        r2.weapons.evolve(wd.id);
+      }
+      for (let i = 0; i < 320; i++) {
+        if (r2.state !== RUN_STATE.PLAYING) r2.state = RUN_STATE.PLAYING;
+        input.moveX = Math.cos(i * 0.05); input.moveY = Math.sin(i * 0.04);
+        if (i === 70) input.press(ACT.SPECIAL);
+        if (i === 150) input.press(ACT.ESCAPE);
+        if (i === 240) input.press(ACT.SPECIAL);
+        r2.update(1 / 60);
+      }
+      report(c.id);
+      r2.dispose();
+    }
+    assert.equal(late.length, 0,
+                 `${late.length} sprite(s) rasterised outside boot — add their ` +
+                 'descriptors to EFFECT_VISUALS in src/render/prewarm.js:\n      ' +
+                 late.join('\n      '));
+  });
   let run = null;
 
   it('a run builds and simulates 10 seconds without throwing', () => {

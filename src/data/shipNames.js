@@ -111,6 +111,14 @@ export const SHIP_NAMES = {
   zenkai: 'Comeback Instinct',
   kaioken: 'Crimson Multiplier',
 
+  // Mirel — the only two names on the five new characters that are lifted from
+  // a source rather than invented. Both are the source's own TECHNIQUE terms
+  // ("ordinary offensive magic", "mana suppression"), never a person's name, so
+  // they qualify under the inclusion test above exactly the way Niten Ichi-ryu
+  // does. The other eighteen new ability names are original English and stay.
+  ordinary_offensive_magic: 'Common Attack Magic',
+  mana_suppression: 'Presence Dampening',
+
   // Han
   masenko: 'Brow Blast',
   father_son_kamehameha: 'Father-Son Beam',

@@ -839,3 +839,182 @@ primary action as one tile among eight was the layout's other mistake.
 The focused card's tip now prints on a reserved line above the footer, read
 AFTER every card is declared. The old one lived in the header, which draws
 first, and was therefore always showing the previous frame's selection.
+
+---
+
+## §45 — The run's clock: two XP caps, not one exponent (2026-07-28)
+
+**Reported from play:** *"adjust exp gain as it progresses too quick, within 5
+mins you can have max evo build. make exp gain much harder at level 100."*
+
+Both halves are the same complaint from opposite ends, and no single exponent
+satisfies them. Raising the exponent to slow the endgame made levels 5–20 a
+grind; lowering it to keep the mid-run flowing finished the build in five
+minutes. So the curve now has **three regimes**: geometric at 1.32 to level 12,
+then a deliberately gentle **1.035** so the middle of a run keeps paying, then
+**1.16 from level 100**, which is the wall.
+
+The soft cap is the part that is easy to get wrong. It exists so that the stretch
+where the player is actually choosing upgrades stays generous — the fix for "too
+fast" is a hard ceiling at the top, not a tax on the part of the run that is
+working.
+
+## §46 — Mini-bosses, and why they pay less (2026-07-28)
+
+Every stage now carries an **opener** at ~26% and a **closer** at ~78%, framing
+the stage's signature mid-boss at 50%. The director picks the signature by
+proximity to 0.50; everything else on the ladder spawns as a mini-boss.
+
+Mini-bosses deliberately do NOT get the mid-boss treatment: no screen clear, a
+floor chest instead of a Gold Chest, no guaranteed relic, and `FRAGMENT_AWARDS
+.miniBoss` instead of the full table. This was a real decision and not an
+oversight. If every telegraphed fight cleared the screen and dropped a guaranteed
+relic, the signature fight would stop reading as the stage's event — the reward
+for a mini-boss is that it is a *fight*, at the two moments the density curve is
+otherwise flat.
+
+Ids are reused across stages on purpose; `stages.js` `midBosses` documents which
+rung each stage draws from.
+
+## §47 — Finish your build and the boss comes early (2026-07-28)
+
+`run.buildComplete()` is true when every weapon and upgrade the player carries is
+evolved and maxed. When it flips, `callBossEarly()` pulls the final boss forward
+by `EARLY_BOSS_LEAD`.
+
+The alternative was to leave the timer alone, and the alternative is worse: a
+player with nothing left to pick up is watching an XP bar that cannot give them
+anything, waiting out a clock. The run's remaining minutes should be the fight,
+not the farm. It is also a *reward* framing rather than a punishment one — the
+boss arriving early is the game acknowledging you finished.
+
+## §48 — Gold needed somewhere to go (2026-07-28)
+
+**Reported from play:** *"create more use for gold coins, its too easy to get and
+too little to do with it."* Correct: the spec's ten shrine rows totalled 59
+levels and ~65,700 gold. Twenty good runs and the entire meta layer was over.
+
+The deep tier is **the same geometric curve run further out**, not a second
+gentler one bolted on. That is the whole design: every spec level keeps its exact
+spec price, so nothing about the early shrine moved, and the extension is steep
+because the curve was always going to be steep out there. 59 levels → **103**;
+~65,700 gold → **~606,000**, a 9.2x increase in demand.
+
+Fortune and Greed both feed the wallet that pays for the rest, which makes it a
+climb rather than a wall. The refund stays free and total, so no purchase is one
+the player is stuck with.
+
+**Revival stops at 3.** `run.js` resolves at most three revives per run across
+every source (§29). A fourth shrine level would cost 34,000 gold and do nothing,
+which is the most dishonest thing a shop can sell.
+
+## §49 — Goku's auto goes forward, because a punch goes forward (2026-07-28)
+
+**Reported from play:** *"if its punches it should go in a straight line not to
+the sides."* The implementation was a cone sweep — correct for a blade, wrong for
+a fist, and it read as flailing.
+
+It is now `lineDamage` down a **fixed** angle, with alternating left/right fists
+offset perpendicular by `RAPID_FIST_OFFSET` rather than rotated. Levels buy
+**speed and count**: the inter-punch gap divides by the weapon's rate multiplier
+and `punchN` climbs to `RAPID_FIST_MAX` = 4, so a maxed one throws a 2–4 punch
+burst almost instantly. The upgrade path expresses itself as *faster hands*,
+which is what the ability is about.
+
+## §50 — Six weapons that are not the first eight with different numbers (2026-07-28)
+
+**Asked for:** *"create a new set of weapons make sure they have animations,
+unique mechanics, cool effects and fun to use."*
+
+The trap here is shipping six more projectile weapons at different fire rates. So
+each new `kind` owns a mechanic none of the others have:
+
+| kind | the mechanic that is only here |
+|---|---|
+| `bloom` | geometry that depends on whether you are moving |
+| `chain` | damage that **increases** per jump — anti-flat scaling |
+| `shrapnel` | a fuse: the payload is the burst, not the projectile |
+| `boomerang` | damage weighted to the return and the catch |
+| `siphon` | charges off the **whole build's** hits and kills, not its own |
+| `singularity` | repositions the fight before damaging it |
+
+Two of these change how the *player* moves rather than how the weapon fires
+(Thorn Bed rewards walking, Return Cut rewards standing), which is the cheapest
+way to make a build feel different from the inside.
+
+## §51 — The pre-raster test that could not fail (2026-07-28)
+
+The "nothing rasterises mid-run" test was written against `atlas.lazyMisses`,
+sampled before and after driving each character. **It could never fail.** The
+atlas is a singleton shared by every suite, and `tests/abilityRuntime.js` drives
+all 24 characters before `renderSmoke.js`'s bodies run — so by the time the
+counter was sampled, everything had already been registered by someone else. It
+passed with the prewarm list deliberately sabotaged.
+
+The fix is to snapshot **the key set** immediately after `prewarmAtlas()` at
+module scope, and assert set membership instead of counting. A set difference is
+order-independent; a counter is not.
+
+With teeth, it immediately reported **133 sprites rasterising outside boot** that
+the counter version had never seen. 130 were particle colours: `PARTICLE_COLORS`
+was a hand-written 20-entry list and the game bursts particles in ~110 colours,
+because abilities tint their bursts to match whatever fired them.
+
+**So the particle palette is now harvested, not listed.** Every `color` and
+`accent` on every visual the data layer declares is added automatically; only
+colours that live as literals in ability code remain hand-kept, and the test now
+names the exact hex when one is missed. Cost: 39.7 MB → 43.2 MB, for sprites that
+are 8px with no flash twin and no outline. That is a rounding error against one
+hitch on the first cast of an ability.
+
+The general lesson is worth keeping: **a test that has never failed has not been
+shown to work.** This one was verified by breaking the thing it watches and
+confirming it goes red.
+
+---
+
+## §52 — Two six-stars below every three-star (2026-07-28)
+
+The 24-character sweep put `sora` at −57% of median survival and `aoi` at −55%,
+below both ★3 starters. A ★6 losing to a ★3 is not a balance reading, it is the
+shape of a bug, and both turned out to be one. Neither threw. Neither failed a
+test. Both would have read in play as "this character is bad".
+
+**sora — the shape was right, the price was not.** §49 replaced his cone sweep
+with a straight punch line, which is correct: a fist travels forward. But a
+72-degree cone caught four to eight bodies a swing and a line catches one to
+three, and the volley opened at a *single* punch where the cone fired three. The
+shape change was silently a ~5x throughput cut.
+
+The fix is repricing, not reverting: the jab goes 14 → 22, the finisher 30 → 48,
+the reach 132 → 148, the line half-width 19 → 23, and the volley opens at **two**
+punches rather than one — still inside the "1-2 right left" the report asked for.
+Survival 275.6s → 706.3s (−57% → +6%).
+
+**aoi — "never lethal" was true and meaningless.** Her fumbled tray charged a
+flat 3 HP every 3.6s against a 138 pool with no regen, clamped at a floor of 1.
+The clamp made the code honest about never *killing* her and did nothing about
+the actual failure: she was pinned at 1 HP from minute three and died to the
+first thing that grazed her.
+
+The cost is now **2% of max HP, never charged below 35%** — a tax while she is
+healthy, free once she is not. That matches what the mechanic is *for*:
+`live_and_unedited` converts mishaps into permanent damage stacks, so the fumble
+is a conversion, not attrition. Survival 286.4s → 730.3s.
+
+**Both got a test, and the aoi one is the general case:** *no kit drains its own
+owner to nothing* drives all 24 characters for four simulated minutes in an
+arena kept empty, and fails any character that falls below 25% of its pool. With
+no enemies, HP lost is self-inflicted by definition, so the threshold needs no
+tuning. It is written to catch the class, not the instance.
+
+It also needed the four-minute window to work at all. At 60 seconds the real
+defect had only taken aoi to 65% and the test passed with the bug fully present —
+**a drain is a rate, and a short window cannot see one.**
+
+**What this says about the sweep.** Outliers went 10 → 3, and the three that
+remain are the two ★3 starters and the melee character the bot refuses to play —
+exactly the three BALANCE.md has always said to leave alone. But the headline is
+that the sweep is the only thing in the project that found these two, and it
+found them by *ranking*, not by thresholds: neither absolute number looked wrong
+in isolation. Run it after content lands, not just after tuning.

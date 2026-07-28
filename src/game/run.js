@@ -43,6 +43,15 @@ export const RUN_STATE = {
   VICTORY: 5, DEFEAT: 6, BOSS_INTRO: 7,
 };
 
+/**
+ * Seconds of warning between "your build is finished" and the pre-boss calm, when
+ * the finale is called early (Run.callBossEarly). The calm itself then runs for
+ * feel.preBossCalm and the boss lands 5s after it starts — the same shape the
+ * authored timeline uses at duration-60s / duration-55s, so the arrival reads
+ * identically whether it was earned or waited for.
+ */
+const EARLY_BOSS_LEAD = 10;
+
 export class Run {
   /**
    * @param data    the loaded data layer
@@ -73,6 +82,13 @@ export class Run {
     this.state = RUN_STATE.PLAYING;
     this.victory = false;
     this.bossActive = false;
+    /** True while the live boss is an extra mini-boss rather than the signature. */
+    this.miniBossActive = false;
+    /** The entity the timeline spawned as the FINALE, and whether it is dead. */
+    this.finalBossEntity = null;
+    this.finalBossKilled = false;
+    /** Latch: the finished-build early call fires at most once per run. */
+    this.bossCalledEarly = false;
     this.lineStamp = 0;
     this.stageManager = null;
     this.stageManagerT = 0;
@@ -194,7 +210,10 @@ export class Run {
     this.altar = {
       x: clamp(this.player.x + Math.cos(a) * d, this.bounds.minX + 200, this.bounds.maxX - 200),
       y: clamp(this.player.y + Math.sin(a) * d, this.bounds.minY + 200, this.bounds.maxY - 200),
-      used: false, sprite: atlas.ensure({ shape: 'triangle', color: '#ff5f7e', accent: '#3a0a18', size: 22, emoji: '⛩' }),
+      used: false,
+      /** Gold offers taken this visit. SHRINE_ALTAR.goldUses caps it. */
+      goldUses: 0,
+      sprite: atlas.ensure({ shape: 'triangle', color: '#ff5f7e', accent: '#3a0a18', size: 22, emoji: '⛩' }),
     };
 
     this.weapons.init();
@@ -252,9 +271,24 @@ export class Run {
   }
 
   // --- XP / levelling --------------------------------------------------------
+  /**
+   * A PURE FUNCTION OF LEVEL. The HUD calls this every frame, the results screen
+   * calls it after the run is over and the balance harness calls it with levels
+   * this run never reached — so it may never read `this.time`, `this.player` or
+   * anything else that moves. See the XP_CURVE comment in data/upgrades.js for
+   * where the four constants came from and what they were measured against.
+   *
+   * The MAX_SAFE_INTEGER clamp is not defensive noise: with two compounding terms
+   * the raw product reaches Infinity somewhere past level 1,400, and Infinity
+   * would flow straight into the HUD's `xp / xpToNext` fill ratio. A finite
+   * ceiling keeps every consumer in real numbers no matter what endless mode does.
+   */
   xpNeeded(level) {
     const c = this.data.upgrades.XP_CURVE;
-    return Math.ceil(c.base * Math.pow(level, c.exponent));
+    let v = c.base * Math.pow(level, c.exponent);
+    if (level > c.softCap) v *= Math.pow(c.softGrowth, level - c.softCap);
+    if (level > c.hardCap) v *= Math.pow(c.hardGrowth, level - c.hardCap);
+    return Math.min(Number.MAX_SAFE_INTEGER, Math.ceil(v));
   }
 
   grantXp(amount) {
@@ -377,7 +411,12 @@ export class Run {
     this.scheduler.tick(dt);
 
     // --- altar ----------------------------------------------------------------
-    if (!this.altar.used && dist2(this.altar.x, this.altar.y, this.player.x, this.player.y) < 70 * 70) {
+    // `pendingLevelUps === 0` is what makes the altar's repeat purchases legible:
+    // buy a level-up, get the cards, THEN get offered the counter again. Without
+    // it the offer screen would re-open on the very next tick and the level-up it
+    // just sold you would queue up behind it, unseen.
+    if (!this.altar.used && this.pendingLevelUps === 0 &&
+        dist2(this.altar.x, this.altar.y, this.player.x, this.player.y) < 70 * 70) {
       this.state = RUN_STATE.CHEST;
       this.chestResult = { kind: 'altar' };
     }
@@ -432,9 +471,18 @@ export class Run {
     }
 
     // --- run end --------------------------------------------------------------
+    //
+    // THE WIN IS LATCHED TO THE FINALE'S OWN ENTITY, not to "the boss controller
+    // has nobody in it". BossController holds exactly one `active` boss and its
+    // onDeath() nulls that slot for whichever boss just died — so a mini-boss
+    // still standing when the finale walks on, and killed a moment later, used to
+    // clear the slot and hand out a VICTORY with the real boss at full health.
+    // That was reachable before this pass and it is very reachable now that the
+    // closer mini-boss lands at 0.78. `stats.bosses > 0` did not catch it either:
+    // mini-bosses count toward that.
     if (this.endless) {
       // No time limit; difficulty keeps climbing.
-    } else if (this.waveDirector.bossSpawned && !this.boss.isActive && !this.victory && this.stats.bosses > 0) {
+    } else if (this.finalBossKilled && !this.victory) {
       this._win();
     }
   }
@@ -460,13 +508,120 @@ export class Run {
     }
   }
 
+  /**
+   * THE BUILD IS FINISHED. Every weapon slot filled, every one of those weapons
+   * evolved, and both upgrade buckets at their cap — which together mean there is
+   * not one card left in the game that this run can still be offered. The
+   * level-up screen from here on is `{ kind: 'gold' }` and nothing else.
+   */
+  buildComplete() {
+    const w = this.weapons;
+    // An empty slot is still something to earn, so a 3-weapon run does not count
+    // as finished just because those three happen to be evolved.
+    if (w.count < w.max) return false;
+    for (const s of w.slots) if (!s.evolved) return false;
+    const b = this.buildSlots();
+    return b.used.offensive >= b.max.offensive && b.used.utility >= b.max.utility;
+  }
+
+  /**
+   * BRING THE HEADLINER OUT EARLY.
+   *
+   * Play report: "make the final boss appear sooner if the player has evolved ALL
+   * of their upgrades to max." They are right that it is dead time — a finished
+   * build spends the rest of the timeline killing fodder for a level-up screen
+   * that has nothing on it.
+   *
+   * This is deliberately NOT pullWaveForward(). That method refuses to move a
+   * boss, a mid-boss or a calm, and that refusal is correct: it exists for the
+   * AdaptiveDirector, which nudges the timeline every time a player looks bored,
+   * and letting an automatic difficulty heuristic slide the finale around would
+   * dismantle every pacing anchor in the stage. This is the one sanctioned
+   * exception — player-earned, once per run, latched, and announced on screen so
+   * it reads as the reward it is rather than a scheduling bug.
+   *
+   * The rest of the timeline is RETIRED rather than left to fire. A boss fight
+   * with eleven authored spawn waves still landing on top of it is not a boss
+   * fight, and there is nothing left in those waves the player has not finished
+   * earning. The baseline trickle still holds the arena to SECTION 8's density
+   * curve right up to the calm.
+   */
+  callBossEarly() {
+    const wd = this.waveDirector;
+    // Endless mode has no finale to bring forward — the whole point of it is that
+    // the timeline never ends.
+    if (this.bossCalledEarly || this.endless || wd.bossSpawned) return false;
+    // Not on top of a fight already in progress. BossController holds one boss,
+    // so the finale would take the slot and leave a live mid-boss standing there
+    // with no AI. Nothing is latched on this path, so the next level-up — and
+    // there is always another, even if every card on it is gold — tries again.
+    if (this.boss.isActive) return false;
+
+    let boss = null, calm = null;
+    for (let i = wd.next; i < wd.timeline.length; i++) {
+      const ev = wd.timeline[i];
+      if (ev.fired) continue;
+      if (ev.type === 'boss') boss = ev;
+      else if (ev.type === 'calm') calm = ev;
+    }
+    if (!boss) return false;
+    // Already effectively here; moving it would only shorten its own warning.
+    if (boss.t - this.time <= EARLY_BOSS_LEAD + feel.preBossCalm + 4) return false;
+
+    for (let i = wd.next; i < wd.timeline.length; i++) {
+      const ev = wd.timeline[i];
+      if (ev !== boss && ev !== calm) ev.fired = true;
+    }
+    if (calm) calm.t = this.time + EARLY_BOSS_LEAD;
+    boss.t = this.time + EARLY_BOSS_LEAD + 5;
+    wd.resort();
+    this.bossCalledEarly = true;
+
+    // Two lines, not three: `bark` spawns its own floater at -54 and emits
+    // EV.BARK with the text, so this reads as a headline and a subtitle.
+    const p = this.player;
+    floaters.spawn(p.x, p.y - 104, 'NOTHING LEFT TO LEARN', '#ffd76a', 32, 3.4);
+    this.bark('The headliner is coming out early.');
+    audio.play('evolve');
+    flash.fire('#ffd76a', 0.45, 2.0);
+    shake.medium();
+    return true;
+  }
+
+  /**
+   * Checked from the two paths that can complete a build — the level-up choice
+   * and a chest reveal — rather than every frame. buildSlots() walks the whole
+   * upgrade map, and nothing about a finished build can change in between.
+   */
+  _maybeCallBossEarly() {
+    if (this.bossCalledEarly || this.endless) return;
+    if (this.buildComplete()) this.callBossEarly();
+  }
+
   // --- boss / elite spawning -------------------------------------------------
-  spawnBoss(def, isMidBoss) {
+  /**
+   * @param isMidBoss  a mid-boss rather than the stage's finale.
+   * @param isMini     a mid-boss that is NOT the stage's signature (the halfway
+   *                   anchor). Every stage now runs two or three of these fights;
+   *                   `isMini` is what keeps the loot table honest — see
+   *                   onEnemyDeath. Stored on the run rather than on the entity
+   *                   because entities are pooled and enemy.js resets a fixed
+   *                   field list, so a field it does not know about would survive
+   *                   into whatever mob recycled that slot next.
+   *
+   * Exactly one boss is ever live at a time: the WaveDirector postpones a
+   * mid-boss rather than spawning it on top of one that is still alive, which is
+   * what makes a single run-scoped flag correct here. The final boss does not
+   * touch it, so a mid-boss still standing when the finale arrives keeps its own.
+   */
+  spawnBoss(def, isMidBoss, isMini) {
     const a = runRng.angle();
     const x = clamp(this.player.x + Math.cos(a) * 520, this.bounds.minX + 200, this.bounds.maxX - 200);
     const y = clamp(this.player.y + Math.sin(a) * 520, this.bounds.minY + 200, this.bounds.maxY - 200);
     const e = this.boss.spawn(def, x, y, isMidBoss);
     if (e) {
+      if (isMidBoss) this.miniBossActive = !!isMini;
+      else this.finalBossEntity = e;
       this.bossActive = true;
       this.state = RUN_STATE.PLAYING;
     }
@@ -509,16 +664,31 @@ export class Run {
     }
 
     if (e.isBoss || e.isMidBoss) {
+      // A MINI-BOSS IS NOT A MID-BOSS FOR LOOT PURPOSES. Every stage now runs two
+      // or three of these fights instead of one, and paying each of them the full
+      // mid-boss table would have tripled the guaranteed relics (against three
+      // relic slots), tripled the Gold Chests — 3-5 free upgrade grants apiece,
+      // which is a straight refund on the XP curve this same pass just tightened
+      // — and inflated the Star Fragment economy by half.
+      //
+      // So the stage's SIGNATURE mid-boss keeps the spec's payout exactly, and
+      // the additional mini-bosses pay a floor chest, no guaranteed relic, and
+      // FRAGMENT_AWARDS.miniBoss. The reward for a mini-boss is that it is a
+      // fight; the loot ladder still reads mob < elite < mini-boss < mid-boss
+      // < boss.
+      const F = this.data.shrine.FRAGMENT_AWARDS;
+      const mini = e.isMidBoss && this.miniBossActive;
+      if (e === this.finalBossEntity) { this.finalBossKilled = true; this.finalBossEntity = null; }
       this.stats.bosses++;
       this.bossActive = false;
       this.boss.onDeath();
-      this.pickups.dropChest(e.x, e.y, true);
-      // Every boss guarantees a relic (SECTION 9).
-      const relicId = this._rollRelic();
-      if (relicId) this.pickups.dropRelic(e.x + 60, e.y, relicId);
-      const frag = e.isBoss
-        ? this.data.shrine.FRAGMENT_AWARDS.finalBoss
-        : this.data.shrine.FRAGMENT_AWARDS.midBoss;
+      this.pickups.dropChest(e.x, e.y, !mini);
+      // Every BOSS guarantees a relic (SECTION 9).
+      if (!mini) {
+        const relicId = this._rollRelic();
+        if (relicId) this.pickups.dropRelic(e.x + 60, e.y, relicId);
+      }
+      const frag = e.isBoss ? F.finalBoss : mini ? F.miniBoss : F.midBoss;
       this.pendingFragments = (this.pendingFragments || 0) + frag;
       save.data.stats.bossKills++;
       floaters.spawn(e.x, e.y, '+' + frag + '💎', '#ffd76a', 26, 2.0);
@@ -797,6 +967,7 @@ export class Run {
     this.state = RUN_STATE.PLAYING;
     audio.play('uiConfirm');
     this.relicHooks.fire('onLevelUp');
+    this._maybeCallBossEarly();
   }
 
   // --- weapons -----------------------------------------------------------------
@@ -923,6 +1094,9 @@ export class Run {
     this.chestResult = { kind: 'chest', granted, gold: c.gold };
     this.state = RUN_STATE.CHEST;
     events.emit(EV.CHEST_OPENED, c.gold, granted);
+    // A Gold Chest hands out 3-5 upgrades at once and is perfectly capable of
+    // being the thing that finishes a build.
+    this._maybeCallBossEarly();
   }
 
   closeChest() {
@@ -930,7 +1104,16 @@ export class Run {
     this.state = RUN_STATE.PLAYING;
   }
 
-  /** Altar: 25% of current HP for a random relic, or 200 gold for an upgrade. */
+  /**
+   * Altar: 25% of current HP for a random relic, or 200 gold for an upgrade.
+   *
+   * THE BLOOD OFFER IS STILL ONE-SHOT. The gold offer is not: it is a counter,
+   * and it stays open for up to SHRINE_ALTAR.goldUses purchases (see the comment
+   * on that constant — in-run gold had nothing else to buy in the entire game).
+   * It closes the instant another purchase becomes impossible, whether that is
+   * because the stock ran out or because the player can no longer pay, so the
+   * offer screen never re-opens on someone it has nothing left to sell.
+   */
   useAltar(option) {
     const A = this.data.upgrades.SHRINE_ALTAR;
     this.altar.used = true;
@@ -941,6 +1124,12 @@ export class Run {
     } else if (option === 'gold' && this.stats.gold >= A.goldCost) {
       this.stats.gold -= A.goldCost;
       this.pendingLevelUps++;
+      this.altar.goldUses++;
+      if (this.altar.goldUses < (A.goldUses || 1) && this.stats.gold >= A.goldCost) {
+        this.altar.used = false;
+        floaters.spawn(this.altar.x, this.altar.y - 40,
+                       (A.goldUses - this.altar.goldUses) + ' MORE', '#ffd76a', 20, 1.6);
+      }
       this.closeChest();
     } else {
       this.closeChest();

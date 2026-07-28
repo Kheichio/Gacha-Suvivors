@@ -286,7 +286,8 @@ describe('data / the one-to-one rule (SECTION 17 requires this test)', () => {
       owners.set(r.owner, r.id);
       assert.ok(characters.CHARACTERS_BY_ID[r.owner], `relic ${r.id} owner "${r.owner}" is not a character`);
     }
-    assert.equal(owners.size, 19, 'expected 19 signature relics with distinct owners');
+    assert.equal(owners.size, characters.CHARACTERS.length,
+                 'every character must own exactly one signature relic, and no two may share');
   });
 
   it('rival pairs sit at matching rarity', () => {
@@ -299,18 +300,44 @@ describe('data / the one-to-one rule (SECTION 17 requires this test)', () => {
 
 // ============================================================================
 describe('data / counts and integrity', () => {
-  it('19 characters at the documented rarity split', () => {
-    assert.equal(characters.CHARACTERS.length, 19);
-    assert.equal(characters.CHARACTERS_BY_RARITY[3].length, 2);
-    assert.equal(characters.CHARACTERS_BY_RARITY[4].length, 6);
-    assert.equal(characters.CHARACTERS_BY_RARITY[5].length, 8);
-    assert.equal(characters.CHARACTERS_BY_RARITY[6].length, 3);
+  it('the rarity buckets partition the roster exactly', () => {
+    // These used to be four hardcoded literals (2/6/8/3 out of 19), which meant
+    // ADDING A CHARACTER — the thing the whole architecture is built to make
+    // cheap — failed the suite in four places for no reason. What actually
+    // matters is structural: every character appears in exactly one bucket,
+    // every bucket holds only its own rarity, and the roster is still big
+    // enough to be a roster. The numbers themselves belong in DECISIONS.md.
+    let total = 0;
+    const seen = new Set();
+    for (const r of [3, 4, 5, 6]) {
+      const bucket = characters.CHARACTERS_BY_RARITY[r] || [];
+      total += bucket.length;
+      for (const id of bucket) {
+        const c = characters.CHARACTERS_BY_ID[id];
+        assert.ok(c, `rarity bucket ${r} names an unknown character "${id}"`);
+        assert.equal(c.rarity, r, `${id} is rarity ${c.rarity} but sits in bucket ${r}`);
+        assert.ok(!seen.has(id), `${id} appears in more than one rarity bucket`);
+        seen.add(id);
+      }
+    }
+    assert.equal(total, characters.CHARACTERS.length,
+                 'the rarity buckets do not add up to the roster');
+    assert.atLeast(characters.CHARACTERS.length, 19);
+    // Rarity has to stay meaningful: commons outnumber legendaries.
+    assert.atLeast((characters.CHARACTERS_BY_RARITY[5] || []).length,
+                   (characters.CHARACTERS_BY_RARITY[6] || []).length,
+                   'there are more ★6 characters than ★5');
   });
 
-  it('24 relics — 19 signature + 5 stage (M6 said 22 and was wrong)', () => {
-    assert.equal(relics.RELICS.length, 24);
-    assert.equal(relics.SIGNATURE_RELICS.length, 19);
-    assert.equal(relics.STAGE_RELICS.length, 5);
+  it('every character has a signature relic, and the stage relics are extra', () => {
+    // Same reasoning: 24/19/5 was three literals that a nineteenth-plus
+    // character invalidates. The invariant is the one-to-one rule.
+    assert.equal(relics.SIGNATURE_RELICS.length, characters.CHARACTERS.length,
+                 'signature relics and characters are no longer one-to-one');
+    assert.equal(relics.RELICS.length,
+                 relics.SIGNATURE_RELICS.length + relics.STAGE_RELICS.length,
+                 'RELICS is not exactly the signature relics plus the stage relics');
+    assert.atLeast(relics.STAGE_RELICS.length, 5);
   });
 
   it('8 evolutions (M6 said 7 and was wrong)', () => {

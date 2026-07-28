@@ -516,6 +516,84 @@ describe('weapons / a boss can be killed at any moment, including its own', () =
 });
 
 // ---------------------------------------------------------------------------
+describe('weapons / a punch is a line, not a cone', () => {
+  /** One stationary, unkillable enemy at an exact offset from the player. */
+  function dummyAt(run, dx, dy) {
+    const p = run.player;
+    const e = run.enemies.spawn(data.enemies.ENEMIES[0], p.x + dx, p.y + dy, {});
+    if (e) { e.hp = e.maxHp = 1e9; e.spawnT = 0; e.baseSpeed = 0; e.speed = 0; }
+    run.enemyHash.build(run.enemies.items, run.enemies.count);
+    return e;
+  }
+
+  it('ki punches hit what is in front and miss what is beside', () => {
+    // It used to fire a 1.25-radian cone three times — a 72-degree sweep, which
+    // is a sword swing, not a punch. Reported as "if its punches it should go in
+    // a straight line not to the sides".
+    freshSave();
+    const run = new Run(data, {
+      characterId: 'sora', stageId: data.stages.STAGES[0].id, tierIndex: 0, seed: 11,
+    });
+    const p = run.player;
+    p.facing = 0;                                   // due east
+    const front = dummyAt(run, 92, 0);
+    const side = dummyAt(run, 0, 92);
+    assert.ok(front && side, 'could not place the dummies');
+
+    abilitiesDriver.fireAuto(run);
+    for (let i = 0; i < 40; i++) run.scheduler.tick(CONFIG.TICK_DT);
+
+    assert.lessThan(front.hp, front.maxHp, 'the punch missed a target directly ahead');
+    assert.equal(side.hp, side.maxHp,
+                 'the punch hit a target 90 degrees off the facing — it is still a cone');
+    run.dispose();
+  });
+
+  it('the punch count and cadence scale with the signature level', () => {
+    freshSave();
+    const counts = [];
+    const spans = [];
+    for (const setup of [{ level: 1 }, { level: 8 }, { level: 8, evolved: true }]) {
+      const run = new Run(data, {
+        characterId: 'sora', stageId: data.stages.STAGES[0].id, tierIndex: 0, seed: 12,
+      });
+      const w = run.weapons.slots[0];
+      w.level = setup.level;
+      if (setup.evolved) assert.ok(run.weapons.evolve(w.id), 'the signature refused to evolve');
+      run.weapons._rebuildMods();
+      run.player.facing = 0;
+      dummyAt(run, 92, 0);
+      abilitiesDriver.fireAuto(run);
+      // The first punch lands immediately; the rest are queued on the sim-time
+      // scheduler, so the queue depth IS the extra punch count.
+      const n = 1 + run.scheduler.count;
+      // Drain the queue to find out how long the volley actually takes. Levels
+      // buy CADENCE as well as count, and once the count is capped cadence is
+      // the only thing left for the evolution to change — so measuring the
+      // queue depth alone cannot see the last upgrade the player buys.
+      let ticks = 0;
+      while (run.scheduler.count > 0 && ticks < 600) { run.scheduler.tick(1 / 60); ticks++; }
+      counts.push(n);
+      spans.push(ticks / 60);
+      run.dispose();
+    }
+    // Two, not one: a punch line catches a fraction of what the old cone did,
+    // and opening the volley at a single jab put a six-star below every
+    // three-star on the balance board. The floor is part of the repricing.
+    assert.equal(counts[0], 2, 'a level-1 signature should open on a two-punch volley');
+    assert.ok(counts[1] > counts[0], `level 8 threw ${counts[1]}, level 1 threw ${counts[0]}`);
+    assert.ok(counts[2] >= counts[1], `evolved threw ${counts[2]}, maxed threw ${counts[1]}`);
+    assert.atMost(counts[2], 4, 'the volley grew past the four punches it is capped at');
+    assert.equal(counts[2], 4, 'a maxed, evolved signature should reach the four-punch cap');
+    // The cadence has to keep tightening after the count caps out, or the last
+    // levels of the weapon buy the player nothing they can see.
+    assert.ok(spans[2] < spans[1],
+              `evolved volley took ${spans[2].toFixed(3)}s, maxed took ${spans[1].toFixed(3)}s ` +
+              '— the evolution stopped tightening the cadence');
+  });
+});
+
+// ---------------------------------------------------------------------------
 describe('weapons / the level-up offer', () => {
   it('weapons really are offered, and every offered kind is one the UI can draw', () => {
     freshSave();

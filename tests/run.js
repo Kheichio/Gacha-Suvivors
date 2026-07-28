@@ -52,7 +52,8 @@ describe('architecture / adding a character must not touch gameplay code', () =>
   const CHAR_IDS = CHARACTERS.map((c) => c.id);
 
   it('found the character ids to scan for', () => {
-    assert.equal(CHAR_IDS.length, 19, 'expected 19 character ids in characters.js');
+    // A minimum, not an equality: adding a character must not fail this suite.
+    assert.atLeast(CHAR_IDS.length, 19, 'characters.js stopped exporting a roster');
   });
 
   it('no character id appears outside src/data/ and the ability registry', () => {

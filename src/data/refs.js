@@ -33,7 +33,7 @@
 export const REFS = {
 
   // ===========================================================================
-  // CHARACTERS (19) — refNotes is the full SECTION 4 art-direction paragraph.
+  // CHARACTERS (24) — refNotes is the full SECTION 4 art-direction paragraph.
   // This is what an artist works from; do not trim it.
   // ===========================================================================
 
@@ -223,7 +223,81 @@ export const REFS = {
               "of triumph is a manic grin and a lot of red backlighting.",
   },
 
+  yukine: {
+    ref: 'Shirakami Fubuki',
+    refSource: 'Hololive JP',
+    refNotes: "White fox spirit. Waist-length white hair with one blue-green " +
+              "streak, large white fox ears with pale blue inner fur, gold-green " +
+              "eyes, a white-and-blue jacket over a short dark skirt, thigh-high " +
+              "boots, and a SINGLE large white tail she gestures with like a " +
+              "second hand. Endlessly cheerful and endlessly talkative — she " +
+              "will hold a conversation with anybody about anything — and " +
+              "underneath it an unnervingly sharp commercial mind: she reads the " +
+              "contract, she knows the numbers, and she is friends with " +
+              "literally everyone because that is also good business. Her fox " +
+              "fire is WHITE-BLUE, never orange. Explicitly NOT the pink " +
+              "nine-tailed shrine fox already on the roster (Kagura): one tail, " +
+              "white, modern clothes, and a business smile.",
+  },
+
+  wren: {
+    ref: 'Fern',
+    refSource: 'Frieren: Beyond Journey\'s End',
+    refNotes: "Human apprentice, mid-teens. Straight lilac hair cut in a blunt " +
+              "bob with one small braid at the side, violet eyes, a long white " +
+              "capelet with a broad collar over a plain grey-brown travelling " +
+              "dress, flat shoes. Immaculately tidy where her teacher is not. " +
+              "She casts the same plain attack spell as her master, far faster " +
+              "and without ever missing once, and she is quietly, permanently " +
+              "exasperated with everybody around her. Her tell is the flat stare " +
+              "and the long pause before she agrees to anything. Draw her upright " +
+              "and unimpressed while the world burns behind her.",
+  },
+
+  brant: {
+    ref: 'Stark',
+    refSource: 'Frieren: Beyond Journey\'s End',
+    refNotes: "A very large red-haired warrior in his late teens. Shaggy red " +
+              "hair, blue eyes, a heavy blue-grey coat with a fur collar over " +
+              "mail, wrapped forearms, and an enormous two-handed axe carried on " +
+              "his back. Broad-shouldered and visibly terrified at all times — " +
+              "the joke is that he shakes, sweats, shouts that he absolutely " +
+              "cannot do this, and then does it anyway, harder than anyone else " +
+              "in the party. Draw the fear on his face and the axe already " +
+              "coming down.",
+  },
+
   // --- 6-star ---------------------------------------------------------------
+  aoi: {
+    ref: 'Minato Aqua',
+    refSource: 'Hololive JP',
+    refNotes: "Blue-violet hair in two long drill twin-tails tied with white " +
+              "ribbons, purple-blue eyes, and a full maid uniform — dark navy " +
+              "dress, white pinafore and cuffs, a white frilled headdress, a red " +
+              "neck ribbon. Small, loud, and catastrophically clumsy: the entire " +
+              "running gag is that she drops, breaks or trips over everything, " +
+              "apologises constantly, panics on air, and is nonetheless " +
+              "terrifyingly good at the thing she is actually there to do. Her " +
+              "fanbase are her staff. Never draw her posed — draw her " +
+              "mid-accident, tray leaving her hands, tea in the air, one " +
+              "perfectly serene expression.",
+  },
+
+  mirel: {
+    ref: 'Frieren',
+    refSource: 'Frieren: Beyond Journey\'s End',
+    refNotes: "A tiny elf mage with waist-length white-silver hair worn in two " +
+              "low tails, green eyes, long pointed ears, a white-and-gold " +
+              "long-sleeved robe under a short dark shoulder cape, and a plain " +
+              "wooden staff. She looks about fourteen and is well over a " +
+              "thousand years old. Flat, deadpan delivery, almost no expression, " +
+              "and a collector of small useless spells — one that grows a field " +
+              "of flowers, one that removes rust, one that makes grapes sweeter. " +
+              "Her comedy is entirely scale: \"a little while\" means fifty " +
+              "years. Draw her small, unhurried and perfectly still while " +
+              "everything around her is on fire.",
+  },
+
   sovereign_alicia: {
     ref: 'Kiryu Coco',
     refSource: 'Hololive JP',
@@ -968,7 +1042,7 @@ export const REFS = {
   },
 
   // ===========================================================================
-  // RELICS (24) — SECTION 11's "RELIC NAME ORIGINS" block, all of it.
+  // RELICS (29) — SECTION 11's "RELIC NAME ORIGINS" block, all of it.
   // Spec lines 1524-1525: every signature relic comes from ITS OWN character's
   // source, never someone else's. So a signature relic's `ref` is deliberately
   // the same person as its owner character's `ref` — that duplication is the
@@ -977,7 +1051,7 @@ export const REFS = {
   // The 5 stage relics reference their stage's series, not a person.
   // ===========================================================================
 
-  // --- 19 signature relics --------------------------------------------------
+  // --- 24 signature relics --------------------------------------------------
   secret_technique_109: {
     ref: 'Mokona',
     refSource: 'Magic Knight Rayearth',
@@ -1133,6 +1207,50 @@ export const REFS = {
     refNotes: "Gohan's Super Saiyan 2 awakening at the Cell Games, verbatim, and " +
               "the reason his art direction is pinned to the Cell Games design " +
               "specifically. Owner: Han.",
+  },
+
+  exclusive_contract: {
+    ref: 'Shirakami Fubuki',
+    refSource: 'Hololive JP',
+    refNotes: "The white fox's business reputation, made into a prop: she is the " +
+              "one who actually reads the paperwork, negotiates the collab, and " +
+              "knows what every clause costs. A folded contract with a fox-paw " +
+              "seal. Owner: Yukine, and it comes from her source alone.",
+  },
+
+  annotated_manual: {
+    ref: 'Fern',
+    refSource: 'Frieren: Beyond Journey\'s End',
+    refNotes: "The apprentice's practice manual, corrected in her own hand on " +
+              "every page — the visible evidence of the drilling that makes her " +
+              "faster and cleaner than her teacher at the one spell they share. " +
+              "Owner: Wren.",
+  },
+
+  chipped_greataxe: {
+    ref: 'Stark',
+    refSource: 'Frieren: Beyond Journey\'s End',
+    refNotes: "The warrior's oversized two-handed axe, notched along the whole " +
+              "edge — a hand-me-down far too big for him that he swings anyway. " +
+              "Owner: Brant. Same series as the mage relics and deliberately " +
+              "non-overlapping with them.",
+  },
+
+  cracked_teacup: {
+    ref: 'Minato Aqua',
+    refSource: 'Hololive JP',
+    refNotes: "The maid idol's signature disaster, frozen into an object: a good " +
+              "cup with one hairline crack, still full, already tipping. Owner: " +
+              "Aoi, and it comes from her source alone.",
+  },
+
+  field_of_flowers: {
+    ref: 'Frieren',
+    refSource: 'Frieren: Beyond Journey\'s End',
+    refNotes: "The most famous of the elf mage's collected useless spells — the " +
+              "one that fills a meadow with flowers and does nothing else " +
+              "whatsoever. That she bothered to learn it, and that she uses it " +
+              "in a fight, is the entire character. Owner: Mirel.",
   },
 
   // --- 5 stage relics -------------------------------------------------------

@@ -1,5 +1,5 @@
 // src/data/relics.js
-// GACHA SURVIVORS — the 24 relics (19 signature + 5 stage).
+// GACHA SURVIVORS — the 29 relics (24 signature + 5 stage).
 //
 // SECTION 11 rules that are load-bearing here:
 //   - Every relic is tied to a character but usable by ANYONE.
@@ -65,7 +65,7 @@ export const RESONANCE_DIRECTION = {
 //   rare 220 | epic 140 | legendary 100
 
 // ---------------------------------------------------------------------------
-// SIGNATURE RELICS (19)
+// SIGNATURE RELICS (24)
 // ---------------------------------------------------------------------------
 
 const SECRET_TECHNIQUE_109 = {
@@ -448,6 +448,102 @@ const THE_CELL_GAMES = {
   codex: 'He asked, very politely, several times, for all of this to stop.',
 };
 
+const EXCLUSIVE_CONTRACT = {
+  id: 'exclusive_contract',
+  name: 'The Exclusive Contract',
+  shipName: null,
+  owner: 'yukine',
+  stageOwner: null,
+  rarity: 'legendary',
+  icon: '📜',
+  desc: 'Every 35s you sign: +45% damage for 8s, and then -20% damage for the 8s after it. There is always a clause, and you are the one who has to plan around it.',
+  resonanceDesc: 'RESONANCE: every 23s — +67.5% damage for 12s, then -13% for 12s.',
+  hooks: ['onInterval', 'onTick'],
+  // `penalty` is a COST and resonates DOWN like a cooldown (0.20/1.5 = 0.133,
+  // rounded to 0.13 so the card can print a whole percent). Everything else
+  // takes the default *1.5. 35/1.5 = 23.3 -> 23.
+  params: { interval: 35, bonus: 0.45, duration: 8, penalty: 0.20 },
+  resonance: { interval: 23, bonus: 0.675, duration: 12, penalty: 0.13 },
+  visual: { shape: 'square', color: '#f4f1ea', accent: '#3fb6c8', size: 12 },
+  dropWeight: 100,
+  codex: 'Clause four is four pages long. Nobody has ever finished clause four.',
+};
+
+const ANNOTATED_MANUAL = {
+  id: 'annotated_manual',
+  name: 'The Annotated Manual',
+  shipName: null,
+  owner: 'wren',
+  stageOwner: null,
+  rarity: 'epic',
+  icon: '📓',
+  desc: 'Every kill refunds 0.4s from every cooldown you have — special, escape and relic timers alike. Kill efficiently and your kit is never actually down.',
+  resonanceDesc: 'RESONANCE: 0.6s off every cooldown per kill.',
+  hooks: ['onKill'],
+  params: { refund: 0.4 },
+  resonance: { refund: 0.6 },
+  visual: { shape: 'square', color: '#c3a8ff', accent: '#2a2436', size: 12 },
+  dropWeight: 140,
+  codex: 'Every page corrected in a neat hand. Several corrections correct her teacher.',
+};
+
+const CHIPPED_GREATAXE = {
+  id: 'chipped_greataxe',
+  name: 'The Chipped Greataxe',
+  shipName: null,
+  owner: 'brant',
+  stageOwner: null,
+  rarity: 'epic',
+  icon: '🪓',
+  desc: 'Your first attack within 2s of using your escape deals 250% damage and knocks back 500px. Every panic becomes an opening, if you swing on the way out.',
+  resonanceDesc: 'RESONANCE: 375% damage and 750px of knockback, within 3s.',
+  hooks: ['onEscape', 'onAutoAttack'],
+  params: { window: 2, damageMult: 2.5, knockback: 500 },
+  resonance: { window: 3, damageMult: 3.75, knockback: 750 },
+  visual: { shape: 'shard', color: '#b8c2ce', accent: '#4a3020', size: 13 },
+  dropWeight: 140,
+  codex: 'Too big for him. Notched down the whole edge. He has never once let go of it.',
+};
+
+const CRACKED_TEACUP = {
+  id: 'cracked_teacup',
+  name: 'The Cracked Teacup',
+  shipName: null,
+  owner: 'aoi',
+  stageOwner: null,
+  rarity: 'legendary',
+  icon: '🍵',
+  desc: 'Every 20s you drop something: 120 damage in a 140px shatter at your feet, and 5 of your own HP. It can never kill you, and you always know exactly where you are standing.',
+  resonanceDesc: 'RESONANCE: every 13s — 180 damage in 210px, and only 3 HP.',
+  hooks: ['onInterval'],
+  // `selfDamage` is a COST and resonates DOWN (5/1.5 = 3.33 -> 3). 20/1.5 = 13.3
+  // -> 13; the rest take the default *1.5.
+  params: { interval: 20, radius: 140, damage: 120, selfDamage: 5 },
+  resonance: { interval: 13, radius: 210, damage: 180, selfDamage: 3 },
+  visual: { shape: 'circle', color: '#eaf2ff', accent: '#1e2440', size: 12, glow: true },
+  dropWeight: 100,
+  codex: 'It was a very good cup. It is still, technically, a very good cup.',
+};
+
+const FIELD_OF_FLOWERS = {
+  id: 'field_of_flowers',
+  name: 'A Field of Flowers',
+  shipName: null,
+  owner: 'mirel',
+  stageOwner: null,
+  rarity: 'legendary',
+  icon: '🌼',
+  desc: 'Every 25s a 240px meadow blooms where you stand and lasts 8s: everything inside it is 30% slower and you heal 3 HP/s. It is not a combat spell. Use it anyway.',
+  resonanceDesc: 'RESONANCE: every 17s — a 360px meadow for 12s, 45% slow, 4.5 HP/s.',
+  hooks: ['onInterval'],
+  // 25/1.5 = 16.67 -> 17. Everything else is the default *1.5.
+  params: { interval: 25, radius: 240, duration: 8, healPerSecond: 3, slow: 0.30 },
+  resonance: { interval: 17, radius: 360, duration: 12, healPerSecond: 4.5, slow: 0.45 },
+  visual: { shape: 'star', color: '#8fe6a8', accent: '#c8a24a', size: 12, glow: true },
+  dropWeight: 100,
+  codex: 'It does nothing but flowers. She learned it anyway. That took eleven years.',
+};
+
 // ---------------------------------------------------------------------------
 // STAGE RELICS (5) — first-clear rewards.
 // owner: null + stageOwner. No resonance: a place cannot be your main.
@@ -570,6 +666,11 @@ export const RELICS = [
   CROWN_OF_THE_WORLD_EATER,
   KAIOKEN,
   THE_CELL_GAMES,
+  EXCLUSIVE_CONTRACT,
+  ANNOTATED_MANUAL,
+  CHIPPED_GREATAXE,
+  CRACKED_TEACUP,
+  FIELD_OF_FLOWERS,
   NEON_VISOR,
   ANCHOR_GEAR,
   NINE_SEAL_WARD,
@@ -598,6 +699,11 @@ export const RELICS_BY_ID = {
   crown_of_the_world_eater: CROWN_OF_THE_WORLD_EATER,
   kaioken: KAIOKEN,
   the_cell_games: THE_CELL_GAMES,
+  exclusive_contract: EXCLUSIVE_CONTRACT,
+  annotated_manual: ANNOTATED_MANUAL,
+  chipped_greataxe: CHIPPED_GREATAXE,
+  cracked_teacup: CRACKED_TEACUP,
+  field_of_flowers: FIELD_OF_FLOWERS,
   neon_visor: NEON_VISOR,
   anchor_gear: ANCHOR_GEAR,
   nine_seal_ward: NINE_SEAL_WARD,
@@ -605,7 +711,7 @@ export const RELICS_BY_ID = {
   abyssal_setlist: ABYSSAL_SETLIST,
 };
 
-// 19 signature relics, in roster order (3★ -> 6★).
+// 24 signature relics, in roster order (3★ -> 6★).
 export const SIGNATURE_RELICS = [
   'secret_technique_109',
   'dual_blades',
@@ -623,9 +729,14 @@ export const SIGNATURE_RELICS = [
   'ashes_of_the_eternal_encore',
   'captains_rum',
   'potato_chip_gambit',
+  'exclusive_contract',
+  'annotated_manual',
+  'chipped_greataxe',
   'crown_of_the_world_eater',
   'kaioken',
   'the_cell_games',
+  'cracked_teacup',
+  'field_of_flowers',
 ];
 
 // 5 stage relics, in stage order (stages 2-6; stages 1 and 7 award no relic).

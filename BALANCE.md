@@ -57,34 +57,54 @@ whole run — so a single seed is a sample, not a measurement, and chasing a
 single-seed swing is chasing nothing. Every table below is a three-seed average
 and every future one should be.
 
+### Current table — 24 characters, 14 weapons (2026-07-28)
+
 | Character | Survived | Δ median | DPS (all) | kills/s | Level | Read |
 |---|---:|---:|---:|---:|---:|---|
-| shiro_same | 849s | +36% | 331 | 10.20 | 47 | **VICTORY** |
-| sovereign_alicia | 846s | +36% | 656 | 20.34 | 60 | **VICTORY** — ★6, expected |
-| kira | 845s | +36% | 1168 | 39.19 | 85 | **VICTORY** — throughput arc |
-| hikari | 845s | +36% | 1102 | 36.45 | 84 | **VICTORY** — free revive |
-| kagura | 785s | +26% | 642 | 20.98 | 66 | was the worst outlier in the original table |
-| hoshino_rei | 716s | +15% | 217 | 7.89 | 34 | |
-| uzu | 715s | +15% | 561 | 20.93 | 52 | |
-| nekromina | 683s | +10% | 304 | 11.09 | 39 | |
-| han | 674s | +8% | 532 | 17.90 | 46 | was −45% before weapons |
-| **unit_09** | **623s** | **median** | 465 | 16.32 | 36 | |
-| reika | 619s | −1% | 257 | 10.32 | 34 | |
-| yamikage | 492s | −21% | 99 | 4.44 | 18 | |
-| niten | 434s | −30% | 61 | 3.23 | 13 | |
-| rin | 402s | −36% | 40 | 2.54 | 10 | OUTLIER, barely |
-| akane | 368s | −41% | 48 | 2.90 | 10 | OUTLIER |
-| sora | 342s | −45% | 28 | 1.97 | 8 | OUTLIER — weak-early is his design |
-| mochi | 312s | −50% | 21 | 1.65 | 7 | OUTLIER — ★3 starter |
-| alto | 297s | −52% | 20 | 1.64 | 7 | OUTLIER — ★3 starter |
-| captain_yuli | 269s | −57% | 13 | 1.09 | 6 | OUTLIER — melee-only, bot kites |
+| yukine | 872.0s | +31% | 299 | 9.67 | 35 | |
+| kira | 854.9s | +29% | 891 | 29.53 | 51 | throughput arc |
+| mirel | 847.1s | +28% | 409 | 13.16 | 40 | ★6 |
+| hikari | 846.5s | +28% | 861 | 28.40 | 51 | free revive |
+| unit_09 | 846.0s | +28% | 839 | 26.63 | 51 | |
+| wren | 845.7s | +27% | 1382 | 48.63 | 58 | highest throughput on the board |
+| sovereign_alicia | 776.2s | +17% | 470 | 15.08 | 37 | ★6, expected |
+| aoi | 730.3s | +10% | 295 | 9.95 | 32 | **was −55%** — see §52 |
+| han | 707.2s | +7% | 438 | 15.45 | 36 | was −45% before weapons |
+| sora | 706.3s | +6% | 191 | 6.40 | 27 | **was −57%** — see §52 |
+| shiro_same | 683.8s | +3% | 228 | 7.55 | 28 | |
+| **kagura** | **663.4s** | **median** | 113 | 4.36 | 26 | |
+| uzu | 650.7s | −2% | 454 | 18.01 | 37 | |
+| yamikage | 639.8s | −4% | 237 | 8.75 | 26 | |
+| hoshino_rei | 626.9s | −6% | 239 | 9.06 | 27 | |
+| akane | 594.2s | −10% | 107 | 4.18 | 19 | |
+| niten | 518.8s | −22% | 90 | 4.06 | 18 | |
+| brant | 515.3s | −22% | 259 | 8.95 | 23 | |
+| reika | 502.7s | −24% | 253 | 10.23 | 25 | |
+| rin | 481.4s | −27% | 63 | 3.15 | 14 | |
+| nekromina | 443.2s | −33% | 118 | 6.87 | 17 | inside ±35%, barely |
+| alto | 344.6s | −48% | 32 | 2.38 | 8 | OUTLIER — ★3 starter |
+| mochi | 340.9s | −49% | 23 | 1.76 | 7 | OUTLIER — ★3 starter |
+| captain_yuli | 287.8s | −57% | 22 | 1.67 | 6 | OUTLIER — melee-only, bot kites |
 
-**Ten outliers, and — more importantly — the distribution is smooth.** Before
-the weapon system it was eleven, on a harness that turned out to be measuring
-noise (see the top of this file). At three weapon slots it was violently
+Throughput check (kira): **6.50 k/s early → 61.26 k/s late**, a 9.4x acceleration.
+
+**Three outliers, down from ten** — and the three that remain are precisely the
+three this file has always said to leave alone: the two ★3 starters and the
+melee-only character the bot refuses to play. Every character the harness *can*
+play now sits inside SECTION 17's ±35%.
+
+Two of the seven that left the outlier list did so because the sweep found
+genuine defects rather than because anything was tuned to fit the bot — see
+DECISIONS.md §52. `sora` and `aoi` were a **six-star apiece sitting below every
+three-star on the board**, which is the shape of a bug, not of a weak character.
+That is the entire argument for running this sweep on a schedule: neither defect
+threw, neither failed a test, and both were invisible in play until you had spent
+five minutes with the character.
+
+**The distribution is also smooth.** At three weapon slots it was violently
 bimodal: you either snowballed to a clear or died around minute five, with
-nothing in between. Five slots filled the middle in — nine characters now land
-between 400s and 790s, where that band used to be empty.
+nothing in between. Five slots filled the middle in — fourteen characters now
+land between 440s and 790s, where that band used to be empty.
 
 The extra slots are not extra power so much as extra **coverage**: a character
 whose own kit the bot plays badly has four weapons holding its floor instead of
@@ -119,42 +139,46 @@ time you take one.
 **Expected and correct — do not touch:**
 
 - **mochi, alto at the bottom.** They are the ★3 starters. If they matched a ★6
-  the rarity system would mean nothing.
-- **sovereign_alicia at the top.** ★6, 35s cooldown, an 8-second dragon form.
-- **sora near the bottom.** His Rapid Fist scales +4% per upgrade taken this run,
-  uncapped. SECTION 4 calls him "a late-run monster and an early-run wet noodle,
-  which is exactly the arc". The bot only reached level 5; a human reaching level
-  40 sees a completely different character.
-- **kira at +129%.** SECTION 14 demanded a check that he is genuinely weak before
-  minute 4 and monstrous later. He measures 5.99 kills/s early against 20.35
-  late — a 3.4x acceleration. That arc IS the character and it is working.
+  the rarity system would mean nothing. They are two of the three surviving
+  outliers and both should stay there.
+- **sovereign_alicia, mirel at the top.** ★6, and priced like it.
+- **kira at +29%.** SECTION 14 demanded a check that he is genuinely weak before
+  minute 4 and monstrous later. He measures **6.50 k/s early against 61.26 late,
+  a 9.4x acceleration**. That arc IS the character and it is working.
+- **wren at 1382 DPS.** The highest throughput on the board by a wide margin, but
+  he converts it into +27% survival — barely above kira. Damage is not the
+  binding constraint up there; not dying is. Leave it.
 
 **Probable bot artifacts — verify by hand before changing numbers:**
 
-- **uzu, hikari at +146%.** Both are autonomous: a clone army and a free revive
-  keep fighting while the bot does something stupid. Minion and revive characters
-  always over-perform under a bot. Check whether a human at the same level sees
-  the same gap before touching either.
-- **captain_yuli at 6 DPS.** The spec says he has "the highest raw DPS in the
+- **captain_yuli at 22 DPS.** The spec says he has "the highest raw DPS in the
   game, but you must be in melee" with a 70px reach. The bot's whole movement
   policy is *flee the densest cluster*, which is the exact opposite of how he is
-  played. Almost certainly the bot, not the character.
-- **han at −45%.** SECTION 4: "he is the only character in the game who is
-  REWARDED for being hit, which makes him play completely differently from
-  everyone else — he wades in instead of kiting." The bot exclusively kites, so
-  his rage meter barely fills and he never transforms. This is the single
-  clearest case in the table of the harness measuring the wrong thing.
+  played. Almost certainly the bot, not the character — and he is the one outlier
+  in the table that is neither a starter nor a bug.
+- **hikari at +28%.** A free revive keeps fighting while the bot does something
+  stupid; revive characters always over-perform under a bot. Not worth acting on
+  at +28%, but it is the reason to discount the number rather than trust it.
 
-**Genuinely worth a look:**
+**Resolved since the last table — kept because the reasoning generalises:**
 
-- **kagura, −56%.** A ★4 dying faster than both ★3 starters is not explained by
-  rarity or by the bot's policy. Her ofuda auto has a 0.8s detonation delay and
-  her escape is a two-press placed gate the bot never uses correctly (it presses
-  once, plants the torii, and never presses again — so she effectively has no
-  escape move at all). Confirm by hand; if it is only the gate, the character is
-  fine and the bot needs to learn the second press.
-- **The overall spread is 6x DPS between adjacent rarities.** Tighten from the
-  top down rather than buffing the bottom — the ★3s are supposed to be modest.
+- **han**, once −45%, is now **+7%**. He is rewarded for being hit and the bot
+  exclusively kites, so his rage meter never filled. Four weapon slots hold his
+  floor while his own kit is being played wrong. Nothing about han changed.
+- **kagura**, once −56% and the worst outlier on the board, is now the **median**.
+  Same cause, same non-fix.
+- **sora and aoi** were −57% and −55%. Those were **real defects**, found here and
+  fixed at the source (DECISIONS.md §52), not tuned away. See the note under the
+  table: a six-star below every three-star is the shape of a bug.
+
+**Still worth a look:**
+
+- **The spread between adjacent rarities is still wide** — roughly 6x DPS. Tighten
+  from the top down rather than buffing the bottom; the ★3s are supposed to be
+  modest, and the last two attempts to lift the bottom produced monocultures.
+- **nekromina at −33%** is inside ±35% by two points. That is not a pass, it is a
+  near miss, and she is the character most likely to fall out of tolerance the
+  next time anything moves.
 
 ---
 

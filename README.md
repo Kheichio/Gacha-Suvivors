@@ -47,8 +47,8 @@ bottom-right, laid out clear of the HUD.
 ## Commands
 
 ```
-npm test              # 122 tests, including the ones SECTION 17 demands
-node sim.js --all     # balance sweep across all 19 characters
+npm test              # 194 tests, including the ones SECTION 17 demands
+node sim.js --all --seeds=42,1337,7   # balance sweep across all 24 characters
 node sim.js --char=kira --stage=5 --seed=42
 node sim.js --all --json > balance.json
 ```
@@ -82,7 +82,7 @@ src/
                         obstacles, hazards, waveDirector, adaptiveDirector,
                         boss, damage, statusEffects, targeting, relicHooks,
                         gachaEngine, achievements, weapons
-    abilities/          the ability registry — 19 characters x 4 pillars,
+    abilities/          the ability registry — 24 characters x 4 pillars,
                         plus weaponImpls.js (one entry per weapon `kind`)
   data/                 ALL content as plain data objects
   scenes/               hub, stageSelect, run, results, gacha, roster,
@@ -111,9 +111,9 @@ levelled on the level-up screen like anything else. By level 8 it is 285% damage
 at 178% rate with two extra projectiles and two pierce; at max it can **evolve**
 into a continuous form that fires without pause and leaves a standing aura.
 
-The other four slots are filled from eight pickable weapons, each with its own
-hand-authored eight-level path and its own evolution — so you leave half the
-arsenal on the table every run:
+The other four slots are filled from **fourteen** pickable weapons, each with its
+own hand-authored eight-level path and its own evolution — so you leave most of
+the arsenal on the table every run:
 
 | Weapon | What it does | Evolves into |
 |---|---|---|
@@ -125,6 +125,19 @@ arsenal on the table every run:
 | Wisp Flock 🔥 | foxfire that hunts on its own | WILDFIRE — the flock never thins |
 | Chain Lash 〰 | long lashes with the best reach in the game | ENDLESS LASH — six chains, no pause |
 | Meteor Call ☄ | shells onto the thickest part of the crowd | STARFALL — continuous, and it leaves burning ground |
+| Thorn Bed 🌿 | living ground grows where you walk | OVERGROWTH — a seam under your feet, no gap to walk through |
+| Arc Conduit 🔗 | a bolt that hits **harder on every jump** | LIVE WIRE — fourteen jumps, and it doubles back |
+| Pod Volley 🌰 | pods drift, stop, and burst into shards | SEED STORM — pods in every direction, twelve shards each |
+| Return Cut ⟲ | a disc that cuts out, cuts back, then detonates on the catch | ETERNAL RETURN — three discs, always already returning |
+| Dynamo Core 🔋 | charges off every hit and kill in your build, then dumps it | OVERLOAD — a standing field that burns hotter the fuller it is |
+| Hollow Star 🌑 | a well that drags the crowd into one heap, then collapses on it | EVENT HORIZON — the pull never stops, anchored on **you** |
+
+The last six exist because eight was not enough to make two runs feel different.
+They are also deliberately *mechanically* distinct rather than statistically
+distinct: Arc Conduit is worthless on a lone target and devastating in a pack,
+Dynamo Core is the only weapon fed by your whole build rather than its own level,
+Return Cut puts its damage on the catch so it rewards standing still, and Hollow
+Star rearranges the fight before it damages it.
 
 **Every single level changes something you can see.** No weapon level is "+8%
 damage" — it is another projectile, a wider arc, a second slash, a shorter
@@ -165,6 +178,46 @@ done rather than starting you at zero.
 
 ★5 pull rate is **8%** (was 16%), with soft pity at 30 and a guarantee at 50.
 
+The roster is **24 characters** across **7 banners**. Two of those banners are
+themed rather than rotational — one built around streamer personalities, one
+around a high-fantasy party — because a banner whose only identity is "the new
+one" gives a player no reason to prefer it over fragments in the bank.
+
+---
+
+## Pacing: XP, mini-bosses, and calling the boss early
+
+Four things move the run's clock, and all four came out of the same play report:
+*"within 5 mins you can have max evo build."*
+
+**The XP curve has two caps.** It is geometric (`base 9, exponent 1.32`) up to
+level 12; from there it grows at a gentler **1.035** per level so the mid-run
+does not stall; and from **level 100** it grows at **1.16**, which is a wall. The
+soft cap exists so the middle of a run keeps paying out, and the hard cap exists
+so the top of one costs something. A single exponent could not do both — it was
+either a 5-minute finished build or a 20-minute slog to the first evolution.
+
+**Every stage has mini-bosses.** The wave timeline now carries an *opener* at
+~26% and a *closer* at ~78%, on either side of the stage's signature mid-boss at
+50%. Mini-bosses are deliberately smaller events: no screen clear, a floor chest
+instead of a Gold Chest, no guaranteed relic, and a reduced fragment award. The
+mid-boss stays the one fight the engine clears the screen for. The distinction
+matters — if every telegraphed fight paid out fully, the signature one would
+stop reading as special.
+
+**Finish your build and the final boss comes for you.** Evolve everything you
+are carrying and `run.buildComplete()` goes true, which pulls the final boss
+forward by `EARLY_BOSS_LEAD`. A player who has nothing left to pick up should not
+spend the remaining minutes farming an XP bar that no longer does anything.
+
+**Gold has somewhere to go.** The shrine's ten rows kept every spec-priced level
+exactly as it was and then kept climbing the *same* geometric curve: 59 levels
+and ~65,700 gold became **103 levels and ~606,000**. Might's tenth level costs
+5,164; its fifteenth costs 46,200. Nothing about the early shrine changed, the
+refund is still free and total, and Revival stops at 3 because three is the
+engine's hard cap for revives per run — a fourth level would take 34,000 gold
+and do nothing.
+
 ---
 
 ## The three architectural decisions that matter
@@ -186,7 +239,7 @@ hit flash, knockback, damage numbers and every relic hook work uniformly instead
 of being reimplemented and forgotten in twenty call sites.
 
 **3. Abilities are a registry of pure functions keyed by id.**
-Gameplay code never branches on a character id. Adding character #20 is one data
+Gameplay code never branches on a character id. Adding character #25 is one data
 object plus up to four registry entries. Han's rage meter is a generic
 `resourceBar` declared in his data; Kira's kills-per-second read-out is a generic
 `metric`. Neither has a line of code that knows who they are.

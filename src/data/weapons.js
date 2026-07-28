@@ -18,7 +18,8 @@
 // for. Without a cap the answer to every offer is "yes" and every run converges
 // on the same nine weapons; with one, taking a weapon is a decision you have to
 // defend for the rest of the run. Five (the signature plus four picks, out of
-// eight) leaves half the arsenal on the table every single time.
+// fourteen) leaves ten of them on the table every single time — which is the
+// number that makes two runs of the same character play differently.
 //
 // SCHEMA
 // ------
@@ -109,8 +110,31 @@ export const SIGNATURE_EVOLUTION = {
 };
 
 // ---------------------------------------------------------------------------
-// THE EIGHT PICKABLE WEAPONS
+// THE PICKABLE WEAPONS
 // ---------------------------------------------------------------------------
+//
+// The first eight are all the same SHAPE of thing: a timer runs out, a shape
+// appears, the shape hurts. Levelling one changes how big the shape is and how
+// often the timer runs out. That is a complete design for eight weapons and a
+// dead end for fourteen — the ninth "fires a bigger cone more often" is a stat
+// card wearing a weapon's frame.
+//
+// So the six below are deliberately not that. Each one asks a question the
+// first eight never ask:
+//
+//   thorn_bed    where have you BEEN? (ground that persists and spreads)
+//   arc_conduit  how many of them are TOUCHING? (a chain that gains per jump)
+//   pod_volley   what happens AFTER the projectile? (it becomes more projectiles)
+//   return_cut   is the throw the attack, or is the catch? (both, and the
+//                catch is the bigger half)
+//   dynamo_core  what has your WHOLE BUILD been doing? (a meter every kill in
+//                the run fills, that pays out in one lump)
+//   hollow_star  where will they be in a second? (it decides, then detonates
+//                there)
+//
+// Two of them (dynamo_core, hollow_star) carry real downside: the coil's damage
+// arrives in lumps you cannot time, and the star drags the crowd toward
+// whatever it is anchored on — which, once it evolves, is you.
 
 const BLADE_ARC = {
   id: 'blade_arc', name: 'Blade Arc', icon: '⚔', kind: 'arc', tier: 'common', weight: 100,
@@ -369,14 +393,307 @@ const METEOR_CALL = {
   codex: 'We filed for permission. The reply asked us to stop filing and start aiming.',
 };
 
+// ---------------------------------------------------------------------------
+// THORN BED — the only weapon that remembers where you have been.
+// ---------------------------------------------------------------------------
+// Nothing else in the arsenal cares about your feet. This one lays living
+// ground under them: keep walking and you leave a TRAIL of beds behind you that
+// keeps killing after you have gone; stand still and the bed you are standing on
+// SPREADS instead, one ring wider every time it comes round.
+//
+// `count` is not projectiles here — it is how many times a single bed may
+// thicken before it stops. That is the whole levelling curve: how much a patch
+// of ground is worth for standing on it.
+const THORN_BED = {
+  id: 'thorn_bed', name: 'Thorn Bed', icon: '🌿', kind: 'bloom', tier: 'common', weight: 100,
+  desc: 'Living ground grows under you. Walk and you leave a killing trail behind; ' +
+        'stand still and the patch you are on spreads wider every second.',
+  visual: { shape: 'diamond', color: '#7bf59a', accent: '#0f3a22', size: 10, rotates: true, glow: true },
+  levels: [
+    { damage: 7,  interval: 0.95, radius: 46,  duration: 2.0, count: 2,
+      note: 'a 46px bed, twice a second, lasting 2s' },
+    { damage: 10, interval: 0.95, radius: 52,  duration: 2.2, count: 2,
+      note: '+43% damage, and the beds last longer' },
+    { damage: 13, interval: 0.85, radius: 58,  duration: 2.6, count: 3,
+      note: 'a standing bed thickens THREE times now' },
+    { damage: 17, interval: 0.85, radius: 66,  duration: 3.0, count: 3,
+      note: '66px, and the trail lingers for 3s' },
+    { damage: 22, interval: 0.76, radius: 74,  duration: 3.4, count: 4,
+      note: 'grows FOUR rings deep, every 0.76s' },
+    { damage: 29, interval: 0.76, radius: 83,  duration: 3.9, count: 5,
+      note: 'FIVE rings — standing still is a build' },
+    { damage: 38, interval: 0.66, radius: 93,  duration: 4.5, count: 6,
+      note: 'SIX rings, 93px, and 4.5s of trail' },
+    { damage: 50, interval: 0.56, radius: 105, duration: 5.2, count: 7,
+      note: 'MAXED. 105px beds, 7 rings, 5.2s each.' },
+  ],
+  evolution: {
+    name: 'OVERGROWTH', icon: '🌾',
+    visual: { shape: 'star', color: '#ffe14a', accent: '#3a3a00', size: 12, rotates: true, glow: true },
+    desc: 'The ground never stops. Beds go down four times a second and a living ' +
+          'seam runs under your feet between them, so there is no gap left to walk through.',
+    stats: { damage: 44, interval: 0.30, radius: 118, duration: 5.0, count: 10, persist: true },
+  },
+  codex: 'Groundskeeping filed a complaint. The ground filed one back.',
+};
+
+// ---------------------------------------------------------------------------
+// ARC CONDUIT — the only weapon that is worth MORE the more of them there are.
+// ---------------------------------------------------------------------------
+// Every other weapon divides its attention across a crowd. This one multiplies
+// through it: the bolt hops from body to body and each hop lands HARDER than the
+// last, so the eleventh link of a maxed chain hits for six times the first.
+// A lone target is the worst case for it, which is exactly the shape no other
+// weapon in the arsenal has.
+const ARC_CONDUIT = {
+  id: 'arc_conduit', name: 'Arc Conduit', icon: '🔗', kind: 'chain', tier: 'rare', weight: 60,
+  desc: 'A bolt that hops from enemy to enemy and hits HARDER on every jump. ' +
+        'Worthless on one target, devastating in a pack.',
+  visual: { shape: 'shard', color: '#6ad8ff', accent: '#062f42', size: 9, rotates: true, glow: true },
+  levels: [
+    { damage: 12, interval: 1.60, count: 2,  radius: 150, range: 380, gain: 0.30, knockback: 20,
+      note: '2 jumps, each +30% on the last' },
+    { damage: 16, interval: 1.60, count: 3,  radius: 160, range: 400, gain: 0.30, knockback: 25,
+      note: 'a THIRD jump, so the tail hits 1.9x' },
+    { damage: 21, interval: 1.42, count: 3,  radius: 175, range: 430, gain: 0.36, knockback: 30,
+      note: 'jumps reach further and gain +36%' },
+    { damage: 27, interval: 1.42, count: 4,  radius: 190, range: 470, gain: 0.36, knockback: 35,
+      note: 'a FOURTH jump' },
+    { damage: 35, interval: 1.26, count: 5,  radius: 205, range: 510, gain: 0.42, knockback: 40,
+      note: 'FIVE jumps, +42% each — the tail hits 3x' },
+    { damage: 45, interval: 1.26, count: 6,  radius: 225, range: 560, gain: 0.48, knockback: 46,
+      note: 'SIX jumps, and the gain climbs again' },
+    { damage: 58, interval: 1.10, count: 8,  radius: 245, range: 610, gain: 0.54, knockback: 52,
+      note: 'EIGHT jumps, every 1.1s' },
+    { damage: 75, interval: 0.94, count: 10, radius: 270, range: 670, gain: 0.62, knockback: 60,
+      note: 'MAXED. 10 jumps; the last one hits 6.2x.' },
+  ],
+  evolution: {
+    name: 'LIVE WIRE', icon: '⛓',
+    visual: { shape: 'shard', color: '#ffffff', accent: '#2a5a7a', size: 11, rotates: true, glow: true },
+    // `loop` is the mechanical half of the evolution and the reason it beats the
+    // maxed form even against a single enemy: when the wire runs out of fresh
+    // bodies it doubles back onto one it has already burned rather than
+    // grounding out, so the escalation never stops at the edge of the pack.
+    desc: 'The wire refuses to ground out. Fourteen jumps, three times a second, ' +
+          'and when it runs out of new bodies it doubles back onto the ones it has.',
+    stats: { damage: 62, interval: 0.30, count: 14, radius: 300, range: 780, gain: 0.50,
+             knockback: 70, loop: true },
+  },
+  codex: 'The safety briefing said do not stand next to each other. Nobody stands next to each other any more.',
+};
+
+// ---------------------------------------------------------------------------
+// POD VOLLEY — the only weapon whose projectiles have children.
+// ---------------------------------------------------------------------------
+// Everything else in the arsenal ends when its shape ends. A pod drifts, slows,
+// and BURSTS: the fuse is the weapon, not the flight. Levelling it buys shards,
+// not reach — which means it gets better in exactly the situation a spread gets
+// worse, i.e. surrounded.
+const POD_VOLLEY = {
+  id: 'pod_volley', name: 'Pod Volley', icon: '🌰', kind: 'shrapnel', tier: 'rare', weight: 60,
+  desc: 'Seed pods drift out, slow to a stop and BURST into shards in every ' +
+        'direction. The fuse is the weapon — every level buys more shrapnel.',
+  visual: { shape: 'circle', color: '#ffb03d', accent: '#3a2000', size: 10, glow: true },
+  levels: [
+    { damage: 10, interval: 1.70, count: 2, shards: 3,  speed: 300, fuse: 0.60, blast: 40, pierce: 3,
+      note: '2 pods, 3 shards each, every 1.7s' },
+    { damage: 13, interval: 1.70, count: 2, shards: 4,  speed: 320, fuse: 0.58, blast: 46, pierce: 3,
+      note: 'FOUR shards per pod, and a bigger burst' },
+    { damage: 17, interval: 1.52, count: 3, shards: 4,  speed: 340, fuse: 0.56, blast: 52, pierce: 4,
+      note: 'a THIRD pod, thrown further' },
+    { damage: 22, interval: 1.52, count: 3, shards: 5,  speed: 360, fuse: 0.54, blast: 60, pierce: 4,
+      note: 'FIVE shards, and a shorter fuse' },
+    { damage: 29, interval: 1.36, count: 4, shards: 6,  speed: 385, fuse: 0.52, blast: 68, pierce: 5,
+      note: 'FOUR pods, SIX shards — 24 fragments' },
+    { damage: 37, interval: 1.36, count: 5, shards: 7,  speed: 410, fuse: 0.50, blast: 78, pierce: 6,
+      note: 'FIVE pods, and the pods pierce more' },
+    { damage: 48, interval: 1.18, count: 6, shards: 8,  speed: 440, fuse: 0.48, blast: 88, pierce: 7,
+      note: 'SIX pods, EIGHT shards, every 1.18s' },
+    { damage: 62, interval: 1.00, count: 7, shards: 10, speed: 470, fuse: 0.46, blast: 100, pierce: 9,
+      note: 'MAXED. 7 pods, 70 shards, every second.' },
+  ],
+  evolution: {
+    name: 'SEED STORM', icon: '💥',
+    visual: { shape: 'star', color: '#ffd94a', accent: '#4a3200', size: 12, rotates: true, glow: true },
+    // `ring` turns the aimed volley into a rotating full circle. A pod volley is
+    // the one shape where "aim it at the crowd" is actively wrong once the shard
+    // count is high — the shards go everywhere anyway, so the pods should too.
+    desc: 'Pods pour out in every direction three times a second, pass through ' +
+          'anything, and each one comes apart into twelve shards.',
+    stats: { damage: 52, interval: 0.34, count: 4, shards: 12, speed: 520, fuse: 0.42,
+             blast: 118, pierce: 99, ring: true },
+  },
+  codex: 'Botany insists these are seeds. Botany has been asked to leave the range.',
+};
+
+// ---------------------------------------------------------------------------
+// RETURN CUT — the only weapon with two damage windows per activation.
+// ---------------------------------------------------------------------------
+// The throw is the small half. The disc cuts on the way out, turns, cuts
+// everything again on the way home for nearly double, and detonates when it
+// reaches you — so the good position for this weapon is "crowd BETWEEN me and
+// where I threw it", which is the opposite of every other ranged weapon here.
+const RETURN_CUT = {
+  id: 'return_cut', name: 'Return Cut', icon: '⟲', kind: 'boomerang', tier: 'common', weight: 100,
+  desc: 'A disc that cuts on the way out and cuts harder on the way back, then ' +
+        'detonates when you catch it. The catch is the bigger half.',
+  visual: { shape: 'crescent', color: '#9fd3ff', accent: '#123a5c', size: 13, rotates: true, glow: true },
+  levels: [
+    { damage: 9,  interval: 1.45, count: 1, speed: 430, radius: 200, pierce: 2, blast: 30,
+      arc: 0.30, knockback: 40, returnMult: 1.25,
+      note: 'one disc, 200px out, catch hits 1.25x' },
+    { damage: 12, interval: 1.45, count: 1, speed: 450, radius: 225, pierce: 3, blast: 34,
+      arc: 0.34, knockback: 48, returnMult: 1.32,
+      note: '+33% damage, and it throws further' },
+    { damage: 16, interval: 1.30, count: 2, speed: 470, radius: 250, pierce: 3, blast: 39,
+      arc: 0.40, knockback: 56, returnMult: 1.38,
+      note: 'a SECOND disc, on a wider throw' },
+    { damage: 21, interval: 1.30, count: 2, speed: 495, radius: 278, pierce: 4, blast: 45,
+      arc: 0.46, knockback: 64, returnMult: 1.45,
+      note: 'the catch detonation reaches 45px' },
+    { damage: 27, interval: 1.16, count: 3, speed: 520, radius: 308, pierce: 5, blast: 52,
+      arc: 0.55, knockback: 74, returnMult: 1.52,
+      note: 'THREE discs, every 1.16s' },
+    { damage: 35, interval: 1.16, count: 3, speed: 550, radius: 340, pierce: 6, blast: 60,
+      arc: 0.64, knockback: 86, returnMult: 1.60,
+      note: '340px out, and the catch hits 1.6x' },
+    { damage: 45, interval: 1.00, count: 4, speed: 585, radius: 375, pierce: 7, blast: 69,
+      arc: 0.74, knockback: 98, returnMult: 1.68,
+      note: 'FOUR discs, every second' },
+    { damage: 58, interval: 0.85, count: 5, speed: 620, radius: 415, pierce: 9, blast: 80,
+      arc: 0.86, knockback: 112, returnMult: 1.78,
+      note: 'MAXED. Five discs, 415px, catch at 1.78x.' },
+  ],
+  evolution: {
+    name: 'ETERNAL RETURN', icon: '♾',
+    visual: { shape: 'crescent', color: '#ff2d95', accent: '#4a0022', size: 16, rotates: true, glow: true },
+    desc: 'Three discs leave you four times a second, pass through everything ' +
+          'and are already coming back. Nothing survives being passed twice.',
+    // KNOCKBACK GOES DOWN, and it is the only stat here that does. A disc that
+    // throws what it touches is fine at one volley a second and actively
+    // self-defeating at four: the first pass shoves the crowd out of the lane
+    // the next three passes were going to use. The balance harness had this
+    // evolution at 82% of its own level 8 until the shove came off it — an
+    // evolution that scatters its own targets is a downgrade wearing gold.
+    stats: { damage: 60, interval: 0.24, count: 3, speed: 700, radius: 460, pierce: 99, blast: 100,
+             arc: 1.10, knockback: 40, returnMult: 2.05 },
+  },
+  codex: 'Throwing it is the easy part. Everyone learns that once.',
+};
+
+// ---------------------------------------------------------------------------
+// DYNAMO CORE — the only weapon your OTHER weapons level up.
+// ---------------------------------------------------------------------------
+// The taps are almost decoration: small, constant, close range. What they really
+// do is fill a meter — and so does every kill anywhere in the run, from any
+// source. When the meter fills the core dumps everything at once. It is the one
+// weapon whose damage output you cannot read off its own stat block, because
+// half of it is a function of what the REST of the build is doing.
+//
+// `charge` is the cost, so it goes DOWN with level while everything else goes
+// up: a maxed core needs a third fewer hits to pay out than a fresh one.
+const DYNAMO_CORE = {
+  id: 'dynamo_core', name: 'Dynamo Core', icon: '🔋', kind: 'siphon', tier: 'epic', weight: 25,
+  desc: 'A close-range hum that charges off every hit you land and every kill ' +
+        'anything in your build makes. When the meter fills, it all comes out at once.',
+  visual: { shape: 'hex', color: '#ffd94a', accent: '#4a3200', size: 11, glow: true },
+  levels: [
+    { damage: 6,  interval: 0.55, radius: 100, charge: 46, blast: 150, surge: 60,  count: 3,
+      note: 'a 100px hum; 46 charge pays 60' },
+    { damage: 8,  interval: 0.55, radius: 112, charge: 44, blast: 165, surge: 84,  count: 3,
+      note: '+33% hum, and the surge pays 84' },
+    { damage: 11, interval: 0.50, radius: 124, charge: 42, blast: 182, surge: 115, count: 4,
+      note: 'a FOURTH arc off the discharge' },
+    { damage: 14, interval: 0.50, radius: 137, charge: 39, blast: 200, surge: 155, count: 4,
+      note: 'fills sooner, and pays 155' },
+    { damage: 18, interval: 0.45, radius: 152, charge: 36, blast: 220, surge: 205, count: 5,
+      note: 'FIVE arcs, 220px discharge' },
+    { damage: 23, interval: 0.45, radius: 168, charge: 33, blast: 242, surge: 270, count: 6,
+      note: 'SIX arcs, and the meter is a third cheaper' },
+    { damage: 30, interval: 0.40, radius: 186, charge: 30, blast: 266, surge: 355, count: 7,
+      note: 'SEVEN arcs, humming every 0.4s' },
+    { damage: 39, interval: 0.34, radius: 205, charge: 27, blast: 292, surge: 465, count: 8,
+      note: 'MAXED. 27 charge buys a 465 discharge.' },
+  ],
+  evolution: {
+    name: 'OVERLOAD', icon: '💢',
+    visual: { shape: 'hex', color: '#fff3b0', accent: '#5a4a00', size: 14, glow: true },
+    // `persist` is where the meter stops being invisible: the standing field's
+    // radius and damage both read the LIVE charge, so a nearly-full core is
+    // something you can see burning around you before it goes off.
+    desc: 'The core never empties all the way. It hums as a standing field that ' +
+          'burns harder the fuller it gets, and it discharges twelve arcs at 340px.',
+    stats: { damage: 34, interval: 0.16, radius: 240, charge: 20, blast: 340, surge: 540,
+             count: 12, persist: true },
+  },
+  codex: 'It is not a battery. It is an opinion about where the energy should go.',
+};
+
+// ---------------------------------------------------------------------------
+// HOLLOW STAR — the only weapon that MOVES the enemies before it hits them.
+// ---------------------------------------------------------------------------
+// Two stages, always: the star goes down and drags everything within reach into
+// one heap, and then, a beat later, the heap is not there any more. Everything
+// else in the arsenal takes the battlefield as it finds it. This one rearranges
+// it first, which is why its collapse radius can be smaller than its pull radius
+// and still hit more things.
+const HOLLOW_STAR = {
+  id: 'hollow_star', name: 'Hollow Star', icon: '🌑', kind: 'singularity', tier: 'epic', weight: 25,
+  desc: 'A well opens in the crowd and drags everything nearby into one heap, ' +
+        'then collapses on it. It rearranges the fight before it hits it.',
+  visual: { shape: 'circle', color: '#c58cff', accent: '#25074a', size: 12, glow: true },
+  levels: [
+    { damage: 30,  interval: 3.40, radius: 120, duration: 0.90, blast: 110, count: 1,
+      range: 320, pull: 140, knockback: 80,
+      note: 'one well, 120px pull, collapses in 0.9s' },
+    { damage: 40,  interval: 3.40, radius: 135, duration: 0.95, blast: 124, count: 1,
+      range: 350, pull: 155, knockback: 95,
+      note: '+33% damage, and it pulls harder' },
+    { damage: 53,  interval: 3.10, radius: 150, duration: 1.00, blast: 138, count: 1,
+      range: 385, pull: 170, knockback: 110,
+      note: 'reaches further out, every 3.1s' },
+    { damage: 69,  interval: 3.10, radius: 166, duration: 1.05, blast: 154, count: 2,
+      range: 420, pull: 190, knockback: 125,
+      note: 'a SECOND well, on the same cast' },
+    { damage: 90,  interval: 2.80, radius: 184, duration: 1.10, blast: 172, count: 2,
+      range: 460, pull: 210, knockback: 145,
+      note: '184px pull, 172px collapse' },
+    { damage: 116, interval: 2.80, radius: 203, duration: 1.15, blast: 191, count: 2,
+      range: 505, pull: 235, knockback: 165,
+      note: '+29% damage, and the drag is brutal' },
+    { damage: 150, interval: 2.50, radius: 224, duration: 1.20, blast: 212, count: 3,
+      range: 555, pull: 260, knockback: 190,
+      note: 'THREE wells, every 2.5s' },
+    { damage: 195, interval: 2.15, radius: 248, duration: 1.25, blast: 236, count: 3,
+      range: 610, pull: 290, knockback: 220,
+      note: 'MAXED. Three 248px wells, 236px collapse.' },
+  ],
+  evolution: {
+    name: 'EVENT HORIZON', icon: '⚫',
+    visual: { shape: 'ring', color: '#8b5cf6', accent: '#1a0a3a', size: 26, glow: true },
+    // The drag is anchored on the PLAYER, and that is a real cost, not a
+    // flourish: everything in the run is now walking toward you faster than it
+    // chose to. The weapon that rearranges the fight starts rearranging it
+    // around your own body.
+    desc: 'Wells collapse every 0.7s — and the pull never lets up, anchored on ' +
+          'YOU. Everything comes to you now, which is the deal you just took.',
+    stats: { damage: 168, interval: 0.70, radius: 270, duration: 0.55, blast: 260, count: 2,
+             range: 690, pull: 340, knockback: 250, persist: true,
+             dragRadius: 300, dragForce: 135 },
+  },
+  codex: 'Nothing in there is hollow. That is simply the shape the outside makes.',
+};
+
 export const WEAPONS = [
   BLADE_ARC, IDOL_ORBIT, KUNAI_FAN, STORM_RING,
   SPIRIT_BELL, WISP_FLOCK, CHAIN_LASH, METEOR_CALL,
+  THORN_BED, ARC_CONDUIT, POD_VOLLEY, RETURN_CUT, DYNAMO_CORE, HOLLOW_STAR,
 ];
 
 export const WEAPONS_BY_ID = Object.fromEntries(WEAPONS.map((w) => [w.id, w]));
 
-/** Asserted in tests/weapons.js: eight weapons, eight levels each. */
+/** Asserted in tests/weapons.js: every weapon carries exactly eight levels. */
 export const TOTAL_WEAPON_LEVELS = WEAPONS.length * 8;
 
 /**

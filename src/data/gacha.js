@@ -152,7 +152,8 @@ export const MILESTONE_LETTERS = { everyPulls: 50, universalLetters: 25 };
 
 const POOL_3 = ['mochi', 'alto'];
 const POOL_4 = ['hoshino_rei', 'yamikage', 'uzu', 'captain_yuli', 'kagura', 'unit_09'];
-const POOL_5 = ['rin', 'niten', 'shiro_same', 'reika', 'nekromina', 'hikari', 'akane', 'kira'];
+const POOL_5 = ['rin', 'niten', 'shiro_same', 'reika', 'nekromina', 'hikari', 'akane', 'kira',
+                'yukine', 'wren', 'brant'];
 
 /**
  * The full ★6 roster, shared by both rate-up banners.
@@ -170,7 +171,7 @@ const POOL_5 = ['rin', 'niten', 'shiro_same', 'reika', 'nekromina', 'hikari', 'a
  * `featured6` still does the rate-up work: half of all ★6s are the featured one,
  * the other half roll this list. Which is what the banner copy already promised.
  */
-const POOL_6 = ['sovereign_alicia', 'sora', 'han'];
+const POOL_6 = ['sovereign_alicia', 'sora', 'han', 'aoi', 'mirel'];
 
 // -----------------------------------------------------------------------------
 // BANNERS
@@ -259,6 +260,57 @@ export const BANNERS = [
   },
 
   {
+    // Rate-up three. The featured5 lists on all four rate-ups stay DISJOINT for
+    // the reason the Tournament Arc comment gives: a player who wants one
+    // specific ★5 must always have exactly one banner that favours it. With
+    // eleven ★5s and four rate-ups that still works — this one and the fantasy
+    // banner below simply feature the three ★5s the first two never did.
+    id: 'banner_late_night',
+    name: 'Late Night, Live',
+    type: 'rateup',
+    desc: 'Rate-up: ★6 Aoi. Half of every ★5 you pull here is Yukine.',
+    subDesc: 'Guaranteed ★6 by pull 80, guaranteed ★5 by pull 50. She has already apologised for the odds.',
+    featured6: 'aoi',
+    featured5: ['yukine'],
+    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: POOL_6 },
+    costSingle: 15,
+    costTen: 135,
+    currency: 'starFragments',
+    normalizeRates: false,
+    rateUpChance: 0.5,
+    guaranteedOnLoss: true,
+    rateUp5Chance: 0.5,
+    pity5Key: 'shared',
+    pity6Key: 'banner',
+    tenPullGuarantee: 4,
+    inRotation: true,
+    art: { color: '#7fb6ff', accent: '#101830' },
+  },
+
+  {
+    id: 'banner_long_road',
+    name: 'The Long Road',
+    type: 'rateup',
+    desc: 'Rate-up: ★6 Mirel. Half of every ★5 you pull here is Wren or Brant.',
+    subDesc: 'Guaranteed ★6 by pull 80, guaranteed ★5 by pull 50. She says that is no time at all.',
+    featured6: 'mirel',
+    featured5: ['wren', 'brant'],
+    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: POOL_6 },
+    costSingle: 15,
+    costTen: 135,
+    currency: 'starFragments',
+    normalizeRates: false,
+    rateUpChance: 0.5,
+    guaranteedOnLoss: true,
+    rateUp5Chance: 0.5,
+    pity5Key: 'shared',
+    pity6Key: 'banner',
+    tenPullGuarantee: 4,
+    inRotation: true,
+    art: { color: '#8fe6a8', accent: '#16241c' },
+  },
+
+  {
     id: 'banner_beginner',
     name: 'First Impressions',
     type: 'beginner',
@@ -303,7 +355,7 @@ export const BANNERS = [
     featured5: [],
     pool: {
       relics: [
-        // 19 signature relics, one per character.
+        // 24 signature relics, one per character.
         'secret_technique_109',
         'dual_blades',
         'hoshiyomi_penlight',
@@ -323,6 +375,11 @@ export const BANNERS = [
         'crown_of_the_world_eater',
         'kaioken',
         'the_cell_games',
+        'exclusive_contract',
+        'annotated_manual',
+        'chipped_greataxe',
+        'cracked_teacup',
+        'field_of_flowers',
         // 5 stage relics.
         'neon_visor',
         'anchor_gear',
@@ -338,8 +395,8 @@ export const BANNERS = [
     /** Draws uniformly from relics not yet banked, so there are no dud pulls
      *  and no refund currency to invent. */
     preferUnbanked: true,
-    /** All 24 banked = the banner has nothing left to sell and retires itself. */
-    completesAt: 24,
+    /** All 29 banked = the banner has nothing left to sell and retires itself. */
+    completesAt: 29,
     // Premium against the character banners: a bank is permanent and stacks
     // across every future run, where a character dupe is 40 letters.
     costSingle: 25,

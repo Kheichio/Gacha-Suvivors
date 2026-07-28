@@ -201,6 +201,51 @@ describe('abilities / live execution at star 5 (S3 + S5 branches active)', () =>
     assert.equal(failures.length, 0, 'passives that failed over 90s:\n      ' + failures.join('\n      '));
   });
 
+  it('no kit drains its own owner to nothing', () => {
+    // Several abilities charge HP to fire — that is a legitimate design. What is
+    // NEVER legitimate is a self-cost that outruns the run: aoi's fumbled tray
+    // charged a flat 3 HP every 3.6s against a 138 pool with no regen, clamped
+    // at a floor of 1. It never "killed" her, so nothing threw and no assertion
+    // caught it; she simply sat at 1 HP from minute three onward and died to the
+    // first thing that touched her. The balance sweep found it — a six-star
+    // below every three-star on the board — which is far too late and depends on
+    // someone reading the table.
+    //
+    // The enemies are what makes this readable: with nothing attacking, any HP
+    // lost is self-inflicted by definition, so the threshold needs no tuning.
+    freshSave(5);
+    const drained = [];
+    for (const c of data.characters.CHARACTERS) {
+      const run = makeRun(c.id, 4242);
+      run.enemies.clear();
+      let low = 1;
+      // FOUR simulated minutes, because a drain is a RATE and a short window
+      // cannot see one. At 60s the real bug had only taken aoi to 65% of her
+      // pool — comfortably inside any sane threshold — and the test passed with
+      // the defect fully present. It bottoms out at 166s.
+      for (let i = 0; i < 14400; i++) {
+        if (run.state === RUN_STATE.LEVEL_UP) { run.chooseUpgrade(0); continue; }
+        if (run.state === RUN_STATE.CHEST) { run.closeChest(); continue; }
+        if (run.state === RUN_STATE.RELIC_SWAP) { run.resolveRelicSwap(0); continue; }
+        if (run.state === RUN_STATE.DEFEAT || run.state === RUN_STATE.VICTORY) break;
+        run.enemies.clear();                 // keep the arena empty as waves land
+        if (i % 240 === 0) press(ACT.SPECIAL);
+        if (i % 150 === 0) press(ACT.ESCAPE);
+        run.update(DT);
+        clearPresses();
+        low = Math.min(low, run.player.hp / run.player.maxHp);
+      }
+      // A quarter of the pool is generous: it leaves room for a real HP-cost
+      // design and still catches anything that grinds itself down to a sliver.
+      if (low < 0.25) drained.push(`${c.id}: fell to ${(low * 100).toFixed(0)}% of max, alone`);
+      run.dispose();
+    }
+    clearPresses();
+    assert.equal(drained.length, 0,
+                 'kits that drain their own owner with no enemies present:\n      ' +
+                 drained.join('\n      '));
+  });
+
   it('every relic can be equipped and fires without throwing', () => {
     // Relics are hooked into the damage path, the interval tick and the HP
     // thresholds. A relic that throws takes the whole run down with it.

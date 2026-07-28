@@ -13,14 +13,37 @@
 //   final boss  t = duration - 55s       (written as 0.960)
 // Every stage's array therefore ends with a `calm` then a `boss`, in that order.
 //
+// MINI-BOSSES (play report: "add mini bosses to each stage")
+// ----------------------------------------------------------
+// Every stage now carries TWO or THREE `midboss` events instead of one:
+//
+//   ~0.26   the OPENER — the rung below this stage's own on the shared mid-boss
+//           ladder. First real telegraphed fight of the run, right after the
+//           0.25 first-elite beat has taught the shape of one.
+//    0.50   the SIGNATURE — the stage's own, from stages.js `midBoss`. This is
+//           the one the director pins to the halfway anchor, the only one that
+//           clears the screen on arrival, and the only one that pays the full
+//           mid-boss loot table (Gold Chest + guaranteed relic + 10💎).
+//   ~0.78   the CLOSER — the rung above. It lands in the fully-covered phase at
+//           roughly 60% of the stage boss's effective HP and it is meant to
+//           frighten you.
+//
+// The director picks the anchor by proximity to 0.50, so ordering here is what
+// decides which fight is the signature. Everything else spawns as a mini-boss:
+// no screen clear, a floor chest instead of a Gold Chest, no guaranteed relic,
+// and FRAGMENT_AWARDS.miniBoss. The ladder itself and the reasoning for reusing
+// ids across stages live in stages.js on the `midBosses` field.
+//
 // DENSITY SHAPE (SECTION 8, normalised):
 //   0.00–0.10  15–30 on screen, one mob type, teaching
 //   0.10–0.25  40–70, second type, first ring wave ~0.18
 //   0.25       FIRST ELITE (drops a chest)
+//   0.26       MINI-BOSS (opener)
 //   0.25–0.45  80–130, three types mixing, a swarm every ~45s
 //   0.50       MID-BOSS (the engine clears the screen first)
 //   0.50–0.75  140–220, elite packs, two elites at ~0.65
 //   0.75–0.95  250–400, the fully-covered phase
+//   0.78       MINI-BOSS (closer)
 //   0.955 calm / 0.960 final boss
 //
 // FIELDS
@@ -92,6 +115,10 @@ export const WAVES = {
     { t: 0.74, type: 'swarm', enemy: 'chibi_ghost', count: 36, pattern: 'cluster', duration: 4 },
     { t: 0.76, type: 'spawn', enemy: 'mob_student', count: 48, pattern: 'edge_random', duration: 14 },
     { t: 0.79, type: 'spawn', enemy: 'gym_uniform_ghoul', count: 18, pattern: 'edge_side', side: 'top', duration: 8 },
+    // CLOSER. The sports-day mascot suit, still walking, twelve minutes in — and
+    // at 2,700 effective HP against a 4,200 stage boss it is the first thing on
+    // this stage that a player cannot simply out-damage while ignoring it.
+    { t: 0.80, type: 'midboss', enemy: 'mascot_prime', count: 1 },
     { t: 0.82, type: 'ring', enemy: 'chalk_wraith', count: 30, pattern: 'ring', duration: 0 },
     { t: 0.84, type: 'swarm', enemy: 'chibi_ghost', count: 40, pattern: 'cluster', duration: 4 },
     { t: 0.86, type: 'spawn', enemy: 'slime_kouhai', count: 30, pattern: 'edge_random', duration: 10 },
@@ -126,6 +153,8 @@ export const WAVES = {
     { t: 0.21, type: 'swarm', enemy: 'antifan_swarm', count: 25, pattern: 'cluster', duration: 3 },
     { t: 0.23, type: 'spawn', enemy: 'gacha_zombie', count: 36, pattern: 'chase_line', duration: 10 },
     { t: 0.25, type: 'elite', enemy: 'gacha_golem', count: 1, pattern: 'cluster' },
+    // OPENER. The same guy from the school roof, now working the arcade door.
+    { t: 0.26, type: 'midboss', enemy: 'delinquent_senpai', count: 1 },
     { t: 0.27, type: 'spawn', enemy: 'camera_drone', count: 10, pattern: 'scatter_interior', duration: 5 },
     { t: 0.29, type: 'spawn', enemy: 'neon_otaku', count: 28, pattern: 'edge_random', duration: 8 },
     { t: 0.31, type: 'spawn', enemy: 'mascot_suit', count: 5, pattern: 'edge_random', duration: 6 },
@@ -149,6 +178,9 @@ export const WAVES = {
     { t: 0.71, type: 'spawn', enemy: 'gacha_zombie', count: 58, pattern: 'chase_line', duration: 12 },
     { t: 0.74, type: 'spawn', enemy: 'camera_drone', count: 20, pattern: 'scatter_interior', duration: 6 },
     { t: 0.76, type: 'swarm', enemy: 'antifan_swarm', count: 45, pattern: 'cluster', duration: 3 },
+    // CLOSER. A promotional mech wheeled out for a store opening. It is armoured,
+    // it is slow, and the street is already full.
+    { t: 0.78, type: 'midboss', enemy: 'the_armored', count: 1 },
     { t: 0.79, type: 'spawn', enemy: 'neon_otaku', count: 46, pattern: 'edge_random', duration: 10 },
     { t: 0.81, type: 'ring', enemy: 'neon_otaku', count: 40, pattern: 'ring', duration: 0 },
     { t: 0.83, type: 'spawn', enemy: 'mascot_suit', count: 12, pattern: 'edge_side', side: 'bottom', duration: 6 },
@@ -189,6 +221,10 @@ export const WAVES = {
     { t: 0.20, type: 'spawn', enemy: 'sprinting_husk', count: 3, pattern: 'ambush', duration: 0 },
     { t: 0.22, type: 'spawn', enemy: 'husk_wanderer', count: 40, pattern: 'edge_random', duration: 12 },
     { t: 0.25, type: 'elite', enemy: 'abnormal', count: 1, pattern: 'cluster' },
+    // OPENER. Something enormous in a costume that has not been a costume for a
+    // long time. The rung below The Armored, and the first thing here that
+    // telegraphs instead of simply walking at you.
+    { t: 0.26, type: 'midboss', enemy: 'mascot_prime', count: 1 },
     { t: 0.27, type: 'spawn', enemy: 'crawler_husk', count: 22, pattern: 'edge_random', duration: 8 },
     { t: 0.30, type: 'spawn', enemy: 'husk_wanderer', count: 44, pattern: 'edge_side', side: 'top', duration: 14 },
     { t: 0.32, type: 'spawn', enemy: 'rubble_golem', count: 4, pattern: 'scatter_interior', duration: 6, modifiers: { hpMult: 1.15 } },
@@ -211,6 +247,8 @@ export const WAVES = {
     { t: 0.71, type: 'swarm', enemy: 'crawler_husk', count: 34, pattern: 'cluster', duration: 5 },
     { t: 0.73, type: 'spawn', enemy: 'sprinting_husk', count: 10, pattern: 'ambush', duration: 0 },
     { t: 0.76, type: 'spawn', enemy: 'husk_wanderer', count: 70, pattern: 'edge_random', duration: 14 },
+    // CLOSER. Two of them, fast, into the one stage built entirely out of slow.
+    { t: 0.77, type: 'midboss', enemy: 'the_twin_fangs', count: 1 },
     { t: 0.78, type: 'spawn', enemy: 'rubble_golem', count: 10, pattern: 'scatter_interior', duration: 6, modifiers: { hpMult: 1.25 } },
     { t: 0.81, type: 'ring', enemy: 'crawler_husk', count: 36, pattern: 'ring', duration: 0 },
     { t: 0.83, type: 'spawn', enemy: 'sprinting_husk', count: 12, pattern: 'ambush', duration: 0 },
@@ -247,6 +285,9 @@ export const WAVES = {
     { t: 0.20, type: 'spawn', enemy: 'genin_shade', count: 24, pattern: 'edge_random', duration: 10 },
     { t: 0.22, type: 'spawn', enemy: 'trap_scroll', count: 8, pattern: 'scatter_interior', duration: 0 },
     { t: 0.25, type: 'elite', enemy: 'sealed_vessel', count: 1, pattern: 'cluster' },
+    // OPENER. Armoured, slow, and completely unbothered by a stage whose entire
+    // thesis is hitting things from behind.
+    { t: 0.26, type: 'midboss', enemy: 'the_armored', count: 1 },
     { t: 0.27, type: 'spawn', enemy: 'ambusher', count: 6, pattern: 'ambush', duration: 0 },
     { t: 0.29, type: 'spawn', enemy: 'genin_shade', count: 28, pattern: 'edge_random', duration: 10 },
     { t: 0.31, type: 'spawn', enemy: 'crow_familiar', count: 20, pattern: 'edge_random', duration: 6 },
@@ -270,6 +311,9 @@ export const WAVES = {
     { t: 0.73, type: 'spawn', enemy: 'genin_shade', count: 44, pattern: 'edge_random', duration: 10 },
     { t: 0.75, type: 'spawn', enemy: 'kunai_bat', count: 32, pattern: 'scatter_interior', duration: 8 },
     { t: 0.77, type: 'spawn', enemy: 'trap_scroll', count: 20, pattern: 'scatter_interior', duration: 0 },
+    // CLOSER. A drum you can hear four minutes before you see it, arriving onto a
+    // floor that is by now mostly mines.
+    { t: 0.78, type: 'midboss', enemy: 'the_drum_oni', count: 1 },
     { t: 0.79, type: 'spawn', enemy: 'ambusher', count: 18, pattern: 'ambush', duration: 0 },
     { t: 0.81, type: 'ring', enemy: 'genin_shade', count: 40, pattern: 'ring', duration: 0 },
     { t: 0.83, type: 'event', event: 'smoke_bombs', duration: 14 },
@@ -314,6 +358,9 @@ export const WAVES = {
     { t: 0.21, type: 'spawn', enemy: 'ceiling_crawler', count: 8, pattern: 'ambush', duration: 0 },
     { t: 0.23, type: 'swarm', enemy: 'lesser_oni', count: 28, pattern: 'cluster', duration: 4 },
     { t: 0.25, type: 'elite', enemy: 'upper_rank_remnant', count: 1, pattern: 'cluster' },
+    // OPENER. Two blades that will not stay on the same side of you, in corridors
+    // that will not stay where they were.
+    { t: 0.26, type: 'midboss', enemy: 'the_twin_fangs', count: 1 },
     { t: 0.27, type: 'spawn', enemy: 'paper_lantern_wisp', count: 3, pattern: 'scatter_interior', duration: 4 },
     { t: 0.29, type: 'spawn', enemy: 'blood_doll', count: 8, pattern: 'cluster', duration: 4 },
     { t: 0.32, type: 'ring', enemy: 'ceiling_crawler', count: 12, pattern: 'ring', duration: 0 },
@@ -337,6 +384,8 @@ export const WAVES = {
     { t: 0.72, type: 'spawn', enemy: 'paper_lantern_wisp', count: 6, pattern: 'scatter_interior', duration: 4 },
     { t: 0.75, type: 'spawn', enemy: 'oni_bruiser', count: 4, pattern: 'edge_random', duration: 5 },
     { t: 0.77, type: 'spawn', enemy: 'ceiling_crawler', count: 20, pattern: 'ambush', duration: 0 },
+    // CLOSER. A shelled thing that does not care which way the rooms are facing.
+    { t: 0.78, type: 'midboss', enemy: 'tide_warden', count: 1 },
     { t: 0.79, type: 'ring', enemy: 'lesser_oni', count: 50, pattern: 'ring', duration: 0 },
     { t: 0.81, type: 'spawn', enemy: 'ronin_shade', count: 10, pattern: 'edge_side', side: 'top', duration: 4 },
     { t: 0.83, type: 'event', event: 'shifting_rooms', duration: 8 },
@@ -373,6 +422,8 @@ export const WAVES = {
     { t: 0.20, type: 'spawn', enemy: 'coral_crab', count: 6, pattern: 'edge_side', side: 'left', duration: 6 },
     { t: 0.23, type: 'spawn', enemy: 'drowned_roadie', count: 16, pattern: 'edge_random', duration: 8 },
     { t: 0.25, type: 'elite', enemy: 'elite_encore_siren', count: 1, pattern: 'cluster' },
+    // OPENER. A drum, underwater, on the beat the tide is already keeping.
+    { t: 0.26, type: 'midboss', enemy: 'the_drum_oni', count: 1 },
     { t: 0.27, type: 'spawn', enemy: 'anglerfish_fan', count: 30, pattern: 'edge_random', duration: 8 },
     { t: 0.29, type: 'swarm', enemy: 'eel_swarm', count: 22, pattern: 'cluster', duration: 4 },
     { t: 0.30, type: 'event', event: 'rising_tide', duration: 10 },
@@ -396,6 +447,9 @@ export const WAVES = {
     { t: 0.72, type: 'spawn', enemy: 'anglerfish_fan', count: 44, pattern: 'edge_random', duration: 8 },
     { t: 0.75, type: 'swarm', enemy: 'eel_swarm', count: 36, pattern: 'cluster', duration: 4 },
     { t: 0.77, type: 'spawn', enemy: 'coral_crab', count: 14, pattern: 'edge_random', duration: 6 },
+    // CLOSER. The support act, sixteen minutes in, on a stage that sank with the
+    // lights still on. The hardest thing on the ladder outside the Zenith Stage.
+    { t: 0.78, type: 'midboss', enemy: 'the_opening_act', count: 1 },
     { t: 0.80, type: 'spawn', enemy: 'jellyfish_chorus', count: 30, pattern: 'scatter_interior', duration: 6 },
     { t: 0.82, type: 'spawn', enemy: 'encore_siren', count: 4, pattern: 'scatter_interior', duration: 4 },
     { t: 0.84, type: 'spawn', enemy: 'drowned_roadie', count: 38, pattern: 'edge_random', duration: 8 },
@@ -430,6 +484,11 @@ export const WAVES = {
     { t: 0.09, type: 'event', event: 'spotlights', duration: 10 },
     { t: 0.13, type: 'spawn', enemy: 'neon_otaku', count: 26, pattern: 'edge_random', duration: 8 },
     { t: 0.15, type: 'spawn', enemy: 'camera_drone', count: 10, pattern: 'scatter_interior', duration: 5 },
+    // MINI-BOSS 1 of 3. The finale is the one stage that owns the top of the
+    // ladder, so all three fights climb into the halfway anchor instead of
+    // straddling it — the back half is already carrying a recap boss every five
+    // minutes from the Grand Finale modifier.
+    { t: 0.16, type: 'midboss', enemy: 'the_drum_oni', count: 1 },
     { t: 0.18, type: 'ring', enemy: 'chibi_ghost', count: 32, pattern: 'ring', duration: 0 },
     // Grand Finale recap #1.
     { t: 0.20, type: 'elite', enemy: 'the_algorithm', count: 1, pattern: 'cluster' },
@@ -439,12 +498,15 @@ export const WAVES = {
     { t: 0.28, type: 'swarm', enemy: 'antifan_swarm', count: 35, pattern: 'cluster', duration: 3 },
     { t: 0.32, type: 'spawn', enemy: 'rubble_golem', count: 6, pattern: 'edge_random', duration: 6 },
     { t: 0.35, type: 'ring', enemy: 'husk_wanderer', count: 40, pattern: 'ring', duration: 0 },
+    // MINI-BOSS 2 of 3.
+    { t: 0.36, type: 'midboss', enemy: 'tide_warden', count: 1 },
     { t: 0.37, type: 'event', event: 'spotlights', duration: 12 },
     // Grand Finale recap #2.
     { t: 0.40, type: 'elite', enemy: 'the_colossus', count: 1, pattern: 'cluster' },
     { t: 0.42, type: 'spawn', enemy: 'genin_shade', count: 28, pattern: 'edge_random', duration: 8 },
     { t: 0.44, type: 'spawn', enemy: 'kunai_bat', count: 22, pattern: 'scatter_interior', duration: 8 },
     { t: 0.46, type: 'swarm', enemy: 'ambusher', count: 12, pattern: 'ambush', duration: 3 },
+    // MINI-BOSS 3 of 3 — and the SIGNATURE, on the halfway anchor.
     { t: 0.50, type: 'midboss', enemy: 'the_opening_act', count: 1 },
     { t: 0.55, type: 'spawn', enemy: 'lesser_oni', count: 32, pattern: 'edge_random', duration: 8 },
     { t: 0.57, type: 'spawn', enemy: 'ceiling_crawler', count: 14, pattern: 'ambush', duration: 0 },

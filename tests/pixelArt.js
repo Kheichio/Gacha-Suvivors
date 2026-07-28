@@ -38,7 +38,7 @@ function hashStr(s) {
 }
 
 describe('art / character sprites', () => {
-  it('all 19 characters have a sprite descriptor', () => {
+  it('every character has a sprite descriptor', () => {
     const missing = characters.CHARACTERS.filter((c) => !CHARACTER_SPRITES[c.id]).map((c) => c.id);
     assert.equal(missing.length, 0, 'characters with no sprite: ' + missing.join(', '));
   });

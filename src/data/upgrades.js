@@ -400,8 +400,76 @@ export const CHEST_TABLE = {
   goldRelicChance: 0.25,
 };
 
-/** xpNeeded(level) = ceil(base * level^exponent). Line 1394. */
-export const XP_CURVE = { base: 9, exponent: 1.32 };
+/**
+ * THE XP CURVE.
+ *
+ *   xpNeeded(level) = ceil( base * level^exponent
+ *                           * softGrowth^(level - softCap)   above softCap
+ *                           * hardGrowth^(level - hardCap) ) above hardCap
+ *
+ * `base` and `exponent` are the spec's own line-1394 curve, untouched: below
+ * softCap this file returns exactly ceil(9 * level^1.32) and the opening minutes
+ * of a run are bit-for-bit what they were. The two growth terms are new.
+ *
+ * WHY. Play report: "adjust exp gain as it progresses too quick, within 5 mins
+ * you can have max evo build", and "make exp gain much harder at level 100 to
+ * slow down the progression."
+ *
+ * A pure power curve was the whole problem. Enemy XP grows with the SECTION 8
+ * scaling AND with how many things you can kill per second AND with how big your
+ * pickup radius is — three compounding terms — while level^1.32 grows with one.
+ * By minute 11 the harness had characters gaining EIGHTEEN LEVELS IN A MINUTE,
+ * because the cost of a level had stopped being able to keep up with income. A
+ * curve that loses a race against compounding is not a curve, it is a formality.
+ * So the cost compounds too, and the race is even again.
+ *
+ * WHAT IT DID. `node sim.js --all --stage=1 --seeds=42,1337,7`, run twice on the
+ * same build with only these four constants changed — level reached, before ->
+ * after: wren 88->58, hikari 82->51, unit_09 76->51, kira 75->51, uzu 74->37,
+ * han 71->36, mirel 62->40, sovereign_alicia 55->37, yukine 51->35, shiro_same
+ * 41->28, hoshino_rei 41->27, yamikage 37->26. Median survival moved 681.8s ->
+ * 639.8s and the outlier count went 7 -> 6, so the roster did not get weaker
+ * relative to itself; it got slower. Everyone who dies under level 12 came out
+ * BIT-IDENTICAL, level and death time both: alto 8 at 344.6s, mochi 7 at 340.9s,
+ * captain_yuli 6 at 287.8s, aoi 8 at 286.4s, sora 7 at 275.6s.
+ *
+ * A complete build — five weapon slots filled, all five evolved, both upgrade
+ * buckets at their cap — is 56 cards. The strongest character in the roster now
+ * ends a fifteen-minute stage at 58. That is the arc the report asked for.
+ *
+ * WHERE THE NUMBERS COME FROM. Every one was measured, not guessed, on
+ * `node sim.js --all --stage=1 --seeds=42,1337,7`:
+ *
+ *   softCap 12    The first twelve levels are IDENTICAL to the old curve, on
+ *                 purpose. That window is where the weakest characters live and
+ *                 die — the harness has captain_yuli finishing at level 6 and
+ *                 mochi at 7 — and taxing it would be the death spiral the
+ *                 signature-weapon nerf already had to be walked back from (see
+ *                 the SIGNATURE_LEVELS comment in weapons.js). Nothing below
+ *                 level 12 changed by a single XP point.
+ *   softGrowth    +3.5% compounding per level. One level costs 2.6x what it did
+ *      1.035      at 40, 5.2x at 60, 10.4x at 80; the TOTAL XP to reach a level
+ *                 is 1.8x at 40, 3.1x at 60, 5.4x at 80.
+ *   hardCap 100   Where the second wall starts, exactly as asked for.
+ *   hardGrowth    +16% per level ON TOP of the soft term. Level 105 costs 52x
+ *      1.16       the old curve, level 110 costs 128x, level 120 costs 800x, and
+ *                 the total XP to reach 120 is 91x what it was. Past 100 this
+ *                 stops being a ramp and becomes a project, which is the point:
+ *                 endless mode has no clock, so the only thing that can make its
+ *                 tail mean anything is the curve itself.
+ *
+ * Both terms are pure functions of `level` and nothing else — no time, no run
+ * state, no RNG. run.xpNeeded() is called by the HUD every frame, by the results
+ * screen and by the balance harness, and all three need the same answer forever.
+ */
+export const XP_CURVE = {
+  base: 9,
+  exponent: 1.32,
+  softCap: 12,
+  softGrowth: 1.035,
+  hardCap: 100,
+  hardGrowth: 1.16,
+};
 
 // Level-up presentation. `banishes` starts at 0: the spec lists BANISH as a
 // feature (line 1404) but grants none at run start — Shrine upgrades award them,
@@ -438,10 +506,30 @@ const OFFENSIVE_STATS = [
 
 export const LEVELUP = { choices: 3, freeRerolls: 1, banishes: 0, skipGold: 30 };
 
-/** The ⛩ interactable's two offers. Lines 1439-1441. */
+/**
+ * The ⛩ interactable's two offers. Lines 1439-1441.
+ *
+ * `goldUses` is new, and it is a gold SINK — play report: "create more use for
+ * gold coins, its too easy to get and too little to do with it." In-run gold had
+ * precisely one buyer in the whole game and it was this altar, once, for 200.
+ * Everything else you picked up was a number that went to the Shrine after you
+ * died.
+ *
+ * The altar now keeps the counter open: it takes 200 gold for a guaranteed
+ * upgrade up to four times in one visit, and it closes itself the moment another
+ * purchase is impossible — uses spent, or you cannot pay. That last clause is not
+ * a nicety, it is what stops the offer screen re-opening in the player's face
+ * every time they stand near a shrine they can no longer afford.
+ *
+ * The blood offer is unchanged and still ends the visit. Four times 200 is 800
+ * gold, which is a whole run's earnings against a level-up you choose the moment
+ * you need it — deliberately sized to be a real decision without becoming a way
+ * to buy past the XP curve.
+ */
 export const SHRINE_ALTAR = {
   hpCostPercent: 0.25,   // of CURRENT hp, not max — the risk is the point
   goldCost: 200,
+  goldUses: 4,
 };
 
 // Boot-time indexes. Not logic — just O(1) lookup instead of a linear scan in

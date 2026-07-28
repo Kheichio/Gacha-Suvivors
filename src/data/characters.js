@@ -1,4 +1,4 @@
-// All 19 playable characters. SECTION 4 of the design spec.
+// All 24 playable characters. SECTION 4 of the design spec.
 //
 // This file is PURE DATA. No functions, no logic, no branching — the ability
 // registry (src/game/abilities/) owns behaviour, keyed by the ids declared here.
@@ -1011,6 +1011,191 @@ const KIRA = {
   ],
 };
 
+const YUKINE = {
+  id: 'yukine',
+  name: 'Yukine',
+  epithet: 'The Chief Executive Fox',
+  rarity: 5,
+  archetype: 'Corporate Kitsune',
+  // White-blue foxfire, deliberately NOT Kagura's orange spirit-fire: this fox
+  // is the bright, commercial, on-brand one and her element says so.
+  element: 'light',
+  visual: { shape: 'capsule', color: '#eaf4ff', accent: '#3fb6c8', emoji: '🦊', size: 16 },
+  stats: {
+    hp: 100, armor: 0, moveSpeed: 176, pickupRadius: 54,
+    damageMult: 1.0, attackSpeedMult: 1.0, areaMult: 1.05,
+    critChance: 0.05, critMult: 2.0, cooldownMult: 1.0, luck: 2,
+  },
+  autoAttack: {
+    id: 'three_tail_flourish', name: 'Three-Tail Flourish',
+    desc: 'She spins once. The tail sweeps a 170px ring for 18 damage, then ' +
+          '3 lines of white foxfire run out along the floor 120° apart, ' +
+          '420px long, for 14 each. Every 0.9s.',
+    interval: 0.9, damage: 18, targeting: { mode: 'aroundSelf' },
+  },
+  special: {
+    id: 'terms_and_conditions', name: 'TERMS AND CONDITIONS', cooldown: 26,
+    desc: 'Drops a 320px contract zone for 10s. Everything standing in it signs: ' +
+          '+40% damage taken, and every 0.5s the deal pays her 0.6 HP per ' +
+          'signatory. Signing is not optional and she will not explain clause four.',
+  },
+  escape: {
+    id: 'tail_swap', name: 'Tail Swap', cooldown: 6, iframes: 0.6,
+    desc: 'Blinks 220px and leaves her tail behind. It taunts everything within ' +
+          '260px for 3s, burns everything within 110px for 18 damage/s, then ' +
+          'detonates for 70 damage in a 140px radius.',
+  },
+  passive: {
+    id: 'three_streams', name: 'Three Streams',
+    desc: 'She runs three shows at once. Every 15s another tail lights, up to 3. ' +
+          'Each lit tail is +8% attack speed, +8% area, and 6 damage/s to ' +
+          'everything within 90px. One hit worth 20% of your max HP snuffs one out.',
+  },
+  starUpgrades: {
+    s3: 'TERMS AND CONDITIONS runs 14s at +55% damage taken and pays 1.2 HP per signatory.',
+    s5: 'Tail Swap leaves 2 tails, and each detonation grows to 120 damage in a 200px radius.',
+  },
+  signatureRelic: 'exclusive_contract',
+  barks: {
+    spawn: 'Kon-kon! Great turnout today. Shall we monetise it?',
+    levelUp: 'Growth! Sustainable growth! I love that for us!',
+    lowHp: "This is a temporary dip. Temporary. Look at the trend line.",
+    kill: 'And that is why you read the contract. Bye~!',
+    boss: 'Ooh, a big account. I want this one. I WANT this one.',
+    victory: 'Great numbers, great vibes, great everyone. Same time tomorrow?',
+    idle: 'One tail. ONE. It is plenty. I am extremely efficient.',
+  },
+  buildPaths: [
+    'Contract stacker — Wide Reach + Quick Recovery + Exclusive Contract; the ' +
+    'zone is the whole kit, so make it bigger and put it down more often',
+    'Three-tail engine — Iron Body + Guardian Plate + Rapid Fire; every tail you ' +
+    'keep lit is +8% attack speed and 6 damage/s, and tails die to big hits',
+  ],
+};
+
+const WREN = {
+  id: 'wren',
+  name: 'Wren',
+  epithet: 'The Diligent Apprentice',
+  rarity: 5,
+  archetype: 'Precision Caster',
+  element: 'lightning',
+  visual: { shape: 'capsule', color: '#c3a8ff', accent: '#f4f1ea', emoji: '📐', size: 15 },
+  stats: {
+    hp: 95, armor: 0, moveSpeed: 174, pickupRadius: 46,
+    damageMult: 1.0, attackSpeedMult: 1.05, areaMult: 0.95,
+    critChance: 0.06, critMult: 2.0, cooldownMult: 1.0, luck: 0,
+  },
+  autoAttack: {
+    id: 'flawless_repetition', name: 'Flawless Repetition',
+    desc: '2 homing bolts every 0.45s, 12 damage each, pierce 1. Every volley ' +
+          'that kills something adds a bolt to the next one, up to 6; a volley ' +
+          'that kills nothing drops straight back to 2.',
+    interval: 0.45, damage: 12, targeting: { mode: 'nearestN', count: 2 },
+  },
+  special: {
+    id: 'perfect_marks', name: 'PERFECT MARKS', cooldown: 24,
+    desc: 'For 5s she stops holding back: 6 bolts per second, 22 damage each, ' +
+          'pierce 2, cycling one at a time through the 8 nearest enemies so ' +
+          'nothing is ever over-killed. 30 bolts, none of them wasted.',
+  },
+  escape: {
+    id: 'textbook_form', name: 'Textbook Form', cooldown: 5, iframes: 0.6,
+    desc: 'The defensive drill, performed exactly as written: 0.6s invulnerable, ' +
+          'a 170px reposition, and the barrier shatters outward into 8 shards ' +
+          'for 30 damage each.',
+  },
+  passive: {
+    id: 'mana_discipline', name: 'Mana Discipline',
+    desc: 'Every 5s without taking damage grants a stack of FORM: +6% attack ' +
+          'speed and +4% damage each, up to 6 stacks. Taking a hit removes one ' +
+          'stack, not all of them.',
+  },
+  starUpgrades: {
+    s3: 'PERFECT MARKS lasts 8s and every bolt pierces 4 instead of 2.',
+    s5: 'Textbook Form also grants a shield that blocks the next 2 hits.',
+  },
+  signatureRelic: 'annotated_manual',
+  barks: {
+    spawn: 'I have already prepared. You do not need to ask.',
+    levelUp: 'Noted. That was overdue.',
+    lowHp: 'This is inconvenient. I will manage.',
+    kill: 'Correct. Next.',
+    boss: 'Large. Slow. Predictable. ...I see.',
+    victory: 'That took eleven minutes. It should have taken nine.',
+    idle: 'I am not sulking. I am waiting. There is a difference.',
+  },
+  buildPaths: [
+    'Kill chain — Killing Blow + Sharp Edge + Rapid Fire; every volley that kills ' +
+    'grows the next one, so the build is about never letting the chain break',
+    'Untouched form — Guardian Plate + Phantom Step + Quick Recovery; 6 stacks of ' +
+    'FORM is +36% attack speed and +24% damage for simply not getting hit',
+  ],
+};
+
+const BRANT = {
+  id: 'brant',
+  name: 'Brant',
+  epithet: 'The Coward Who Never Runs',
+  rarity: 5,
+  archetype: 'Frightened Berserker',
+  element: 'steel',
+  visual: { shape: 'capsule', color: '#c8452c', accent: '#4a5568', emoji: '🪓', size: 17 },
+  stats: {
+    hp: 145, armor: 1, moveSpeed: 168, pickupRadius: 44,
+    damageMult: 1.0, attackSpeedMult: 1.0, areaMult: 1.1,
+    critChance: 0.05, critMult: 2.0, cooldownMult: 1.0, luck: 0,
+  },
+  autoAttack: {
+    id: 'two_handed_swing', name: 'Two-Handed Swing',
+    desc: 'An enormous overhead chop: a 120° arc at 130px reach for 52 damage ' +
+          'with 260px of knockback, every 1.1s. The slowest auto-attack in the ' +
+          'game. With 3 or more enemies already inside the arc it hits 25% ' +
+          'harder, because that is the point he stops thinking.',
+    interval: 1.1, damage: 52, targeting: { mode: 'facing' },
+  },
+  special: {
+    id: 'hold_the_line', name: 'HOLD THE LINE', cooldown: 22,
+    desc: 'He plants his feet and screams. For 6s everything within 300px is ' +
+          'taunted onto him and he takes 60% less damage — and every point that ' +
+          'gets through is stored. It ends in one swing: 250 damage plus 3x ' +
+          'everything he absorbed, in a 260px arc.',
+  },
+  escape: {
+    id: 'flinch', name: 'Flinch', cooldown: 4, iframes: 0.5,
+    desc: 'He does not mean to. A 170px panic hop away from the nearest threat ' +
+          'with full i-frames, and he swings wildly on the way down for 60 ' +
+          'damage in a 140px radius. The shortest escape cooldown on the roster.',
+  },
+  passive: {
+    id: 'braver_than_he_looks', name: 'Braver Than He Looks',
+    desc: 'Up to +50% damage as his HP drops, scaling smoothly from +0% at full ' +
+          'to +50% at 1 HP. Dropping under 30% HP makes him scream: everything ' +
+          'within 240px is thrown 400px back and slowed 40% for 2s, once every 15s.',
+  },
+  starUpgrades: {
+    s3: 'HOLD THE LINE lasts 9s and returns the stored damage at 4x instead of 3x.',
+    s5: "Flinch's landing swing grows to 110 damage in a 200px radius and leaves " +
+        'a shield that blocks the next 1 hit.',
+  },
+  signatureRelic: 'chipped_greataxe',
+  barks: {
+    spawn: "There's too many. There's TOO MANY. ...okay. Okay!",
+    levelUp: 'Stronger. Good. I still hate this.',
+    lowHp: "I'm not crying, I'm LEAKING! Leave me alone!",
+    kill: "Sorry! Sorry — that was me. I did that. Sorry!",
+    boss: "Nope. Nope nope nope. ...fine. FINE. COME ON THEN.",
+    victory: "Is it over? Is it actually over? I need to sit down.",
+    idle: "I'm not scared. I'm appropriately informed.",
+  },
+  buildPaths: [
+    'Absorb and answer — Iron Body + Guardian Plate + Second Wind; HOLD THE LINE ' +
+    'pays 3x everything you eat, so eat as much as you can survive',
+    'Cornered animal — Bloodthirst + Vengeance + Sharp Edge; Braver Than He Looks ' +
+    'is +50% damage at 1 HP, so the build is staying exactly that scared',
+  ],
+};
+
 // ---------------------------------------------------------------------------
 //                      6-STAR ROSTER (Limited / UR)
 // ---------------------------------------------------------------------------
@@ -1092,11 +1277,13 @@ const SORA = {
   },
   autoAttack: {
     id: 'rapid_fist', name: 'Rapid Fist',
-    // `damage` is the first hit of the combo; the full string is 14/14/30 = 58.
-    desc: 'A 3-hit ki combo — 14, 14, then 30 — in the facing direction every 0.9s. ' +
-          'Damage grows +4% per upgrade taken this run, uncapped. Early-run wet ' +
-          'noodle, late-run disaster.',
-    interval: 0.9, damage: 14, targeting: { mode: 'facing' },
+    // `damage` is one punch; the last punch of a volley lands 48 instead. Both
+    // are priced for a LINE, not the cone this used to be — see star6.js.
+    desc: 'Straight ki punches down one line, alternating fists — two at first, four ' +
+          'once it evolves, and the gap between them closes as it levels until they ' +
+          'land as one. 22 a hit, 48 on the last. Damage grows +4% per upgrade taken ' +
+          'this run, uncapped. Early-run wet noodle, late-run disaster.',
+    interval: 0.9, damage: 22, targeting: { mode: 'facing' },
   },
   special: {
     id: 'spirit_bomb', name: 'SPIRIT BOMB', cooldown: 32,
@@ -1201,7 +1388,144 @@ const HAN = {
   ],
 };
 
-/** All 19 playable characters, in canonical roster order (rarity ascending). */
+const AOI = {
+  id: 'aoi',
+  name: 'Aoi',
+  epithet: 'The Catastrophe Maid',
+  rarity: 6,
+  archetype: 'Disaster Idol',
+  element: 'water',
+  visual: { shape: 'capsule', color: '#7fb6ff', accent: '#f4f1ea', emoji: '🍵', size: 16, glow: true },
+  stats: {
+    // No armour on purpose: she is the only ★6 with none. Everything about her
+    // is fast, loud and structurally unsound.
+    hp: 138, armor: 0, moveSpeed: 184, pickupRadius: 50,
+    damageMult: 1.0, attackSpeedMult: 1.05, areaMult: 1.05,
+    critChance: 0.05, critMult: 2.0, cooldownMult: 1.0, luck: 2,
+  },
+  autoAttack: {
+    id: 'flying_saucers', name: 'Flying Saucers',
+    desc: '3 saucers thrown in a boomerang arc that hit on the way out AND on ' +
+          'the way back, 16 damage a pass, pierce 2, every 0.9s. Every 4th ' +
+          'throw she fumbles the whole tray instead: 45 damage in a 90px ' +
+          'shatter at her own feet, and 2% of her own max HP — she is never ' +
+          'charged for it below 35%.',
+    interval: 0.9, damage: 16, targeting: { mode: 'nearest' },
+  },
+  special: {
+    id: 'total_disaster', name: 'OPERATION: TOTAL DISASTER', cooldown: 30,
+    desc: 'She pulls the wrong cable. The ceiling comes down for 4s: 9 rig ' +
+          'sections land on 0.4s telegraphs for 110 damage in 130px each, and ' +
+          'then the main lighting truss lands on HER for 340 damage in a 300px ' +
+          'ring. Fully invulnerable throughout, which is the only reason she ' +
+          'is still employed.',
+  },
+  escape: {
+    id: 'apology_slide', name: 'Apology Slide', cooldown: 6, iframes: 0.8,
+    desc: 'She loses her footing and slides 240px on her face, invulnerable, ' +
+          'ploughing everything on the path 300px aside for 40 damage, and ' +
+          'finishing in a bow so mortified that everything within 200px is ' +
+          'taunted onto her for 2s.',
+  },
+  passive: {
+    id: 'live_and_unedited', name: 'Live and Unedited',
+    desc: 'Nothing goes wrong for free. Every fumbled tray and every 12 damage ' +
+          'you take adds 1 VIEWER; every 10 viewers is a permanent +5% damage ' +
+          'for the rest of the run, up to 20 stacks. The disasters are the show.',
+  },
+  starUpgrades: {
+    s3: 'OPERATION: TOTAL DISASTER drops 14 rig sections instead of 9, and the ' +
+        'truss drags everything within 420px inward before it lands.',
+    s5: 'Apology Slide leaves a 160px slick of spilled tea for 5s, slowing ' +
+        'enemies by 45%.',
+  },
+  signatureRelic: 'cracked_teacup',
+  barks: {
+    spawn: "W-welcome home, Master! ...that's the wrong door. Sorry!",
+    levelUp: 'I levelled up?! ON PURPOSE?! Ehh?!',
+    lowHp: "I'm fine! This is fine! Nothing is on fire! ...that's on fire.",
+    kill: 'Sorry sorry sorry — was that yours? Was that yours?!',
+    boss: 'Okay. Okay! I have a plan. ...I lied. I have no plan.',
+    victory: 'We did it! Somehow! Do NOT ask me how!',
+    defeat: "Clip that. Actually — don't. DON'T CLIP THAT.",
+    idle: "I dropped the tray again. That's four today. It's not even noon.",
+  },
+  buildPaths: [
+    'Chaos engine — Cracked Teacup + Wide Reach + Quick Recovery; every single ' +
+    'thing in the kit is an accident with a radius, so widen all of them',
+    'Viewer count — Iron Body + Second Wind + Vengeance; Live and Unedited pays ' +
+    'you for taking hits, so stop dodging and start earning',
+  ],
+};
+
+const MIREL = {
+  id: 'mirel',
+  name: 'Mirel',
+  epithet: 'She Who Counts In Centuries',
+  rarity: 6,
+  archetype: 'Ordinary Magic Scholar',
+  // Spirit is neutral both ways (DECISIONS.md §26), which is exactly right for
+  // a mage whose entire thesis is that ordinary magic beats special magic.
+  element: 'spirit',
+  visual: { shape: 'capsule', color: '#f2f6ff', accent: '#c8a24a', emoji: '🌿', size: 15, glow: true },
+  stats: {
+    hp: 130, armor: 1, moveSpeed: 170, pickupRadius: 52,
+    damageMult: 1.05, attackSpeedMult: 1.0, areaMult: 1.05,
+    critChance: 0.05, critMult: 2.0, cooldownMult: 1.0, luck: 1,
+  },
+  autoAttack: {
+    id: 'ordinary_offensive_magic', name: 'Ordinary Offensive Magic',
+    desc: 'One plain white bolt every 0.5s for 26 damage, pierce 2. The most ' +
+          'common attack spell in the world and nothing more. Every 8th bolt ' +
+          'she casts without moving her hand: 3x damage, pierces everything, ' +
+          'no wind-up at all.',
+    interval: 0.5, damage: 26, targeting: { mode: 'nearest' },
+  },
+  special: {
+    id: 'the_collection', name: 'THE COLLECTION', cooldown: 28,
+    desc: 'She opens the book. For 10s she casts one random spell from the ' +
+          'collection every 0.5s — 20 casts, none of which were ever meant for ' +
+          'combat: a field of flowers (heals 8 HP), a spell that removes rust ' +
+          '(2% max HP/s bleed for 4s), one that polishes armour (3 shred stacks ' +
+          'for 6s), one that turns a patch of ground to sand (65 damage in ' +
+          '110px), and one that makes grapes sweeter, which does nothing at all.',
+  },
+  escape: {
+    id: 'mana_suppression', name: 'Mana Suppression', cooldown: 8, iframes: 1.4,
+    desc: 'She simply stops registering as a mage. 1.4s untargetable and ' +
+          'invulnerable at +30% move speed, and every enemy within 320px that ' +
+          'was tracking her stops dead and looks around for 1.2s.',
+  },
+  passive: {
+    id: 'a_long_time_to_practise', name: 'A Long Time To Practise',
+    desc: 'Every 80 auto-attack casts this run permanently adds +5% auto-attack ' +
+          'damage, uncapped. A thousand years is a great many casts. She is also ' +
+          'immune to knockback and slows — none of this is new to her.',
+  },
+  starUpgrades: {
+    s3: 'THE COLLECTION runs 15s (30 casts) and the spell that does nothing is ' +
+        'removed from the book.',
+    s5: 'Mana Suppression also refunds 50% of THE COLLECTION\'s remaining cooldown.',
+  },
+  signatureRelic: 'field_of_flowers',
+  barks: {
+    spawn: "Mm. This will take a moment. Perhaps a decade.",
+    levelUp: 'Oh. That is the 4,000th time I have done that.',
+    lowHp: "Inconvenient. I had plans for this century.",
+    kill: 'It was an ordinary spell. That is rather the point.',
+    boss: "I have killed one of these before. ...eighty years ago. Roughly.",
+    victory: 'Good. Now, there is a flower I want to see. It blooms in twelve years.',
+    idle: 'I collect them. No, they are not useful. Yes, I know.',
+  },
+  buildPaths: [
+    'Ordinary mastery — Sharp Edge + Piercing Will + Long Haul; the auto is the ' +
+    'whole character and A Long Time To Practise never stops paying it',
+    'The whole book — Field of Flowers + Wide Reach + Quick Recovery; THE ' +
+    'COLLECTION is 20 random effects, so more of them, more often, over more ground',
+  ],
+};
+
+/** All 24 playable characters, in canonical roster order (rarity ascending). */
 export const CHARACTERS = [
   // 3-star
   MOCHI, ALTO,
@@ -1209,8 +1533,9 @@ export const CHARACTERS = [
   HOSHINO_REI, YAMIKAGE, UZU, CAPTAIN_YULI, KAGURA, UNIT_09,
   // 5-star
   RIN, NITEN, SHIRO_SAME, REIKA, NEKROMINA, HIKARI, AKANE, KIRA,
+  YUKINE, WREN, BRANT,
   // 6-star
-  SOVEREIGN_ALICIA, SORA, HAN,
+  SOVEREIGN_ALICIA, SORA, HAN, AOI, MIREL,
 ];
 
 /** id -> character. Written literally so no lookup logic lives in a data file. */
@@ -1231,13 +1556,18 @@ export const CHARACTERS_BY_ID = {
   hikari: HIKARI,
   akane: AKANE,
   kira: KIRA,
+  yukine: YUKINE,
+  wren: WREN,
+  brant: BRANT,
   sovereign_alicia: SOVEREIGN_ALICIA,
   sora: SORA,
   han: HAN,
+  aoi: AOI,
+  mirel: MIREL,
 };
 
 /**
- * Gacha pools by rarity: 2 / 6 / 8 / 3 = 19 (SECTION 15).
+ * Gacha pools by rarity: 2 / 6 / 11 / 5 = 24 (SECTION 15).
  * The ★3 pool is deliberately thin — DECISIONS.md §3 takes FIX B and rebalances
  * the pull rates (35/48/16/1) rather than inventing two unapproved characters.
  * Switching to FIX A later means adding two objects above and two ids here.
@@ -1245,6 +1575,7 @@ export const CHARACTERS_BY_ID = {
 export const CHARACTERS_BY_RARITY = {
   3: ['mochi', 'alto'],
   4: ['hoshino_rei', 'yamikage', 'uzu', 'captain_yuli', 'kagura', 'unit_09'],
-  5: ['rin', 'niten', 'shiro_same', 'reika', 'nekromina', 'hikari', 'akane', 'kira'],
-  6: ['sovereign_alicia', 'sora', 'han'],
+  5: ['rin', 'niten', 'shiro_same', 'reika', 'nekromina', 'hikari', 'akane', 'kira',
+      'yukine', 'wren', 'brant'],
+  6: ['sovereign_alicia', 'sora', 'han', 'aoi', 'mirel'],
 };
