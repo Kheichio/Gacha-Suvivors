@@ -550,27 +550,51 @@ export class Run {
 
   onPlayerLethal(src, opts) {
     const p = this.player;
-    // DECISIONS.md §29 — a fixed resolution order, each source consumed once.
+    // DECISIONS.md §29 — a fixed resolution order, and a hard cap of 3 per run.
+    //
+    // `revivesUsed` counts CHARGES SPENT per source, not "has this source been
+    // touched". It used to be a boolean, which meant a source that grants more
+    // than one revive only ever produced one: Second Chance goes to level 2 and
+    // its own card says "+2 revives total", but the second level did nothing at
+    // all — no error, no warning, and the HUD even drew two revive pips.
     const order = ['undying', 'second_chance', 'shrine_revival', 'rei_s3', 'phoenix_heart'];
-    for (const k of order) {
-      if (this.revivesUsed[k]) continue;
-      if (!this._hasRevive(k)) continue;
-      this.revivesUsed[k] = true;
-      this._revive(k);
-      return;
+    if (this.revivesSpent() < 3) {
+      for (const k of order) {
+        if ((this.revivesUsed[k] | 0) >= this._reviveCharges(k)) continue;
+        this.revivesUsed[k] = (this.revivesUsed[k] | 0) + 1;
+        this._revive(k);
+        return;
+      }
     }
     this._die(src);
   }
 
-  _hasRevive(kind) {
+  /** Charges consumed so far, across every source. */
+  revivesSpent() {
+    let n = 0;
+    for (const k in this.revivesUsed) n += this.revivesUsed[k] | 0;
+    return n;
+  }
+
+  /** Charges remaining, for the HUD's revive pips. */
+  revivesLeftNow() {
+    let total = 0;
+    for (const k of ['undying', 'second_chance', 'shrine_revival', 'rei_s3', 'phoenix_heart']) {
+      total += this._reviveCharges(k);
+    }
+    return Math.max(0, Math.min(3, total) - this.revivesSpent());
+  }
+
+  /** How many revives this source grants in total. 0 if the player has none. */
+  _reviveCharges(kind) {
     const p = this.player;
     switch (kind) {
-      case 'undying': return p.flags.undying === true;
-      case 'second_chance': return (p.upgrades.second_chance || 0) > 0;
-      case 'shrine_revival': return (save.data.shrine.revival || 0) > 0;
-      case 'rei_s3': return p.flags.reiRevive === true;
-      case 'phoenix_heart': return p.evolutions.indexOf('phoenix_heart') >= 0;
-      default: return false;
+      case 'undying': return p.flags.undying === true ? 1 : 0;
+      case 'second_chance': return p.upgrades.second_chance | 0;
+      case 'shrine_revival': return save.data.shrine.revival | 0;
+      case 'rei_s3': return p.flags.reiRevive === true ? 1 : 0;
+      case 'phoenix_heart': return p.evolutions.indexOf('phoenix_heart') >= 0 ? 1 : 0;
+      default: return 0;
     }
   }
 

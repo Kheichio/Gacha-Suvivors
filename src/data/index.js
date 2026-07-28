@@ -16,6 +16,7 @@ import * as stages from './stages.js';
 import * as waves from './waves.js';
 import * as upgrades from './upgrades.js';
 import * as weapons from './weapons.js';
+import * as quests from './quests.js';
 import * as relics from './relics.js';
 import * as evolutions from './evolutions.js';
 import * as gacha from './gacha.js';
@@ -183,6 +184,13 @@ export function validate() {
     has(upgrades.UPGRADES_BY_ID, e.requires.upgrade, `evolution ${e.id}.requires.upgrade`);
     has(relics.RELICS_BY_ID, e.requires.relic, `evolution ${e.id}.requires.relic`);
   }
+  for (const q of quests.QUESTS) {
+    if (!q.track || quests.TRACK_KINDS.indexOf(q.track.kind) < 0) {
+      problems.push(`quest ${q.id}: unknown track kind "${q.track && q.track.kind}"`);
+    }
+    if (!q.reward || Object.keys(q.reward).length === 0) problems.push(`quest ${q.id} pays nothing`);
+    if (!q.rewardText) problems.push(`quest ${q.id} does not say what it pays`);
+  }
   for (const w of weapons.WEAPONS) {
     if (!w.levels || w.levels.length !== 8) problems.push(`weapon ${w.id} must have 8 levels`);
     if (!w.evolution) problems.push(`weapon ${w.id} has no evolution`);
@@ -201,15 +209,16 @@ export function validate() {
 }
 
 export const data = {
-  characters, enemies, stages, waves, upgrades, weapons, relics, evolutions,
+  characters, enemies, stages, waves, upgrades, weapons, quests, relics, evolutions,
   gacha, bosses, achievements, shrine, elements,
   refs, refsAttached, shipNamesAttached, portraitsAttached,
   allVisuals, validate,
 };
 
 export {
-  characters, enemies, stages, waves, upgrades, weapons, relics, evolutions,
+  characters, enemies, stages, waves, upgrades, weapons, quests, relics, evolutions,
   gacha, bosses, achievements, shrine, elements, refs,
 };
+export { quests as questData };
 
 export default data;

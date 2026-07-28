@@ -23,8 +23,10 @@ import { save, addCurrency } from '../core/save.js';
 import { ui } from '../ui/widgets.js';
 import { input, ACT } from '../core/input.js';
 import { clamp, easeOutCubic } from '../core/math.js';
+import { Rng, hashString } from '../core/rng.js';
 import { createGacha } from '../game/gachaEngine.js';
 import { createAchievements } from '../game/achievements.js';
+import { settle as settleQuests, unclaimedCount } from '../game/quests.js';
 
 import { hubScene } from './hubScene.js';
 import { stageSelectScene } from './stageSelectScene.js';
@@ -36,6 +38,7 @@ import { shrineScene } from './shrineScene.js';
 import { codexScene } from './codexScene.js';
 import { settingsScene } from './settingsScene.js';
 import { achievementsScene } from './achievementsScene.js';
+import { questsScene } from './questsScene.js';
 
 const FADE_TIME = 0.22;
 
@@ -83,23 +86,45 @@ class SceneManager {
     this.register('codex', codexScene);
     this.register('settings', settingsScene);
     this.register('achievements', achievementsScene);
+    this.register('quests', questsScene);
 
-    // First-run grant: the two ★3 starters, so the game is playable immediately.
+    // FIRST-RUN GRANT: ONE random ★3, and nothing else.
+    //
+    // This used to hand over both ★3 starters AND 300 fragments — two 10-pulls,
+    // before the player had done anything. The whole opening of the game, given
+    // away, which left the first run with no stake in it: the gacha had already
+    // been seen, so finishing a run paid out into a menu you had stopped caring
+    // about. Now the first quest pays for the first pull (data/quests.js).
+    //
+    // The pick is seeded from the save's own creation stamp rather than from
+    // Math.random, so it is stable for a given save and cannot re-roll on a
+    // reload — and it deliberately does NOT touch `metaRng`, whose call count is
+    // the gacha's anti-save-scum ledger.
     let owns = false;
     for (const k in save.data.roster) if (save.data.roster[k].owned) { owns = true; break; }
+    const starters = data.characters.CHARACTERS_BY_RARITY[3];
     if (!owns) {
-      for (const id of data.characters.CHARACTERS_BY_RARITY[3]) {
-        const e = save.data.roster[id] || (save.data.roster[id] = { owned: false, starLevel: 1, letters: 0, bond: 0, runs: 0, kills: 0 });
-        e.owned = true;
-      }
-      save.data.currencies.starFragments += 300;   // enough for two 10-pulls
+      const pick = new Rng(hashString('starter:' + (save.data.createdAt || 1)));
+      const id = pick.pick(starters);
+      const e = save.data.roster[id] ||
+        (save.data.roster[id] = { owned: false, starLevel: 1, letters: 0, bond: 0, runs: 0, kills: 0 });
+      e.owned = true;
+      this.shared.characterId = id;
       save.save();
     }
-    this.shared.characterId = this.shared.characterId ||
-      data.characters.CHARACTERS_BY_RARITY[3][0];
+    // Whatever is actually owned, never a hardcoded starter: the granted one may
+    // not be the first entry in the pool.
+    if (!this.shared.characterId || !(save.data.roster[this.shared.characterId] || {}).owned) {
+      let first = null;
+      for (const c of data.characters.CHARACTERS) {
+        if ((save.data.roster[c.id] || {}).owned) { first = c.id; break; }
+      }
+      this.shared.characterId = first || starters[0];
+    }
     this.shared.stageId = data.stages.STAGES[0].id;
 
     this.achievements.bind();
+    this.settleQuests();
 
     // Claim any run whose results screen never got to pay out. See
     // save.js `pendingRun` — SECTION 2 does not allow a run's earnings to be
@@ -286,6 +311,24 @@ class SceneManager {
   }
 
   // --- toasts (achievements, unlocks, errors) --------------------------------
+  /**
+   * Pay out every quest whose counter is met, and say so.
+   *
+   * Called at boot, on arriving at the hub, and after a results payout — the
+   * three moments a counter can have moved. There is no claim button on
+   * purpose; see game/quests.js.
+   */
+  settleQuests() {
+    const paid = settleQuests();
+    for (const q of paid) {
+      this.toast('QUEST  ' + q.name + ' — ' + q.rewardText, '#7bf59a', q.icon || '✔');
+    }
+    return paid;
+  }
+
+  /** How many completed quests are waiting to be noticed. Drives the hub badge. */
+  get questsReady() { return unclaimedCount(); }
+
   toast(text, color, icon) {
     this._toast.push({ text, color: color || '#ffd76a', icon: icon || '★', t: 0, life: 3.4 });
     if (this._toast.length > 4) this._toast.shift();

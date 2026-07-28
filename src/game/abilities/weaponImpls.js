@@ -46,7 +46,6 @@ function aimAt(run, p, range) {
 function extra(p) { return p.stats.projectileCount | 0; }
 
 // --- shared options bags -----------------------------------------------------
-const CONE_OPTS = { element: null, knockback: 0, maxTargets: 0 };
 const PROJ_OPTS = {
   speed: 0, damage: 0, life: 0, radius: 0, pierce: 0, motion: 0, visual: null,
   knockback: 0, target: null, turnRate: 0, owner: null, tag: '',
@@ -54,18 +53,39 @@ const PROJ_OPTS = {
   host: null, orbitAngle: 0, orbitRadius: 0, orbitSpeed: 0,
   targetX: 0, targetY: 0, flightTime: 0, arcHeight: 0,
 };
-const WEDGE = { x: 0, y: 0, r: 0, a0: 0, a1: 0, color: '', life: 0 };
 const NEAR = [];
 
-/** A cone hit plus its wedge overlay and particles, without meleeArc's audio. */
-function slash(run, p, x, y, angle, arc, radius, damage, color, knockback) {
+/**
+ * A cone hit plus its ANIMATED swing, without meleeArc's audio.
+ *
+ * `tier` is the weapon's own evolved flag, not the character's: a Blade Arc you
+ * took to ENDLESS EDGE has to look different from one at level 3 even on a
+ * character whose signature is still un-evolved. That is the entire point of
+ * the request — an evolution you cannot see is an evolution you have to take on
+ * faith.
+ */
+const SWING = { tier: 0, life: 0.2, width: 0, sweep: 1, color2: null };
+let SWING_DIR = 1;
+function slash(run, p, x, y, angle, arc, radius, damage, color, knockback, tier) {
   const r = H.area(p, radius);
   const hits = H.coneDamage(run, x, y, angle, arc, r, damage, SRC.AUTO, {
     knockback: knockback, crit: undefined,
   });
-  run.overlays.wedges.push({ x, y, r, a0: angle - arc / 2, a1: angle + arc / 2,
-                             color, life: 0.12 });
+  SWING_DIR = -SWING_DIR;                       // combos read left-right-left
+  SWING.tier = tier || 0;
+  SWING.life = tier ? 0.26 : 0.2;
+  SWING.sweep = SWING_DIR;
+  SWING.color2 = tier ? '#ffe9a3' : null;
+  H.effects.slash(x, y, angle, arc, r, color, SWING);
   return hits;
+}
+
+/** The tier a weapon's effects should draw at. One place, so it cannot drift. */
+function tierOf(w) { return w.evolved ? H.FX_TIER.EVOLVED : H.FX_TIER.NORMAL; }
+
+/** The visual an evolved weapon fires, falling back to its base descriptor. */
+function visualOf(w) {
+  return (w.evolved && w.def.evolution.visual) || w.def.visual;
 }
 
 export const WEAPON_IMPLS = Object.create(null);
@@ -89,7 +109,8 @@ WEAPON_IMPLS.arc = {
     }
     for (let i = 0; i < n; i++) {
       const a = n === 1 ? base : base - 0.5 + (i / (n - 1)) * 1.0;
-      slash(run, p, p.x, p.y, a, s.arc, s.radius, dmg, '#ffe86a', s.knockback);
+      slash(run, p, p.x, p.y, a, s.arc, s.radius, dmg,
+                  w.evolved ? '#ffd76a' : '#ffe86a', s.knockback, tierOf(w));
     }
     H.particles.cone(p.x, p.y, base, s.arc, 5, '#ffe86a',
                      { speed: 240, life: 0.18, size: 0.5 });
@@ -125,7 +146,7 @@ WEAPON_IMPLS.orbit = {
       PROJ_OPTS.radius = 11 * p.stats.areaMult;
       PROJ_OPTS.pierce = s.pierce;
       PROJ_OPTS.motion = MOTION.ORBIT;
-      PROJ_OPTS.visual = w.def.visual;
+      PROJ_OPTS.visual = visualOf(w);
       PROJ_OPTS.knockback = 40;
       PROJ_OPTS.owner = p;
       PROJ_OPTS.tag = w.id;
@@ -174,7 +195,7 @@ WEAPON_IMPLS.spread = {
       PROJ_OPTS.radius = 8 * p.stats.areaMult;
       PROJ_OPTS.pierce = H.pierce(p, s.pierce);
       PROJ_OPTS.motion = MOTION.STRAIGHT;
-      PROJ_OPTS.visual = w.def.visual;
+      PROJ_OPTS.visual = visualOf(w);
       PROJ_OPTS.knockback = 30;
       PROJ_OPTS.owner = p;
       PROJ_OPTS.tag = w.id;
@@ -192,7 +213,7 @@ WEAPON_IMPLS.nova = {
   fire(run, p, w, s) {
     const dmg = H.abilityDamage(run, p, s.damage);
     H.nova(run, p, p.x, p.y, s.radius, dmg, {
-      color: w.def.visual.color, knockback: s.knockback, falloff: 0.2,
+      color: visualOf(w).color, knockback: s.knockback, falloff: 0.2,
       src: SRC.AUTO, shake: false,
     });
     H.shake.small();
@@ -205,7 +226,7 @@ WEAPON_IMPLS.nova = {
     if (st.fieldT > 0) return;
     st.fieldT = 0.5;
     H.field(run, p, p.x, p.y, s.fieldRadius, 0.6, 'burn',
-            s.fieldDps * p.abilityDamageMultiplier(), w.def.visual.color,
+            s.fieldDps * p.abilityDamageMultiplier(), visualOf(w).color,
             { follow: p });
   },
 };
@@ -224,9 +245,9 @@ WEAPON_IMPLS.wave = {
       WAVE_OPTS.falloff = 0.15;
       WAVE_OPTS.onHit = slowOnHit;
       H.areaDamage(run, p.x, p.y, rad, dmg, SRC.AUTO, WAVE_OPTS);
-      run.overlays.rings.push({ x: p.x, y: p.y, r: rad, color: w.def.visual.color });
+      run.overlays.rings.push({ x: p.x, y: p.y, r: rad, color: visualOf(w).color });
     }
-    H.particles.ring(p.x, p.y, 18, w.def.visual.color, H.area(p, s.radius) * 3);
+    H.particles.ring(p.x, p.y, 18, visualOf(w).color, H.area(p, s.radius) * 3);
     H.audio.play('explode');
   },
   persist(run, p, w, s, dt) {
@@ -235,7 +256,7 @@ WEAPON_IMPLS.wave = {
     if (st.fieldT > 0) return;
     st.fieldT = 0.5;
     H.field(run, p, p.x, p.y, s.fieldRadius, 0.6, 'chill',
-            s.fieldDps * p.abilityDamageMultiplier(), w.def.visual.color,
+            s.fieldDps * p.abilityDamageMultiplier(), visualOf(w).color,
             { follow: p, param: s.slow });
   },
 };
@@ -259,14 +280,14 @@ WEAPON_IMPLS.homing = {
       PROJ_OPTS.radius = 9 * p.stats.areaMult;
       PROJ_OPTS.pierce = H.pierce(p, 0);
       PROJ_OPTS.motion = MOTION.HOMING;
-      PROJ_OPTS.visual = w.def.visual;
+      PROJ_OPTS.visual = visualOf(w);
       PROJ_OPTS.knockback = 20;
       PROJ_OPTS.owner = p;
       PROJ_OPTS.tag = w.id;
       PROJ_OPTS.host = null;
       PROJ_OPTS.target = t;
       PROJ_OPTS.turnRate = s.turnRate;
-      PROJ_OPTS.trailColor = w.def.visual.color;
+      PROJ_OPTS.trailColor = visualOf(w).color;
       PROJ_OPTS.onHit = burnOnHit;
       BURN.amount = burn;
       BURN.time = s.burnTime;
@@ -302,7 +323,7 @@ WEAPON_IMPLS.lash = {
     const base = aimAt(run, p, H.area(p, s.radius) + 200);
     for (let i = 0; i < s.count; i++) {
       slash(run, p, p.x, p.y, base + LASH_DIRS[i % LASH_DIRS.length],
-            s.arc, s.radius, dmg, w.def.visual.color, s.knockback);
+            s.arc, s.radius, dmg, visualOf(w).color, s.knockback, tierOf(w));
     }
     H.audio.play('slash');
   },
@@ -334,7 +355,7 @@ WEAPON_IMPLS.mortar = {
     const blast = H.area(p, s.blast);
     METEOR.dps = (s.fieldDps || 0) * p.abilityDamageMultiplier();
     METEOR.time = s.fieldTime || 0;
-    METEOR.color = w.def.visual.color;
+    METEOR.color = visualOf(w).color;
     METEOR.radius = blast * 0.8;
     for (let i = 0; i < s.count; i++) {
       // Scatter the salvo so five shells are five craters, not one.
@@ -346,7 +367,7 @@ WEAPON_IMPLS.mortar = {
       PROJ_OPTS.radius = 12;
       PROJ_OPTS.pierce = 0;
       PROJ_OPTS.motion = MOTION.ARC;
-      PROJ_OPTS.visual = w.def.visual;
+      PROJ_OPTS.visual = visualOf(w);
       PROJ_OPTS.owner = p;
       PROJ_OPTS.tag = w.id;
       PROJ_OPTS.host = null;

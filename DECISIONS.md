@@ -727,3 +727,78 @@ Now tested with `=== false`.
 not from the fire you permanently ARE. A self-following burn field, and any enemy
 standing inside one, no longer counts as an ignition source. A conditional payoff
 that is always true is not a payoff.
+---
+
+## §42 — Quests, and an opening worth having (2026-07-28)
+
+**The problem.** A fresh save handed over BOTH ★3 starters and 300 fragments —
+two 10-pulls — before the player had played a second. The whole opening of the
+game, given away, which left the first run with no stake in it: the gacha had
+already been seen, so finishing a run paid into a menu you had stopped caring
+about. On top of that a 16% ★5 base rate meant those two 10-pulls very likely
+contained a ★5, so the eight strongest characters in the game arrived before
+there was any reason to want one.
+
+**Ruling.**
+
+1. **The starting grant is ONE character** from the ★3 pool and **zero
+   fragments**. The pick is seeded from the save's own creation stamp, so it is
+   stable across reloads and does NOT consume `metaRng`, whose call count is
+   the gacha's anti-save-scum ledger.
+2. **★5 base rate 16% -> 8%**, pity soft 25 -> 30 and hard 40 -> 50. A guarantee
+   that lands two pulls after the base rate would have anyway is not a
+   guarantee, it is the rate. The freed weight went to ★3, which is the
+   duplicate pool and therefore the star-level progression.
+3. **Quests** (`src/data/quests.js`, `src/game/quests.js`, a board at
+   `src/scenes/questsScene.js`). Fifteen of them across three tiers. The first
+   pays **135 fragments — exactly one 10-pull — for finishing one run, win or
+   lose**, because a new player losing their first run is the expected outcome
+   and punishing it teaches nothing.
+
+**Two design rules that fell out of it.**
+
+*Quests are DERIVED, never accumulated.* Every counter is already in the save
+blob, so the ledger reads rather than writes and only persists which quests have
+paid. A quest added in a later version therefore credits play you have already
+done, instead of starting from zero and silently punishing an existing save.
+Two counters could not be derived — the best level reached in any single run and
+the most weapon slots filled in one — and those are recorded explicitly.
+
+*There is no claim button.* A reward you have earned but not found the screen for
+is a reward the game failed to give you. Quests settle at boot, on arriving at
+the hub, and after a results payout — the three moments a counter can move.
+
+---
+
+## §43 — Effects, evolutions you can see, and regen you can feel (2026-07-28)
+
+**Three play reports, one theme: the game was not showing its work.**
+
+*"Make better animations for abilities."* Ability visuals were single-frame. A
+sword swing pushed one wedge into `run.overlays` and the scene drew it as a
+flat pie for exactly one frame. `src/render/effects.js` is now a pooled,
+time-parameterised layer — slash, shockwave, beam, burst ring, impact,
+afterimage — where every value is interpolated from age over lifetime. The
+normal-tier slash alone gained a wind-up, a five-band tapering trail and a swept
+pie that only covers the arc already travelled.
+
+*"When you evolve abilities give them a new unique look."* The effect layer has a
+TIER, and the evolved tier is a different silhouette rather than a brighter
+colour: a counter-rotating second blade, a forced double pulse, gold rails
+flanking a beam, ghosts that persist. Weapons additionally carry their own
+`evolution.visual`, pre-rastered at boot alongside the base one — the frame a
+player evolves something is the worst possible frame to bake 32 rotation steps.
+A test fails the build if an evolution reuses its base visual.
+
+*"Health regen feels like it doesn't do anything."* It did almost nothing: 0.4
+HP/s restored one contact hit every thirty seconds against enemies hitting for
+8-20. Now 0.7/level, and — more importantly — it is VISIBLE: fractional healing
+banks until a whole point has accrued and then throws a countable `+1`, motes
+drift up while it accumulates, and the HP bar draws a green band showing where
+it will be in three seconds. "+0.7 HP/s" is a number nobody can picture; a strip
+of bar creeping forward is the same information as a distance.
+
+**Also fixed while in there:** two levels of Second Chance granted ONE revive.
+`revivesUsed` was a per-SOURCE boolean rather than a count of charges spent, so
+the second level did nothing at all while its own card promised "+2 revives
+total" and the HUD drew two pips.

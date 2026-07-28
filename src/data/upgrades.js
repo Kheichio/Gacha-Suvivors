@@ -143,11 +143,16 @@ export const UPGRADES = [
     codex: 'Eighteen more HP. Eighteen more chances to say "I meant to do that".',
   },
   {
+    // 0.4 -> 0.7 per level. At 0.4 the first level restored one contact hit
+    // every thirty seconds, against enemies that hit for 8-20 — indistinguishable
+    // from nothing, which is exactly what it was reported as. The HUD now also
+    // draws a green band showing where the bar will be in three seconds, and
+    // every whole point restored throws a countable `+1`.
     id: 'second_wind', name: 'Second Wind', icon: '🌿',
     maxLevel: 8, tier: 'common',
-    stat: 'regen', perLevel: 0.4, mode: 'flat', unit: 'flat', decimals: 1,
+    stat: 'regen', perLevel: 0.7, mode: 'flat', unit: 'flat', decimals: 1,
     fmt: '+{v} HP/s regeneration', totalFmt: '+{v} HP/s total',
-    desc: 'You heal continuously, in and out of combat. Small per second, enormous over fifteen minutes.',
+    desc: 'You heal continuously, in and out of combat. The green band on your HP bar is where it will be in three seconds.',
     weight: 100,
     codex: 'The training arc pays out slowly, but it never once stops paying.',
   },

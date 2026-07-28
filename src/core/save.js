@@ -49,7 +49,13 @@ export function defaultSave() {
       runs: 0, wins: 0, deaths: 0, kills: 0, damage: 0,
       goldEarned: 0, fragmentsEarned: 0, levelUps: 0, bossKills: 0,
       highestLevel: 0, longestRun: 0, stageManagerSurvived: 0,
+      // Per-run MAXIMA, which no lifetime total can reconstruct. The quest
+      // ledger derives everything else it needs from the counters above.
+      bestLevel: 0, bestWeapons: 0, weaponsEvolved: 0,
     },
+
+    /** questId -> 1 once its reward has been paid. See game/quests.js. */
+    quests: { claimed: {} },
 
     settings: {
       masterVolume: 0.8, sfxVolume: 0.9, musicVolume: 0.5,

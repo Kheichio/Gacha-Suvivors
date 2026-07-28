@@ -136,6 +136,11 @@ const BLADE_ARC = {
   ],
   evolution: {
     name: 'ENDLESS EDGE', icon: '🌀',
+    // Every evolution carries its OWN visual. An evolution you cannot see is an
+    // evolution you have to take on faith — the effects layer already draws a
+    // different silhouette for the evolved tier, and this makes the projectiles
+    // and trails change with it.
+    visual: { shape: 'crescent', color: '#ffd76a', accent: '#7a3a00', size: 28, rotates: true, glow: true },
     desc: 'The swing never stops. A full 360 degree blade sweeps around you ' +
           'continuously at 190px, and anything it touches is thrown.',
     stats: { damage: 78, interval: 0.16, radius: 190, arc: 6.283, count: 1, knockback: 190, spin: 5.2 },
@@ -167,6 +172,7 @@ const IDOL_ORBIT = {
   ],
   evolution: {
     name: 'CONSTELLATION', icon: '🌟',
+    visual: { shape: 'star', color: '#ffe9a3', accent: '#7a5a00', size: 11, rotates: true, glow: true },
     desc: 'Twelve shards on two counter-rotating rings. They never come down, ' +
           'they never stop turning, and each one passes through everything.',
     // Radius stays close to the maxed 118 rather than pushing further out: a
@@ -204,6 +210,7 @@ const KUNAI_FAN = {
   ],
   evolution: {
     name: 'THOUSAND EDGES', icon: '🌪',
+    visual: { shape: 'shard', color: '#ffd76a', accent: '#4a3200', size: 9, rotates: true, glow: true },
     desc: 'A continuous rotating storm — ten knives in every direction, ten times ' +
           'a second, and nothing stops any of them.',
     // Count matters more than rate here. A three-knife volley spread across a
@@ -231,6 +238,7 @@ const STORM_RING = {
   ],
   evolution: {
     name: 'PERMASTORM', icon: '🌩',
+    visual: { shape: 'ring', color: '#ffffff', accent: '#2a5a7a', size: 30, glow: true },
     desc: 'The storm stops arriving and simply stays. A standing 230px field burns ' +
           'everything inside it, and the shock still lands on top.',
     stats: { damage: 96, interval: 0.9, radius: 230, knockback: 260, persist: true,
@@ -263,6 +271,7 @@ const SPIRIT_BELL = {
   ],
   evolution: {
     name: 'STANDING RESONANCE', icon: '📢',
+    visual: { shape: 'ring', color: '#ffd0ff', accent: '#3a1a5a', size: 26, glow: true },
     desc: 'The bell never stops ringing. A permanent 270px field holds everything ' +
           'in place at half speed while ring after ring rolls out of you.',
     stats: { damage: 58, interval: 0.55, radius: 270, count: 2, slow: 0.55, slowTime: 1.2,
@@ -295,6 +304,7 @@ const WISP_FLOCK = {
   ],
   evolution: {
     name: 'WILDFIRE', icon: '🦊',
+    visual: { shape: 'circle', color: '#ffe14a', accent: '#7a2000', size: 11, glow: true },
     desc: 'The flock never thins. Wisps pour out continuously, each one hotter ' +
           'than the last thing it burned.',
     stats: { damage: 46, interval: 0.22, count: 3, speed: 470, turnRate: 7.0,
@@ -327,6 +337,7 @@ const CHAIN_LASH = {
   ],
   evolution: {
     name: 'ENDLESS LASH', icon: '⛓',
+    visual: { shape: 'capsule', color: '#ffd76a', accent: '#3a2a00', size: 14, rotates: true, glow: true },
     desc: 'Six chains, whipping without pause at 330px. Nothing gets close enough to matter.',
     stats: { damage: 70, interval: 0.18, radius: 330, arc: 1.15, count: 6, knockback: 250 },
   },
@@ -349,6 +360,7 @@ const METEOR_CALL = {
   ],
   evolution: {
     name: 'STARFALL', icon: '💫',
+    visual: { shape: 'star', color: '#ffd76a', accent: '#5a1500', size: 15, glow: true },
     desc: 'The sky stops taking turns. Shells land continuously across the whole ' +
           'screen and each one leaves burning ground.',
     stats: { damage: 130, interval: 0.30, count: 2, blast: 165, range: 760,
@@ -376,6 +388,12 @@ export const TOTAL_WEAPON_LEVELS = WEAPONS.length * 8;
  */
 export function weaponVisuals() {
   const out = [];
-  for (const w of WEAPONS) if (w.visual) out.push(w.visual);
+  for (const w of WEAPONS) {
+    if (w.visual) out.push(w.visual);
+    // The evolved descriptor is a SEPARATE atlas entry, and the moment it is
+    // first needed is the moment a player just evolved something — the single
+    // worst frame in the run to rasterise 32 rotation steps on.
+    if (w.evolution && w.evolution.visual) out.push(w.evolution.visual);
+  }
   return out;
 }

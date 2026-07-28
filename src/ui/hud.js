@@ -143,11 +143,30 @@ class Hud {
       ghost: this.hpGhost, ghostColor: 'rgba(255,255,255,0.5)',
       segments: 10,
     });
+    // THE REGEN PREVIEW: a green band showing where this bar will be in three
+    // seconds. "+0.4 HP/s" is a number nobody can picture; a strip of bar you
+    // can watch creep forward is the same information as a distance.
+    if (p.stats.regen > 0 && p.hpFraction < 1) {
+      const ahead = Math.min(1, p.hpFraction + (p.stats.regen * 3) / Math.max(1, p.maxHp));
+      const x0 = bx + bw * p.hpFraction;
+      const x1 = bx + bw * ahead;
+      const pulse = 0.35 + 0.25 * Math.sin(run.time * 3.4);
+      if (x1 > x0 + 1) {
+        r.drawRect(x0, by + 2, x1 - x0, h - 4, '#7bf59a', pulse * 0.55);
+        r.drawRect(x1 - 2, by + 2, 2, h - 4, '#bfffd4', 0.35 + pulse * 0.4);
+      }
+    }
+
     ui.text(`${Math.ceil(p.hp)} / ${Math.round(p.maxHp)}`, bx + bw / 2, by + h / 2 + 1, {
       size: 16 * s, color: '#ffffff', align: 'center', weight: 800, outline: true, mono: true,
     });
+    if (p.stats.regen > 0) {
+      ui.text('♥ +' + p.stats.regen.toFixed(1) + '/s', bx + bw, by + h + 9 * s, {
+        size: 11 * s, color: '#7bf59a', align: 'right', weight: 800, mono: true,
+      });
+    }
 
-    let yy = y + Math.max(port, h + 22 * s) + 8;
+    let yy = y + Math.max(port, h + 22 * s) + (p.stats.regen > 0 ? 16 * s : 8);
 
     // armour pips
     if (p.stats.armor > 0) {
@@ -161,7 +180,7 @@ class Hud {
     }
 
     // revive icons
-    const revives = p.stats.revives - Object.keys(run.revivesUsed).length;
+    const revives = run.revivesLeftNow();
     if (revives > 0) {
       for (let i = 0; i < revives; i++) {
         ui.text('✚', x + i * 18 * s + 6, yy + 8 * s, { size: 15 * s, color: '#7bf59a', align: 'center' });

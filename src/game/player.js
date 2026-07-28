@@ -20,6 +20,9 @@ import { CONFIG } from '../core/config.js';
 import { clamp, normalize, V, damp, TAU, dist2 } from '../core/math.js';
 import { makeStatus, clearStatus, tickStatus, speedMultiplier, isStunned } from './statusEffects.js';
 import { atlas } from '../render/spriteAtlas.js';
+import { particles } from '../render/particles.js';
+import { damageNumbers, DMG_KIND } from '../render/damageNumbers.js';
+import { fxRng } from '../core/rng.js';
 import { Cooldown, Interval } from '../core/timer.js';
 import { events, EV } from '../core/events.js';
 import { input, ACT } from '../core/input.js';
@@ -50,6 +53,11 @@ const MULT_TO_BASE = {
 };
 
 const WARNED = Object.create(null);
+
+// Module scope: the regen effect fires several times a second and must not
+// build an options object each time.
+const REGEN_MOTE = { color: '#7bf59a', life: 0.85, size: 0.55, sizeEnd: 0.1, drag: 1.4, additive: true };
+const REGEN_MOTE_FAINT = { color: '#4ee07a', life: 0.7, size: 0.32, sizeEnd: 0.05, drag: 1.8, additive: true };
 
 export class Player {
   constructor(run, charDef) {
@@ -107,6 +115,11 @@ export class Player {
     /** Continuous-movement timer, for the Momentum upgrade. */
     this.movingT = 0;
     this.stillT = 0;
+
+    /** Regen presentation: fractional HP banked until it is worth showing. */
+    this._regenBank = 0;
+    this._regenT = 0;
+    this._regenFx = 0;
 
     this.starLevel = 1;
     this.bond = 0;
@@ -361,9 +374,35 @@ export class Player {
       if (this.buffs[i].t <= 0) { this.buffs.splice(i, 1); i--; this.recompute(); }
     }
 
-    // regen
+    // REGEN, AND PROOF THAT IT IS HAPPENING.
+    //
+    // A 0.4 HP/s trickle silently nudging a number was indistinguishable from
+    // the upgrade doing nothing — which is exactly what it was reported as. It
+    // now banks what it restores and spits out a countable `+N` the moment a
+    // whole point has accrued, so the feedback is proportional to the stat: one
+    // level drips a +1 every couple of seconds, eight levels fountain.
     if (this.stats.regen > 0 && this.hp < this.maxHp) {
+      const before = this.hp;
       this.hp = Math.min(this.maxHp, this.hp + this.stats.regen * dt);
+      this._regenBank += this.hp - before;
+      this._regenT += dt;
+      if (this._regenBank >= 1) {
+        const whole = Math.floor(this._regenBank);
+        this._regenBank -= whole;
+        this._regenT = 0;
+        damageNumbers.spawn(this.x + fxRng.range(-10, 10), this.y - 34, whole,
+                            DMG_KIND.HEAL, -1);
+        particles.emit(this.x + fxRng.range(-12, 12), this.y + 6, 0, -34, REGEN_MOTE);
+      }
+      // Even below one whole point, keep a mote drifting up so the effect is
+      // visible while it is accumulating rather than only when it pays out.
+      this._regenFx -= dt;
+      if (this._regenFx <= 0) {
+        this._regenFx = 0.42;
+        particles.emit(this.x + fxRng.range(-14, 14), this.y + 8, 0, -26, REGEN_MOTE_FAINT);
+      }
+    } else {
+      this._regenBank = 0;
     }
 
     // movement

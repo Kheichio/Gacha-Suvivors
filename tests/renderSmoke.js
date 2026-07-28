@@ -498,7 +498,7 @@ describe('render / the screen is not black', () => {
     await sceneManager.init(data);
     const failures = [];
     const SCREENS = ['hub', 'stageSelect', 'roster', 'shrine', 'gacha',
-                     'codex', 'achievements', 'settings'];
+                     'codex', 'achievements', 'settings', 'quests'];
     for (const id of SCREENS) {
       const scene = sceneManager.scenes[id];
       if (!scene) { failures.push(id + ': not registered'); continue; }

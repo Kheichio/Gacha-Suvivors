@@ -34,6 +34,7 @@ import { save, addCurrency, rosterEntry, stageEntry } from '../core/save.js';
 import { audio } from '../core/audio.js';
 import { displayName } from '../core/config.js';
 import { clamp, easeOutCubic, formatTime, withAlpha } from '../core/math.js';
+import { recordRun } from '../game/quests.js';
 
 /** The currency count-up. SECTION 12 asks for "big juicy"; 1.2s is the sweet spot. */
 const TICK_DUR = 1.2;
@@ -242,6 +243,8 @@ export const resultsScene = {
     S.levelUps = (S.levelUps | 0) + (s.levelUps | 0);
     S.highestLevel = Math.max(S.highestLevel | 0, s.level | 0);
     S.longestRun = Math.max(S.longestRun || 0, s.time || 0);
+    // The per-run maxima the quest ledger cannot derive from a lifetime total.
+    recordRun(s);
 
     // --- per-stage record -----------------------------------------------------
     // bestTime is a MAXIMUM (longest survived), matching stats.longestRun in the
@@ -295,6 +298,11 @@ export const resultsScene = {
     if (firstClear && this.stageDef) {
       this.manager.toast('FIRST CLEAR — ' + displayName(this.stageDef), PALETTE.accent, '🏁');
     }
+
+    // QUESTS settle here, after every counter this run moved has been written.
+    // Doing it before the stats block above would pay out against last run's
+    // numbers, which is exactly the sort of off-by-one nobody ever notices.
+    this.questsPaid = this.manager.settleQuests ? this.manager.settleQuests() : [];
 
     // Run-scoped achievements evaluate against the finished summary.
     if (this.manager.achievements && this.manager.achievements.checkRunEnd) {

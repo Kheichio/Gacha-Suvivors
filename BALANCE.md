@@ -1,7 +1,10 @@
 # BALANCE — current state and what to do about it
 
-Generated from `node sim.js --all --stage=1 --seed=42` against the shipped data.
-Re-run it after any numeric change; it takes about three minutes.
+Generated from `node sim.js --all --stage=1 --seeds=42,1337,7` against the
+shipped data. Re-run it after any numeric change; it takes about ten minutes.
+
+**Three seeds, not one.** A single seed swung this table's outlier count between
+10 and 15 for identical code. See "Use three seeds" below.
 
 **Read this first:** the scripted bot never dodges a telegraph, never kites
 deliberately, and uses every ability the instant it comes off cooldown. It is a
@@ -42,50 +45,57 @@ rather than above all of them — an earlier draft that always took the weapon
 produced a monoculture where every character ran the same three weapons and no
 stat card at all.
 
-Measured at **five weapon slots** (the signature plus four picks).
+Measured at **five weapon slots** (the signature plus four picks), and over
+**three seeds** — `node sim.js --all --stage=1 --seeds=42,1337,7`.
+
+### Use three seeds. One is noise.
+
+The same build, same code, measured on seed 42 alone versus averaged over three
+seeds, reported **15 outliers** and **10**. Individual characters swung by 90
+seconds. This simulation is chaotic — one enemy dying a frame earlier forks the
+whole run — so a single seed is a sample, not a measurement, and chasing a
+single-seed swing is chasing nothing. Every table below is a three-seed average
+and every future one should be.
 
 | Character | Survived | Δ median | DPS (all) | kills/s | Level | Read |
 |---|---:|---:|---:|---:|---:|---|
-| kira | 849s | +34% | 520 | 18.97 | 60 | **VICTORY** — throughput arc |
-| yamikage | 846s | +34% | 301 | 9.51 | 43 | **VICTORY** |
-| hikari | 846s | +34% | 941 | 29.92 | 76 | **VICTORY** — free revive |
-| sovereign_alicia | 846s | +34% | 775 | 24.74 | 68 | **VICTORY** — ★6, expected |
-| han | 845s | +34% | 909 | 28.20 | 76 | **VICTORY** — was the worst character |
-| reika | 845s | +34% | 871 | 27.37 | 75 | **VICTORY** |
-| uzu | 845s | +34% | 1091 | 35.67 | 81 | **VICTORY** — clones compound |
-| kagura | 845s | +34% | 1279 | 39.53 | 108 | **VICTORY** — was the worst outlier |
-| unit_09 | 845s | +34% | 1170 | 37.47 | 88 | **VICTORY** |
-| **shiro_same** | **632s** | **median** | 112 | 4.61 | 19 | |
-| nekromina | 629s | −0% | 155 | 7.52 | 26 | |
-| sora | 501s | −21% | 41 | 2.27 | 12 | weak-early is his design |
-| hoshino_rei | 446s | −29% | 62 | 4.31 | 11 | |
-| niten | 357s | −43% | 37 | 2.65 | 11 | OUTLIER |
-| rin | 344s | −46% | 28 | 2.08 | 8 | OUTLIER |
-| mochi | 331s | −48% | 21 | 1.65 | 8 | OUTLIER — ★3 starter |
-| akane | 323s | −49% | 28 | 2.30 | 8 | OUTLIER |
-| captain_yuli | 322s | −49% | 14 | 0.88 | 6 | OUTLIER — melee-only, bot kites |
-| alto | 272s | −57% | 18 | 1.48 | 5 | OUTLIER — ★3 starter |
+| shiro_same | 849s | +36% | 331 | 10.20 | 47 | **VICTORY** |
+| sovereign_alicia | 846s | +36% | 656 | 20.34 | 60 | **VICTORY** — ★6, expected |
+| kira | 845s | +36% | 1168 | 39.19 | 85 | **VICTORY** — throughput arc |
+| hikari | 845s | +36% | 1102 | 36.45 | 84 | **VICTORY** — free revive |
+| kagura | 785s | +26% | 642 | 20.98 | 66 | was the worst outlier in the original table |
+| hoshino_rei | 716s | +15% | 217 | 7.89 | 34 | |
+| uzu | 715s | +15% | 561 | 20.93 | 52 | |
+| nekromina | 683s | +10% | 304 | 11.09 | 39 | |
+| han | 674s | +8% | 532 | 17.90 | 46 | was −45% before weapons |
+| **unit_09** | **623s** | **median** | 465 | 16.32 | 36 | |
+| reika | 619s | −1% | 257 | 10.32 | 34 | |
+| yamikage | 492s | −21% | 99 | 4.44 | 18 | |
+| niten | 434s | −30% | 61 | 3.23 | 13 | |
+| rin | 402s | −36% | 40 | 2.54 | 10 | OUTLIER, barely |
+| akane | 368s | −41% | 48 | 2.90 | 10 | OUTLIER |
+| sora | 342s | −45% | 28 | 1.97 | 8 | OUTLIER — weak-early is his design |
+| mochi | 312s | −50% | 21 | 1.65 | 7 | OUTLIER — ★3 starter |
+| alto | 297s | −52% | 20 | 1.64 | 7 | OUTLIER — ★3 starter |
+| captain_yuli | 269s | −57% | 13 | 1.09 | 6 | OUTLIER — melee-only, bot kites |
 
-**SIX outliers — the tightest this roster has ever been.** For reference: eleven
-before the weapon system existed (on the broken harness), sixteen at three
-weapon slots. Every character in the upper half is now inside the ±35% band; the
-whole spread is one long tail at the bottom.
+**Ten outliers, and — more importantly — the distribution is smooth.** Before
+the weapon system it was eleven, on a harness that turned out to be measuring
+noise (see the top of this file). At three weapon slots it was violently
+bimodal: you either snowballed to a clear or died around minute five, with
+nothing in between. Five slots filled the middle in — nine characters now land
+between 400s and 790s, where that band used to be empty.
 
-**What moved, and why.** At three slots the distribution was violently bimodal —
-either you snowballed to a clear or you died around minute five, with nothing in
-between. Five slots fills the middle in: shiro_same, nekromina, sora and
-hoshino_rei now land between 446s and 632s instead of at one pole or the other.
-The extra two slots are not extra power so much as extra *coverage* — a character
-whose own kit plays badly under the bot has four weapons carrying the load
-instead of two, so its floor is set by the weapons rather than by its worst
-matchup. kagura went from the single worst outlier in the original table (−48%)
-to a clear.
+The extra slots are not extra power so much as extra **coverage**: a character
+whose own kit the bot plays badly has four weapons holding its floor instead of
+two, so its result is set by the build rather than by its worst matchup. kagura
+went from the single worst outlier in the original table (−48%) to +26%.
 
-**The remaining six are the ones the harness has always played worst**: the two
-★3 starters, the melee-only character whose entire kit is "be in melee" against a
-bot whose movement policy is *flee the densest cluster*, and two stand-still /
-burst kits. Hand-play these before touching any numbers — that is what this file
-has said from the beginning and it is still the right advice.
+**The remaining outliers are the ones the harness has always played worst**: the
+two ★3 starters, the melee-only character whose entire kit is "be in melee"
+against a bot whose movement policy is *flee the densest cluster*, and two
+stand-still / burst kits. Hand-play these before touching any numbers — that is
+what this file has said from the beginning and it is still the right advice.
 
 **The signature nerf is visible and is meant to be.** A level-1 signature is 75%
 damage at 88% rate — a ★3 opens at ~9 DPS instead of ~20. By level 8 it is 285%

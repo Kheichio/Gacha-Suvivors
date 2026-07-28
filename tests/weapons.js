@@ -23,6 +23,8 @@ import { CONFIG } from '../src/core/config.js';
 import { WEAPON_IMPLS } from '../src/game/abilities/weaponImpls.js';
 import { SIGNATURE_ID } from '../src/game/weapons.js';
 import { abilities as abilitiesDriver } from '../src/game/abilities/index.js';
+import { damageNumbers } from '../src/render/damageNumbers.js';
+import { dealDamage, SRC } from '../src/game/damage.js';
 
 const DT = CONFIG.TICK_DT;
 const W = data.weapons;
@@ -78,6 +80,10 @@ describe('weapons / data integrity', () => {
       assert.equal(w.levels.length, 8, w.id + ' must have 8 levels');
       assert.ok(w.evolution && w.evolution.stats, w.id + ' has no evolution stats');
       assert.ok(w.visual, w.id + ' has no visual to pre-raster');
+      // An evolution you cannot SEE is an evolution you have to take on faith.
+      assert.ok(w.evolution.visual, w.id + ' evolves without changing how it looks');
+      assert.ok(w.evolution.visual !== w.visual,
+                w.id + ' evolves into the same visual it started with');
       for (let i = 0; i < w.levels.length; i++) {
         const L = w.levels[i];
         assert.ok(L.note && L.note.length > 4, `${w.id} level ${i + 1} has no note`);
@@ -130,6 +136,30 @@ describe('weapons / data integrity', () => {
     const base = data.characters.CHARACTERS[0].stats.pickupRadius;
     const maxed = base * (1 + lode.perLevel * lode.maxLevel);
     assert.atLeast(maxed, 200, `a maxed pickup radius of ${Math.round(maxed)}px is still small`);
+  });
+
+  it('health regen is large enough to notice, and announces itself', () => {
+    // Reported as "feels like it doesn't do anything". Two halves: the number
+    // was tiny, and nothing on screen ever said it had happened.
+    const regen = data.upgrades.UPGRADES.find((u) => u.stat === 'regen');
+    assert.ok(regen, 'no regen upgrade found');
+    assert.atLeast(regen.perLevel, 0.6, 'one level of regen is still imperceptible');
+
+    freshSave();
+    const run = makeRun(2024);
+    const p = run.player;
+    for (let i = 0; i < regen.maxLevel; i++) p.addUpgrade(regen.id);
+    assert.atLeast(p.stats.regen, 4, 'a maxed regen build barely heals');
+
+    // It must actually restore HP, and it must emit countable feedback.
+    p.hp = p.maxHp * 0.5;
+    const before = p.hp;
+    damageNumbers.clear();
+    step(run, 120);                       // two seconds
+    assert.ok(p.hp > before + 1, 'regen restored nothing over two seconds');
+    assert.atLeast(damageNumbers.count, 1,
+                   'regen healed silently — no floating number was produced');
+    run.dispose();
   });
 
   it('the signature curve starts as a real nerf and ends far above it', () => {
@@ -421,6 +451,69 @@ describe('weapons / evolved auras do not hijack conditional abilities', () => {
 function abilitiesCast(run) {
   return run.player.escape.use() && abilitiesDriver.castEscape(run);
 }
+
+// ---------------------------------------------------------------------------
+describe('weapons / a boss can be killed at any moment, including its own', () => {
+  it('killing a boss mid-attack does not crash its attack callbacks', () => {
+    // A boss dies inside its own attack all the time once the player has five
+    // levelled weapons — thorns, a burning field, a well-timed nova. `onDeath`
+    // nulls `boss.active`, and every attack callback dereferences it, so the
+    // `end()` that ran a few ticks later read `.st` off null and took the whole
+    // frame down. Latent for the life of the project; it only started firing
+    // when the arsenal got big enough to delete a boss mid-wind-up.
+    freshSave();
+    const failures = [];
+    for (const stage of data.stages.STAGES.slice(0, 3)) {
+      const bossId = stage.boss;
+      const bossDef = data.bosses.BOSSES_BY_ID[bossId];
+      if (!bossDef) continue;
+      let run = null;
+      try {
+        run = new Run(data, {
+          characterId: data.characters.CHARACTERS[0].id,
+          stageId: stage.id, tierIndex: 0, seed: 31337,
+        });
+        run.spawnBoss(bossDef, false);
+        // Drive until an attack is actually in progress, in both of its stages.
+        for (const wantStage of [0, 1]) {
+          let guard = 0;
+          while ((!run.boss.current || run.boss.current.stage !== wantStage) && guard++ < 4000) {
+            step(run, 1);
+            if (!run.boss.active) break;
+          }
+          if (!run.boss.current || !run.boss.active) continue;
+
+          // THE EXACT SITUATION: the killing blow lands INSIDE the attack's own
+          // callback — thorns reflecting its damage, a field it is standing in —
+          // so `onDeath()` has already nulled `active` while the attack record
+          // is still live on the stack. Reproduced directly, because the
+          // damage path that gets there is different for every boss.
+          //
+          // The assertion is simply THAT IT DOES NOT THROW: every attack
+          // callback in boss.js dereferences `bc.active`, and one of them
+          // reading `.st` off null is what took a whole frame down. Whether the
+          // record is then cleared is incidental — `onDeath()` already does
+          // that in real play; here it is put back deliberately.
+          const c = run.boss.current;
+          run.boss.onDeath();
+          run.boss.current = c;
+          c.t = (c.def.duration || 0) + 10;      // force it straight into end()
+          run.boss._tickAttack(1 / 60);
+          run.boss.update(1 / 60);               // and the frame after it
+          break;
+        }
+        // And from the outside, which must also be survivable.
+        run.spawnBoss(bossDef, false);
+        if (run.boss.active) dealDamage(run, run.boss.active, 1e12, SRC.AUTO, { canCrit: false });
+        step(run, 180);
+      } catch (err) {
+        failures.push(`${bossId}: ${(err && err.message) || String(err)}`);
+      }
+      if (run) run.dispose();
+    }
+    assert.equal(failures.length, 0, failures.join('\n      '));
+  });
+});
 
 // ---------------------------------------------------------------------------
 describe('weapons / the level-up offer', () => {

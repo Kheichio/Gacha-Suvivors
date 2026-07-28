@@ -2,10 +2,14 @@
 //
 // DRAW ORDER matters for readability, which SECTION 1 makes a hard requirement:
 //     background -> obstacles -> fields -> pickups -> minions -> enemies ->
-//     boss parts -> player -> projectiles -> particles -> telegraphs ->
-//     damage numbers -> HUD
+//     boss parts -> player -> projectiles -> overlays -> particles -> ability
+//     effects -> telegraphs -> damage numbers -> HUD
 // Telegraphs go OVER the horde deliberately: a red zone you cannot see because
 // forty zombies are standing on it is the definition of unfair.
+//
+// The animated ability effects sit ABOVE the particles for the same reason a
+// sword swing sits above its own sparks: the swing is the readable thing, the
+// sparks are the garnish, and a garnish that occludes the read is noise.
 
 import { Run, RUN_STATE } from '../game/run.js';
 import { hud } from '../ui/hud.js';
@@ -13,6 +17,7 @@ import { levelUpScreen } from '../ui/levelUpScreen.js';
 import { ui, PALETTE } from '../ui/widgets.js';
 import { camera } from '../render/camera.js';
 import { particles } from '../render/particles.js';
+import { effects } from '../render/effects.js';
 import { damageNumbers, floaters } from '../render/damageNumbers.js';
 import { shake, flash } from '../render/screenShake.js';
 import { debugOverlay } from '../render/debug.js';
@@ -180,6 +185,7 @@ export const runScene = {
     run.enemyProjectiles.draw(r, alpha);
     this._overlays(r, run);
     particles.draw(r, alpha);
+    effects.draw(r, alpha);
     run.boss.drawOver(r, alpha);
     run.hazards.drawOver(r, alpha);
     this._enemyBars(r, run, alpha);
@@ -242,7 +248,6 @@ export const runScene = {
     r.strokeCircle(a.x, a.y, 60 + Math.sin(run.time * 2) * 5, '#ff5f7e', 2, 0.35);
   },
 
-  /** Boss-driven beams / rings / wedges, plus melee arc flashes. */
   /**
    * THE PICKUP RADIUS, DRAWN ON THE GROUND.
    *
@@ -280,14 +285,76 @@ export const runScene = {
     }
   },
 
+  /**
+   * THE PER-FRAME OVERLAY LISTS: beams, rings and wedges.
+   *
+   * These are NOT the animated effect layer. They are records that the boss
+   * controller and the weapon implementations REPUSH every single sim tick for
+   * as long as a channel lasts — `run.update` clears the three lists at the top
+   * of every tick — so an entry has no age and no lifetime of its own and can
+   * never interpolate against one.
+   *
+   * What it does have is `run.time`, which is monotonic sim time and identical
+   * for every viewer of a replay. Driving the highlights off that is what turns
+   * a held breath cone from a static triangle into a cone with a rib sweeping
+   * through it, without any of the pushers learning a new contract.
+   *
+   * Drawn additively in one block: everything here is energy over a dark stage,
+   * and flipping the composite once per frame beats flipping it per entry.
+   */
   _overlays(r, run) {
     const o = run.overlays;
-    for (const b of o.beams) r.drawBeam(b.x0, b.y0, b.x1, b.y1, b.w, b.color, 0.65);
-    for (const g of o.rings) r.strokeCircle(g.x, g.y, g.r, g.color, 5, 0.55);
-    for (const w of o.wedges) {
-      r.drawWedge(w.x, w.y, w.r, w.a0, w.a1, w.color, 0.22);
-      r.drawArc(w.x, w.y, w.r, w.a0, w.a1, w.color, 3, 0.6);
+    const beams = o.beams, rings = o.rings, wedges = o.wedges;
+    if (!beams.length && !rings.length && !wedges.length) return;
+    const t = run.time;
+    r.setComposite('lighter');
+
+    // --- beams: soft outer, body, white-hot core, muzzle and impact bloom ----
+    for (let i = 0; i < beams.length; i++) {
+      const b = beams[i];
+      const w = b.w > 0 ? b.w : 8;
+      const fl = 1 + 0.10 * Math.sin(t * 24 + i * 1.7);
+      r.drawBeam(b.x0, b.y0, b.x1, b.y1, w * 2.3 * fl, b.color, 0.14);
+      r.drawBeam(b.x0, b.y0, b.x1, b.y1, w, b.color, 0.50);
+      r.drawBeam(b.x0, b.y0, b.x1, b.y1, Math.max(2, w * 0.34), '#ffffff', 0.55 * fl);
+      r.drawCircle(b.x0, b.y0, w * 0.62, '#ffffff', 0.45);
+      r.drawCircle(b.x1, b.y1, w * (0.7 + 0.15 * fl), b.color, 0.42);
     }
+
+    // --- rings: a filled core, the hard edge, an inner rail and a breathing rim
+    for (let i = 0; i < rings.length; i++) {
+      const g = rings[i];
+      if (!(g.r > 0)) continue;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 6 + i * 0.9);
+      r.drawCircle(g.x, g.y, g.r, g.color, 0.09 + pulse * 0.05);
+      r.strokeCircle(g.x, g.y, g.r, g.color, 5, 0.55);
+      r.strokeCircle(g.x, g.y, g.r * 0.86, g.color, 2, 0.22 + pulse * 0.20);
+      r.strokeCircle(g.x, g.y, g.r * (1.04 + pulse * 0.035), '#ffffff', 1.5, 0.22);
+    }
+
+    // --- wedges: the pie, both edges, an inner rail and a travelling rib -----
+    for (let i = 0; i < wedges.length; i++) {
+      const w = wedges[i];
+      if (!(w.r > 0)) continue;
+      const a0 = w.a0, a1 = w.a1;
+      r.drawWedge(w.x, w.y, w.r, a0, a1, w.color, 0.18);
+      r.drawArc(w.x, w.y, w.r, a0, a1, w.color, 4, 0.70);
+      r.drawArc(w.x, w.y, w.r * 0.55, a0, a1, w.color, 2, 0.28);
+      r.drawLine(w.x, w.y, w.x + Math.cos(a0) * w.r, w.y + Math.sin(a0) * w.r, w.color, 2, 0.42);
+      r.drawLine(w.x, w.y, w.x + Math.cos(a1) * w.r, w.y + Math.sin(a1) * w.r, w.color, 2, 0.42);
+      // The rib: a bright line that walks the cone from edge to edge. It is the
+      // whole reason a channelled cone now reads as something being POURED out
+      // rather than a shape that happens to be on the screen.
+      const k = (t * 2.2 + i * 0.37) % 1;
+      const ak = a0 + (a1 - a0) * k;
+      const c = Math.cos(ak), s = Math.sin(ak);
+      r.drawLine(w.x + c * w.r * 0.18, w.y + s * w.r * 0.18,
+                 w.x + c * w.r * 0.98, w.y + s * w.r * 0.98, '#ffffff', 2.5, 0.45);
+      r.drawArc(w.x, w.y, w.r * 0.98, ak - 0.09, ak + 0.09, '#ffffff', 5, 0.55);
+    }
+
+    r.setComposite('source-over');
+    r.setAlpha(1);
   },
 
   /** Health bars for elites and bosses only — never for fodder. */

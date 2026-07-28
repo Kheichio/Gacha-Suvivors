@@ -9,7 +9,30 @@ import { Pool } from '../core/pool.js';
 import { feel } from '../core/feel.js';
 import { fxRng } from '../core/rng.js';
 import { atlas } from './spriteAtlas.js';
+import { effects } from './effects.js';
 import { TAU, easeOutCubic } from '../core/math.js';
+
+// --- presentation curves -----------------------------------------------------
+// Three cheap upgrades over "shrink linearly and fade out", all of them paid for
+// with arithmetic on numbers the particle already stores.
+
+/** Fraction of a life spent popping OUT before the shrink begins. */
+const POP = 0.16;
+/**
+ * Speed² above which a particle gets velocity-aligned ghosts behind it. A dot
+ * moving 400 px/s covers seven pixels between frames, and the eye reads that as
+ * a stutter; two trailing copies read it as a streak. Squared so the test is a
+ * comparison and not a square root.
+ */
+const STREAK_SPEED2 = 260 * 260;
+/** How far apart the ghosts sit, in world px at scale 1. */
+const STREAK_PX = 9;
+/**
+ * Above this many live particles the extra passes are dropped entirely. A
+ * screen already carrying 320 particles does not need bloom on any of them, and
+ * the cap is what keeps a worst-case explosion from tripling the draw count.
+ */
+const RICH_LIMIT = 320;
 
 function makeParticle() {
   return {
@@ -135,6 +158,15 @@ export class ParticleSystem {
     });
   }
 
+  /**
+   * Also ticks the animated effect layer.
+   *
+   * `effects` is a sibling presentation system with exactly the same lifecycle:
+   * it must advance on every sim step the particles advance on, freeze wherever
+   * they freeze, and be wiped whenever they are wiped. Every one of those call
+   * sites already calls into here, so hanging the effect tick off this one
+   * function is what keeps the two layers from ever drifting apart.
+   */
   update(dt) {
     const items = this.pool.items;
     for (let i = 0; i < this.pool.count; i++) {
@@ -150,10 +182,13 @@ export class ParticleSystem {
       p.y += p.vy * dt;
       p.rot += p.spin * dt;
     }
+    effects.update(dt);
   }
 
   draw(r, alpha) {
     const items = this.pool.items;
+    // Extra passes are a luxury; a crowded screen gets the plain one.
+    const rich = this.pool.count < RICH_LIMIT;
     // Two passes so the composite mode flips exactly twice per frame, not per particle.
     for (let pass = 0; pass < 2; pass++) {
       if (pass === 1) r.setComposite('lighter');
@@ -162,19 +197,40 @@ export class ParticleSystem {
         if ((pass === 1) !== p.additive) continue;
         const t = 1 - p.life / p.maxLife;
         const e = easeOutCubic(t);
-        const s = p.size + (p.sizeEnd - p.size) * e;
-        if (s <= 0.01) continue;
-        const a = p.alpha + (p.alphaEnd - p.alpha) * e;
+        // SIZE CURVE, not a linear fade: a fast pop out to 1.15x over the first
+        // sixth of the life, then an eased settle. A dot that only ever shrinks
+        // reads as something disappearing; a dot that pops reads as an impact.
+        const curve = t < POP ? 0.50 + 0.65 * (t / POP)
+                              : 1.15 - 0.15 * ((t - POP) / (1 - POP));
+        const s = (p.size + (p.sizeEnd - p.size) * e) * curve;
+        if (s <= 0.02) continue;
+        // Alpha holds and then drops, rather than bleeding away from frame one.
+        const a = p.alpha + (p.alphaEnd - p.alpha) * (t * t);
         const x = p.px + (p.x - p.px) * alpha;
         const y = p.py + (p.y - p.py) * alpha;
+        if (rich && pass === 1 && s >= 0.25) {
+          // Additive layering: a wide, dim copy under the bright one. One extra
+          // blit buys a soft halo that no single sprite size can express.
+          r.drawSprite(p.sprite, x, y, p.rot, s * 2.05, a * 0.20, false, 0);
+        }
         r.drawSprite(p.sprite, x, y, p.rot, s, a, false, 0);
+        // VELOCITY-ALIGNED STRETCH. Two ghosts spaced back along the particle's
+        // own motion vector, so a fast spark is a streak pointing where it came
+        // from instead of a round dot in a different place each frame.
+        const v2 = p.vx * p.vx + p.vy * p.vy;
+        if (rich && v2 > STREAK_SPEED2 && a > 0.12) {
+          const k = STREAK_PX * s / Math.sqrt(v2);
+          const gx = p.vx * k, gy = p.vy * k;
+          r.drawSprite(p.sprite, x - gx, y - gy, p.rot, s * 0.78, a * 0.55, false, 0);
+          r.drawSprite(p.sprite, x - gx * 2, y - gy * 2, p.rot, s * 0.52, a * 0.28, false, 0);
+        }
       }
       if (pass === 1) r.setComposite('source-over');
     }
     r.setAlpha(1);
   }
 
-  clear() { this.pool.clear(); }
+  clear() { this.pool.clear(); effects.clear(); }
   get count() { return this.pool.count; }
 }
 

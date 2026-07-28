@@ -77,9 +77,13 @@ const MOCHI = {
   },
   signatureRelic: 'secret_technique_109',
   barks: {
-    spawn: 'Puu!',
-    levelUp: "Puu!! (that one meant 'stronger')",
+    spawn: 'Puu~! Mochi is here! Puu!',
+    levelUp: 'Puuu! Mochi ate the level. It was crunchy.',
     lowHp: '...puu?',
+    kill: 'Gone! Mochi swallowed it. No, you cannot have it back.',
+    boss: 'Big! BIG! Mochi can still fit it. Probably. Puu!',
+    victory: 'Puu! Next world, next snack! Bye-bye!',
+    idle: 'Secret Technique No. 47! ...Mochi forgot what that one does.',
   },
   buildPaths: [
     'Vacuum gremlin — Lodestone + Scholar + Four-Leaf; Infinite Stomach hoovers ' +
@@ -132,9 +136,12 @@ const ALTO = {
   },
   signatureRelic: 'dual_blades',
   barks: {
-    spawn: 'I work better alone. You can watch, though.',
-    levelUp: 'New skill unlocked. Naturally.',
-    lowHp: "This isn't the kind of game where you get to log out.",
+    spawn: "Party of one. That's not lonely, that's efficient.",
+    levelUp: 'Skill slot open. Allocating.',
+    lowHp: "HP's yellow. I have until red.",
+    kill: 'Switch! ...right. Solo. Force of habit.',
+    boss: 'Every boss has a pattern. Give me ten seconds.',
+    defeat: 'No respawn. I knew that when I logged in.',
   },
   buildPaths: [
     'Charged-swing crit — Keen Eye + Killing Blow + Wide Reach; every 5th swing ' +
@@ -190,9 +197,12 @@ const HOSHINO_REI = {
   },
   signatureRelic: 'hoshiyomi_penlight',
   barks: {
-    spawn: "Comet-chan, on stage! ...And also, all of you are going to die.",
-    levelUp: 'Higher. Always higher.',
-    lowHp: "I don't lose. I've checked. It's not a thing I do.",
+    spawn: "I'll sing. You'll die. Both on schedule.",
+    levelUp: "Higher rank. I don't do plateaus.",
+    lowHp: 'Misdrop. Fine. I clear it from here.',
+    kill: 'Cleared four lines at once. Metaphorically.',
+    boss: 'Good. I stack better under pressure.',
+    victory: 'Encore, and nobody beat my score. As usual.',
   },
   buildPaths: [
     'Aura anchor — Wide Reach + Quick Recovery + Iron Body; stack the Penlight and ' +
@@ -249,9 +259,12 @@ const YAMIKAGE = {
   },
   signatureRelic: 'susanoo_fragment',
   barks: {
-    spawn: 'Stay out of my way.',
-    levelUp: '...Hn. Adequate.',
-    lowHp: 'I have someone left to kill. So: not today.',
+    spawn: 'Stay out of my way. All of you.',
+    levelUp: 'Hn. Still not enough.',
+    lowHp: "I don't get to die before he does.",
+    kill: 'You were not the one I wanted.',
+    boss: 'Finally. Something worth hating.',
+    idle: 'I cut every bond I had for this. Do not talk to me.',
   },
   buildPaths: [
     'Inevitable burn — Quick Recovery + Wide Reach + the Inari-style DoT stack; ' +
@@ -307,9 +320,12 @@ const UZU = {
   },
   signatureRelic: 'nine_tails_chakra',
   barks: {
-    spawn: 'Twenty against one? Finally, a fair fight!',
-    levelUp: 'SEE? See? I said I would get stronger!',
-    lowHp: "I'm not... done... yet!",
+    spawn: "Alright! Watch me! I'm gonna be number one!",
+    levelUp: "YES! I TOLD you I'd get stronger!",
+    lowHp: "I never go back on my word. That's my whole thing!",
+    kill: 'One down! Only about a thousand to go!',
+    boss: "HUGE! Great! I'll just make a thousand of me!",
+    victory: 'Ramen. I earned ramen. Somebody buy me ramen.',
   },
   buildPaths: [
     'Clone army — Iron Body + Second Wind + Rapid Fire; clones mirror your auto, ' +
@@ -362,9 +378,12 @@ const CAPTAIN_YULI = {
   },
   signatureRelic: 'thunder_spear',
   barks: {
-    spawn: 'Tch. Filthy.',
-    levelUp: "Don't get comfortable.",
-    lowHp: "I've had worse. Recently, in fact.",
+    spawn: 'Tch. Look at this filth.',
+    levelUp: "Stronger. Don't let it make you sloppy.",
+    lowHp: 'Blood on the jacket. I just cleaned it.',
+    kill: "That's not a body, that's a stain. Move.",
+    boss: 'Big. Loud. Same weak point as the small ones.',
+    victory: 'Clean your blades. Sleep. We do it again tomorrow.',
   },
   buildPaths: [
     'Melee blender — Rapid Fire + Bloodthirst + Guardian Plate; 0.35s swings turn ' +
@@ -423,9 +442,12 @@ const KAGURA = {
   },
   signatureRelic: 'inaris_blessing',
   barks: {
-    spawn: 'Kon! Did you miss me, darling?',
-    levelUp: 'Ufufu~ do that again.',
-    lowHp: 'You made me BLEED. On my good sleeves.',
+    spawn: 'Kon~! Did you miss me, darling?',
+    levelUp: 'Ufufu~ do that again and I might keep you.',
+    lowHp: 'You tore my sleeve. I will tear rather more.',
+    kill: 'Aww, it stopped moving. Fetch me another, darling~',
+    boss: 'My, my. Shall I be the sweet one today, or the other one?',
+    idle: "I'm not clingy. I simply know where you sleep. Kon!",
   },
   buildPaths: [
     "Burn stacker — Inari's Blessing + Wide Reach + Sharp Edge; every DoT in the " +
@@ -475,9 +497,12 @@ const UNIT_09 = {
   },
   signatureRelic: 'singularity_patch',
   barks: {
-    spawn: "Hai, domo! Super A.I. here — that's canon, please don't look it up.",
+    spawn: 'Hai domo! Super A.I. detected! It is me!',
     levelUp: 'My intelligence is increasing! Allegedly!',
-    lowHp: 'Chat? CHAT. Do something.',
+    lowHp: 'Chat? CHAT. Do something. Please.',
+    kill: 'Target eliminated! I calculated that! Mostly!',
+    boss: 'Scanning... it is very big and I do not like it!',
+    defeat: "I didn't lose, I froze! Buffering! Buffering!",
   },
   buildPaths: [
     'Fire-rate stack — Rapid Fire + Scholar; Firmware Update turns every level-up ' +
@@ -540,8 +565,11 @@ const RIN = {
   signatureRelic: 'nichirin_blade_crimson',
   barks: {
     spawn: "I'm sorry. I'll make this quick.",
-    levelUp: 'The breathing settles. Thank you.',
-    lowHp: 'Not yet — I promised someone.',
+    levelUp: 'My breathing settled. Thank you for that.',
+    lowHp: 'Get up. Get up. You promised her.',
+    kill: 'Rest now. You were someone, once.',
+    boss: "You smell sad. I'm still going to stop you.",
+    victory: 'Everyone got home. That was the whole point.',
   },
   buildPaths: [
     'Rhythm sniper — Piercing Will + Sharp Edge + Long Haul; stand still, breathe, ' +
@@ -598,9 +626,12 @@ const NITEN = {
   },
   signatureRelic: 'two_heavens_as_one',
   barks: {
-    spawn: 'One thousand of you. Then I rest.',
-    levelUp: 'The sword is heavier today. Good.',
-    lowHp: "Blood. Fine. It's honest.",
+    spawn: 'Invincible under the sky. Or dead. Either one.',
+    levelUp: 'Sharper. Not better. Sharper.',
+    lowHp: "I'm bleeding. Good. Then I'm still here.",
+    kill: 'One. I count them so I remember them.',
+    boss: 'Come. Show me what I am not yet.',
+    idle: 'Strong. Strong. Strong. It is all I know how to want.',
   },
   buildPaths: [
     'Alternating crit — Two Heavens As One + Keen Eye + Killing Blow; every second ' +
@@ -654,9 +685,12 @@ const SHIRO_SAME = {
   },
   signatureRelic: 'chum_bucket',
   barks: {
-    spawn: 'A! Ooo! Chomp chomp chomp!',
-    levelUp: 'Shiny! Mine now.',
-    lowHp: "I'm a SHARK. Sharks don't cry. ...Much.",
+    spawn: 'A! ...that means hello. Chomp chomp!',
+    levelUp: 'Ooh, shiny! Mine now.',
+    lowHp: "Sharks don't cry! That's just seawater!",
+    kill: 'Did I do that? I DID that! Bloop!',
+    boss: "It's so BIG. Do I bite the top or the bottom?",
+    idle: 'I do have a trident. Mostly I use it for snacks.',
   },
   buildPaths: [
     'Shrapnel scaling — Extra Shot + Wide Reach + Piercing Will; 5 bubbles become ' +
@@ -715,9 +749,12 @@ const REIKA = {
   },
   signatureRelic: 'level_5_clearance',
   barks: {
-    spawn: "Level 5. There are seven of us. I'm the loud one.",
+    spawn: 'Level 5. Third strongest. Wanna see why?',
     levelUp: 'More voltage. Obviously.',
     lowHp: 'Do NOT call me a kid right now.',
+    kill: 'One yen. That is all you cost me.',
+    boss: "Big talk. I've fried bigger. Probably.",
+    idle: 'The frog keychain is ironic. Drop it.',
   },
   buildPaths: [
     'Screen deleter — Level 5 Clearance + Piercing Will + Long Haul; +12% damage ' +
@@ -771,9 +808,12 @@ const NEKROMINA = {
   },
   signatureRelic: 'grave_idol_mic',
   barks: {
-    spawn: "Yo. Death's apprentice, second shift. Let's get this over with.",
-    levelUp: 'Bars. Literal bars.',
-    lowHp: "Boss is gonna hear about this. Ugh.",
+    spawn: "Yo. Death's apprentice, second shift. Let's work.",
+    levelUp: 'New bars. Actual bars. The numbers kind.',
+    lowHp: 'The paperwork on my own death would be brutal.',
+    kill: 'Scythe, mic, same swing. Next.',
+    boss: "Big one. Boss'll want that in writing.",
+    defeat: "Wrong side of the desk. Cool. That's... cool.",
   },
   buildPaths: [
     'Minion orchestra — Grave Idol Mic + Sharp Edge + Rapid Fire; the cap goes to ' +
@@ -828,9 +868,12 @@ const HIKARI = {
   },
   signatureRelic: 'ashes_of_the_eternal_encore',
   barks: {
-    spawn: 'Kikkeriki! Front row seats — all of them, mine.',
-    levelUp: "Encore! And I haven't even died yet!",
-    lowHp: "It's FINE! Dying is basically my whole gimmick!",
+    spawn: 'Kikkeriki! Order up: one horde, extra crispy!',
+    levelUp: "Encore! And I haven't even died once today!",
+    lowHp: "It's FINE! Dying is a Tuesday for me!",
+    kill: 'NEXT! The line is long and I am very fast!',
+    boss: 'Ooh, a big one! Staff, line up behind me!',
+    defeat: 'See you in ten minutes. I always come back.',
   },
   buildPaths: [
     'Burn field — Wide Reach + Sharp Edge + Quick Recovery; feather pools, nova ' +
@@ -886,9 +929,12 @@ const AKANE = {
   },
   signatureRelic: 'captains_rum',
   barks: {
-    spawn: 'Ahoy! Now — which one of you is the treasure?',
-    levelUp: 'Senchou is getting STRONGER, boys!',
-    lowHp: 'A captain goes down with her ship. I am NOT going down with the ship.',
+    spawn: 'Ahoy! Now, which one of ye is the treasure?',
+    levelUp: 'Yer captain grows mightier! ...Ow. My back.',
+    lowHp: 'Ahoy! ...no, wait. HELP. Somebody HELP.',
+    kill: 'Down ye go! Ahaha! ...bit much. Sorry.',
+    boss: 'A big one! Crew, behind me! Well behind me!',
+    idle: "I'm seventeen, by the way. Forever. Don't check.",
   },
   buildPaths: [
     'Loot run — Cursed Coin + Four-Leaf + Lodestone; Treasure Sense plus luck turns ' +
@@ -947,8 +993,12 @@ const KIRA = {
   signatureRelic: 'potato_chip_gambit',
   barks: {
     spawn: "I'll take it from here. Quietly.",
-    levelUp: 'Everything is proceeding exactly as I intended. Obviously.',
+    levelUp: 'All according to plan. Naturally.',
     lowHp: 'This was also part of the plan. Mostly.',
+    kill: 'Heart attack. Nothing suspicious about that.',
+    boss: "It has a name. It doesn't know I have it yet.",
+    victory: 'Someone had to be justice. It may as well be me.',
+    idle: "I'll take one potato chip... and eat it.",
   },
   // The balance harness measures him on kills/sec, not DPS — his timers report as
   // infinite DPS otherwise (spec line 1664, DECISIONS.md §36). Declared, not branched.
@@ -1012,9 +1062,12 @@ const SOVEREIGN_ALICIA = {
   },
   signatureRelic: 'crown_of_the_world_eater',
   barks: {
-    spawn: 'Gooood morning! Top story: all of you, deceased.',
+    spawn: 'Goood morning! Top story: all of you, deceased.',
     levelUp: "That's the sound of the numbers going UP, baby!",
-    lowHp: 'Do you have ANY idea how expensive this outfit was?',
+    lowHp: 'Do you have ANY idea what this outfit cost?!',
+    kill: "Breaking news: it's dead. More after the break.",
+    boss: 'Big guest on the show tonight! Roll the fire!',
+    victory: "Show's over! Hit subscribe. I said HIT IT.",
   },
   buildPaths: [
     'Greed dragon — Cursed Coin + Four-Leaf + Lodestone; Hoard converts gold into ' +
@@ -1070,9 +1123,12 @@ const SORA = {
   },
   signatureRelic: 'kaioken',
   barks: {
-    spawn: "Oh WOW, there's a lot of you! This is gonna be great!",
-    levelUp: 'Hey, I think I got stronger! Neat!',
+    spawn: "Whoa, there's a ton of you! This'll be fun!",
+    levelUp: 'Ooh! I felt that one. Stronger!',
     lowHp: "Okay. Okay! NOW it's a real fight.",
+    kill: 'Aw, already? I was just warming up.',
+    boss: "Whoa... you're strong! I'm getting excited!",
+    victory: "Good fight! Hey, you hungry? I'm starving.",
   },
   buildPaths: [
     'Upgrade glutton — Scholar + Zenkai rerolls; Rapid Fist gains +4% per upgrade ' +
@@ -1127,9 +1183,12 @@ const HAN = {
   },
   signatureRelic: 'the_cell_games',
   barks: {
-    spawn: "I-I really don't want to do this. ...Fine.",
-    levelUp: 'I studied for this. Sort of.',
-    lowHp: "You shouldn't have done that.",
+    spawn: "I-I really don't want to do this. ...Okay.",
+    levelUp: 'Um. Is that good? It felt good.',
+    lowHp: "That's enough. That's... that's ENOUGH.",
+    kill: 'Sorry! Sorry. I said sorry, please stay down.',
+    boss: 'I have a test tomorrow. Can we be quick?',
+    victory: 'Can I go home now? I have homework.',
   },
   // The ONLY resourceBar in the game. The HUD renders any character's declared
   // bar generically rather than branching on id (DECISIONS.md §36).

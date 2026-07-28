@@ -184,22 +184,47 @@ export class BossController {
     if (impl.telegraph) impl.telegraph(this, this.current);
   }
 
+  /**
+   * Drive the attack in progress.
+   *
+   * THE BOSS CAN DIE INSIDE ITS OWN ATTACK. Thorns reflect its contact damage,
+   * a burning field it walked into keeps ticking, a weapon executes it — and
+   * `onDeath()` nulls both `active` and `current` when that happens. Every
+   * attack callback in this file dereferences `bc.active`, so each one has to be
+   * re-guarded rather than trusting the local `c` captured at the top.
+   *
+   * This was latent for the whole life of the project and only started throwing
+   * once the player got strong enough to routinely kill a boss mid-attack:
+   * `end()` ran on a corpse and read `.st` off null.
+   */
   _tickAttack(dt) {
     const c = this.current;
     c.t += dt;
     const tel = c.def.telegraph || feel.telegraphLethal;
     if (c.stage === 0) {
       if (c.impl.windup) c.impl.windup(this, c, dt);
-      if (c.t >= tel) { c.stage = 1; c.t = 0; if (c.impl.fire) c.impl.fire(this, c); }
+      if (!this._stillFighting(c)) return;
+      if (c.t >= tel) {
+        c.stage = 1; c.t = 0;
+        if (c.impl.fire) c.impl.fire(this, c);
+      }
       return;
     }
     const dur = c.def.duration || 0;
     if (c.impl.active) c.impl.active(this, c, dt);
+    if (!this._stillFighting(c)) return;
     if (c.t >= dur) {
       if (c.impl.end) c.impl.end(this, c);
+      // end() can be the killing blow too.
+      if (!this._stillFighting(c)) { return; }
       this.current = null;
       this.attackCd = (c.def.cooldown || 4) * (this.phase && this.phase.enrage ? 0.7 : 1);
     }
+  }
+
+  /** Is `c` still the live attack of a live boss? */
+  _stillFighting(c) {
+    return !!(this.active && this.active.active && this.active.hp > 0 && this.current === c);
   }
 
   /**

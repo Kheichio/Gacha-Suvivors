@@ -52,6 +52,7 @@ import { audio } from '../core/audio.js';
 import { displayName } from '../core/config.js';
 import { atlas } from '../render/spriteAtlas.js';
 import { clamp } from '../core/math.js';
+import { completedCount, unclaimedCount } from '../game/quests.js';
 
 // NODES[0] is the hero card. The rest fill the grid in this order.
 const NODES = [
@@ -63,6 +64,8 @@ const NODES = [
     tip: 'Banners, pity counters, and the last 100 pulls. It rattles by itself. Ignore that.' },
   { scene: 'shrine', label: 'THE SHRINE', icon: '⛩', color: '#ff9a3c',
     tip: 'Permanent upgrades bought with gold. The refund is free and always will be — experiment.' },
+  { scene: 'quests', label: 'QUESTS', icon: '📋', color: '#7bf59a',
+    tip: 'The reward ladder. Every one pays out the moment you finish it — there is nothing to claim.' },
   { scene: 'achievements', label: 'ACHIEVEMENTS', icon: '🏆', color: PALETTE.gold,
     tip: '40 of them. Some pay Star Fragments, some unlock things no amount of gold can buy.' },
   { scene: 'codex', label: 'CODEX', icon: '📖', color: PALETTE.accent2,
@@ -116,7 +119,11 @@ export const hubScene = {
     this._hover = -1;
     this._tip = null;
     this._propPress = null;
-    this._counts = { owned: 0, cleared: 0, shrine: 0, ach: 0, codex: 0, pity: 0 };
+    this._counts = { owned: 0, cleared: 0, shrine: 0, ach: 0, codex: 0, pity: 0,
+                     questsDone: 0, questsReady: 0 };
+    // A pull on the gacha screen can complete a quest; the player walks back
+    // here immediately afterwards, so this is where it has to pay out.
+    if (this.manager && this.manager.settleQuests) this.manager.settleQuests();
     this._rattleCooldown = 2.2;
     this._rattle = 0;
     this._buildActors();
@@ -216,8 +223,9 @@ export const hubScene = {
   /** Constant denominators for the card subtitles. Built once, never in render. */
   _buildTotals() {
     const d = this.manager && this.manager.data;
-    this.totals = { stages: 7, chars: 19, shrine: 0, achievements: 0, codex: 1 };
+    this.totals = { stages: 7, chars: 19, shrine: 0, achievements: 0, codex: 1, quests: 1 };
     if (!d) return;
+    this.totals.quests = (d.quests && d.quests.QUESTS) ? d.quests.QUESTS.length : 1;
     this.totals.stages = d.stages.STAGES.length;
     this.totals.chars = d.characters.CHARACTERS.length;
     let sh = 0;
@@ -248,7 +256,11 @@ export const hubScene = {
       const m = cx[cat];
       if (m) for (const k in m) if (m[k]) codex++;
     }
-    this._counts = { owned, cleared, shrine, ach, codex, pity: save.data.gacha.sharedPity5 | 0 };
+    this._counts = {
+      owned, cleared, shrine, ach, codex,
+      pity: save.data.gacha.sharedPity5 | 0,
+      questsDone: completedCount(), questsReady: unclaimedCount(),
+    };
   },
 
   _sub(node) {
@@ -265,6 +277,8 @@ export const hubScene = {
       case 'shrine':
         return c.shrine + '/' + t.shrine + ' levels · ' +
           formatCount(save.data.currencies.gold) + ' gold banked';
+      case 'quests': return c.questsDone + '/' + t.quests + ' complete' +
+        (c.questsReady ? '  ·  ' + c.questsReady + ' just paid out' : '');
       case 'achievements': return c.ach + '/' + t.achievements + ' unlocked';
       case 'codex': return c.codex + '/' + t.codex + ' entries seen';
       case 'settings': return 'ESC / gamepad B lands here';
@@ -284,6 +298,7 @@ export const hubScene = {
       // fill is most of the reason to look at this card at all.
       case 'gacha': return d.gacha.PITY.hard5 ? clamp(c.pity / d.gacha.PITY.hard5, 0, 1) : -1;
       case 'shrine': return t.shrine ? c.shrine / t.shrine : -1;
+      case 'quests': return t.quests ? c.questsDone / t.quests : -1;
       case 'achievements': return t.achievements ? c.ach / t.achievements : -1;
       case 'codex': return t.codex ? c.codex / t.codex : -1;
     }

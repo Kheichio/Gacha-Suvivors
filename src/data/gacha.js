@@ -24,7 +24,21 @@
  * and therefore two source-material homages the owner never approved, under a
  * roster he curated deliberately. These are the rates the pool can support.
  */
-export const BASE_RATES = { 3: 0.35, 4: 0.48, 5: 0.16, 6: 0.01 };
+/**
+ * ★5 HALVED, 2026-07-28. Play feedback: "★5s are strong and too easy to get."
+ *
+ * 16% base put a ★5 in roughly one pull in six and a ★5 in essentially every
+ * 10-pull, so the eight strongest characters in the game arrived before the
+ * player had any reason to care. 8% (9% counting ★6) makes a 10-pull a real
+ * roll rather than a formality, and the freed weight goes to ★3 — which is the
+ * duplicate pool, and therefore the star-level progression that makes the
+ * characters you DO own get stronger.
+ *
+ * The pity ramp moved with it (soft 25 -> 30, hard 40 -> 50): a guarantee that
+ * lands two pulls after the base rate would have anyway is not a guarantee, it
+ * is the rate.
+ */
+export const BASE_RATES = { 3: 0.46, 4: 0.45, 5: 0.08, 6: 0.01 };
 
 /** Combined ★5-or-better floor. Every pity formula ramps up from here. */
 export const BASE_RATE_5_PLUS = BASE_RATES[5] + BASE_RATES[6];
@@ -42,10 +56,10 @@ export const BASE_RATE_5_PLUS = BASE_RATES[5] + BASE_RATES[6];
  * banners only — no other banner contains a ★6.
  */
 export const PITY = {
-  soft5: 25,
-  hard5: 40,
-  soft6: 55,
-  hard6: 70,
+  soft5: 30,
+  hard5: 50,
+  soft6: 60,
+  hard6: 80,
 };
 
 /**
@@ -169,9 +183,9 @@ export const BANNERS = [
     type: 'standard',
     desc: 'Always available. Every ★3, ★4 and ★5 in the game.',
     // Real number, not the round one: proportional normalisation over {3,4,5}
-    // puts ★5 at 0.16/0.99 = 16.2%, not the 17% a straight ★6->★5 hand-off
+    // puts ★5 at 0.08/0.99 = 8.1%, not the 9% a straight ★6->★5 hand-off
     // would give. The copy states what the code actually rolls.
-    subDesc: 'No ★6 in the pool, so their 1% is shared out. ★5 lands at 16.2% here.',
+    subDesc: 'No ★6 in the pool, so their 1% is shared out. ★5 lands at 8.1% here.',
     featured6: null,
     featured5: [],
     pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: [] },
@@ -226,7 +240,7 @@ export const BANNERS = [
     name: 'Tournament Arc',
     type: 'rateup',
     desc: 'Rate-up: ★6 Sora. Half of every ★5 you pull here is Niten, Shiro-Same or Akane.',
-    subDesc: 'Guaranteed ★6 by pull 70, guaranteed ★5 by pull 40. The counters stay on screen.',
+    subDesc: 'Guaranteed ★6 by pull 80, guaranteed ★5 by pull 50. The counters stay on screen.',
     featured6: 'sora',
     featured5: ['niten', 'shiro_same', 'akane'],
     pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: POOL_6 },

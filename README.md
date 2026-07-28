@@ -143,6 +143,30 @@ DECISIONS.md §37 has the reasoning.
 
 ---
 
+## Quests, and how you get your first pull
+
+A new save starts with **one random ★3 character and zero fragments**. It used to
+hand over both starters and enough for two 10-pulls before you had played a
+second, which meant the first run had nothing riding on it.
+
+Instead there are **15 quests** across three tiers, and the first one —
+*Opening Night* — pays **135 fragments, exactly one 10-pull, for finishing a run,
+win or lose*. A new player losing their first run is the expected outcome and
+punishing it teaches nothing.
+
+Quests **settle automatically** the moment their counter is met. There is no
+claim button: a reward you have earned but not found the screen for is a reward
+the game failed to give you. The QUESTS board in the hub is a reference, not a
+chore list.
+
+They are also **derived, never accumulated** — every counter already lives in the
+save blob, so a quest added in a later version credits the play you have already
+done rather than starting you at zero.
+
+★5 pull rate is **8%** (was 16%), with soft pity at 30 and a guarantee at 50.
+
+---
+
 ## The three architectural decisions that matter
 
 **1. `spriteAtlas.js` is the renderer's only source of pixels.**
