@@ -302,6 +302,50 @@ describe('render / the screen is not black', () => {
     assert.equal(failures.length, 0, failures.slice(0, 10).join('\n      '));
   });
 
+  it('no weapon card text overflows its card, at any UI scale', () => {
+    // The weapon card is a different, wider shape than the upgrade card, and it
+    // carries strings the upgrade card never had: an evolution name, a
+    // per-level note, and a stat table pinned to the right edge. Same failure
+    // mode, so the same check.
+    const W_CARD = 306;
+    const ICON_PLATE = 20 + 62 + 14;             // padding + plate + gutter
+    const NAME_W = W_CARD - ICON_PLATE - 18;
+    const BODY_W = W_CARD - 32;
+    const failures = [];
+    for (const uiScale of [0.8, 1.0, 1.2, 1.4]) {
+      w.ui.scale = uiScale;
+      const names = [];
+      for (const wp of data.weapons.WEAPONS) {
+        names.push(wp.name);
+        names.push(wp.evolution.name);
+        for (const lv of wp.levels) {
+          for (const line of w.wrapText(renderer, lv.note, BODY_W, 13, 600)) {
+            if (renderer.measureText(line, 13 * uiScale, 600) > BODY_W + 1) {
+              failures.push(`@${uiScale} ${wp.id} note "${line}" overflows`);
+            }
+          }
+        }
+        for (const src of [wp.desc, wp.evolution.desc]) {
+          for (const line of w.wrapText(renderer, src, BODY_W, 13, 600)) {
+            if (renderer.measureText(line, 13 * uiScale, 600) > BODY_W + 1) {
+              failures.push(`@${uiScale} ${wp.id} desc "${line}" overflows`);
+            }
+          }
+        }
+      }
+      names.push(data.weapons.SIGNATURE_EVOLUTION.name);
+      for (const n of names) {
+        const size = w.fitSize(renderer, n, NAME_W, 20, 800);
+        const txt = w.ellipsize(renderer, n, NAME_W, size, 800);
+        if (renderer.measureText(txt, size * uiScale, 800) > NAME_W + 1) {
+          failures.push(`@${uiScale} weapon name "${n}" overflows`);
+        }
+      }
+    }
+    w.ui.scale = 1;
+    assert.equal(failures.length, 0, failures.slice(0, 10).join('\n      '));
+  });
+
   it('the freeze screens render', () => {
     for (const state of [RUN_STATE.LEVEL_UP, RUN_STATE.PAUSED]) {
       ctx.reset();
@@ -314,6 +358,21 @@ describe('render / the screen is not black', () => {
     run.state = RUN_STATE.PLAYING;
   });
 
+  it('a boss renders, including its health bar', () => {
+    ctx.reset();
+    const stage = run.stage;
+    const bossDef = data.bosses.BOSSES_BY_ID[stage.boss];
+    run.spawnBoss(bossDef, false);
+    for (let i = 0; i < 240; i++) run.update(1 / 60);
+    runScene.render(renderer, 0.5);
+    assert.ok(run.boss.active, 'the boss did not survive 4 seconds of its own fight');
+    assert.atLeast(ctx.calls.drawImage, 10);
+    assert.atLeast(ctx.calls.fillRect, 5, 'the boss health bar did not draw');
+  });
+
+  // The three tests below hand the player a FULL, EVOLVED five-weapon arsenal,
+  // which deletes a boss in under two seconds. They run last, after anything
+  // that needs the player to still be beatable.
   it('the HUD renders a FULL, EVOLVED arsenal — slots, placeholders and portrait', () => {
     // The build strip draws every position it could ever hold, not just the
     // ones that are filled, and the portrait is its own atlas entry. Both are
@@ -365,18 +424,6 @@ describe('render / the screen is not black', () => {
     }
     run.levelUpChoices = null;
     run.state = RUN_STATE.PLAYING;
-  });
-
-  it('a boss renders, including its health bar', () => {
-    ctx.reset();
-    const stage = run.stage;
-    const bossDef = data.bosses.BOSSES_BY_ID[stage.boss];
-    run.spawnBoss(bossDef, false);
-    for (let i = 0; i < 240; i++) run.update(1 / 60);
-    runScene.render(renderer, 0.5);
-    assert.ok(run.boss.active, 'the boss did not survive 4 seconds of its own fight');
-    assert.atLeast(ctx.calls.drawImage, 10);
-    assert.atLeast(ctx.calls.fillRect, 5, 'the boss health bar did not draw');
   });
 
   it('every character renders its own auto-attack without throwing', () => {

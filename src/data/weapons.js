@@ -14,9 +14,11 @@
 // a max-level EVOLUTION that turns it from something that fires every N seconds
 // into something that is simply always on.
 //
-// THE SLOT CAP IS THE DESIGN. Three weapons, no more. Without a cap the answer
-// to every offer is "yes" and every run converges on the same nine weapons; with
-// one, taking a weapon is a decision you have to defend for the rest of the run.
+// THE SLOT CAP IS THE DESIGN. Five slots, no more, and the first one is spoken
+// for. Without a cap the answer to every offer is "yes" and every run converges
+// on the same nine weapons; with one, taking a weapon is a decision you have to
+// defend for the rest of the run. Five (the signature plus four picks, out of
+// eight) leaves half the arsenal on the table every single time.
 //
 // SCHEMA
 // ------
@@ -51,8 +53,8 @@
 // No ref strings live here (DECISIONS.md §22) and no character ids: the
 // signature weapon reads its name off whichever character is playing.
 
-/** Hard cap. The signature weapon occupies one of these. */
-export const WEAPON_SLOTS = 3;
+/** Hard cap. Slot 0 is ALWAYS the character's own auto-attack. */
+export const WEAPON_SLOTS = 5;
 
 // ---------------------------------------------------------------------------
 // THE SIGNATURE WEAPON — every character's own auto-attack, levelled.

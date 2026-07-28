@@ -199,7 +199,12 @@ export class HazardSystem {
       const f = fl[i];
       f.t += dt;
       if (f.followHost) {
-        if (!f.followHost.active) { f.followHost = null; }
+        // `active` is a POOL flag: enemies, minions and projectiles have one,
+        // the player does not. Testing it truthily meant a field told to follow
+        // the PLAYER detached itself on its very first tick and stayed where it
+        // was born — so every player-anchored aura in the game was really a
+        // stationary puddle that happened to be re-spawned underfoot.
+        if (f.followHost.active === false) { f.followHost = null; }
         else { f.x = f.followHost.x; f.y = f.followHost.y; }
       }
       if (f.t >= f.duration) { this.fields.release(f); i--; continue; }

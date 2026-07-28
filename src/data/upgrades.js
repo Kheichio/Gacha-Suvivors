@@ -31,6 +31,11 @@
 //   decimals    digits after the point on the card. Defaults to 0.
 //   cap         hard ceiling on the ACCUMULATED stat, in stat units. Present only
 //               where the spec states one (dodge 60%, momentum +30%).
+//   desc        PLAIN ENGLISH: what this actually does to the game, in one
+//               sentence, with no joke in it. This is what the level-up card
+//               shows. `codex` is the joke, and it stays in the Codex — a card
+//               that makes you laugh and leaves you unsure what you just took
+//               is a card that failed at its only job.
 //   fmt         per-level phrase.   {v} = the per-level display value.
 //   totalFmt    running-total phrase. {v} = the accumulated display value.
 //               Rendered as:  "<fmt> (now <totalFmt>)"
@@ -49,6 +54,7 @@ export const UPGRADES = [
     maxLevel: 8, tier: 'common',
     stat: 'damageMult', perLevel: 0.12, mode: 'add', unit: 'percent',
     fmt: '+{v}% damage', totalFmt: '+{v}% total',
+    desc: 'Everything you own hits harder — every weapon, every ability, every tick of burn.',
     weight: 100,
     codex: 'Sharpened during a five-minute training montage. Worth every second.',
   },
@@ -57,6 +63,7 @@ export const UPGRADES = [
     maxLevel: 8, tier: 'common',
     stat: 'attackSpeedMult', perLevel: 0.09, mode: 'add', unit: 'percent',
     fmt: '+{v}% attack speed', totalFmt: '+{v}% total',
+    desc: 'Shortens the wait between activations on your auto-attack AND on every weapon you carry.',
     weight: 100,
     codex: 'Same swing, less waiting. Your wrists are a problem for future you.',
   },
@@ -67,6 +74,7 @@ export const UPGRADES = [
     maxLevel: 4, tier: 'epic',
     stat: 'projectileCount', perLevel: 1, mode: 'flat', unit: 'flat',
     fmt: '+{v} projectile', totalFmt: '+{v} total',
+    desc: 'One more shot from anything that fires shots — your auto-attack and every projectile weapon. Melee and field weapons are unaffected.',
     weight: 25,
     codex: 'Nobody agreed to this many projectiles. Nobody can stop them either.',
   },
@@ -75,6 +83,7 @@ export const UPGRADES = [
     maxLevel: 8, tier: 'common',
     stat: 'areaMult', perLevel: 0.14, mode: 'add', unit: 'percent',
     fmt: '+{v}% attack size', totalFmt: '+{v}% total',
+    desc: 'Every swing arc, blast radius, orbit ring and aura gets physically bigger, so each one catches more enemies.',
     weight: 100,
     codex: 'Everything you do is simply bigger now. No notes.',
   },
@@ -83,6 +92,7 @@ export const UPGRADES = [
     maxLevel: 8, tier: 'common',
     stat: 'projectileSpeedMult', perLevel: 0.18, mode: 'add', unit: 'percent',
     fmt: '+{v}% projectile speed & range', totalFmt: '+{v}% total',
+    desc: 'Shots fly faster and live longer, so they reach further before they expire. Nothing melee changes.',
     weight: 100,
     codex: 'Your attacks commute now. They arrive on time and slightly angry.',
   },
@@ -92,6 +102,7 @@ export const UPGRADES = [
     maxLevel: 5, tier: 'rare',
     stat: 'pierce', perLevel: 1, mode: 'flat', unit: 'flat',
     fmt: '+{v} pierce', totalFmt: '+{v} pierce total',
+    desc: 'Your shots pass through one more enemy each instead of stopping at the first. Best where the crowd is deep.',
     weight: 60,
     codex: 'It goes through. Then it keeps going through. That is the whole pitch.',
   },
@@ -100,6 +111,7 @@ export const UPGRADES = [
     maxLevel: 8, tier: 'common',
     stat: 'critChance', perLevel: 0.05, mode: 'flat', unit: 'percent',
     fmt: '+{v}% crit chance', totalFmt: '+{v}% total',
+    desc: 'How often a hit crits. A crit deals your crit damage instead of normal damage and shows a bigger number.',
     weight: 100,
     codex: 'You have started noticing where things are weakest. Rude, honestly.',
   },
@@ -108,6 +120,7 @@ export const UPGRADES = [
     maxLevel: 8, tier: 'rare',
     stat: 'critMult', perLevel: 0.25, mode: 'flat', unit: 'percent',
     fmt: '+{v}% crit damage', totalFmt: '+{v}% total',
+    desc: 'How hard a crit lands. Worthless on its own — pair it with crit chance.',
     weight: 60,
     codex: 'The crit was already lethal. This part is purely for the camera.',
   },
@@ -116,6 +129,7 @@ export const UPGRADES = [
     maxLevel: 8, tier: 'common',
     stat: 'moveSpeedMult', perLevel: 0.08, mode: 'add', unit: 'percent',
     fmt: '+{v}% move speed', totalFmt: '+{v}% total',
+    desc: 'You walk faster. In a game where not being touched is the whole defence, this is a defensive stat.',
     weight: 100,
     codex: 'Broken in by roughly nine thousand consecutive tutorial laps.',
   },
@@ -124,6 +138,7 @@ export const UPGRADES = [
     maxLevel: 8, tier: 'common',
     stat: 'maxHp', perLevel: 18, mode: 'flat', unit: 'flat',
     fmt: '+{v} max HP', totalFmt: '+{v} max HP total',
+    desc: 'Raises your maximum HP and HEALS you by the amount gained, right now.',
     weight: 100,
     codex: 'Eighteen more HP. Eighteen more chances to say "I meant to do that".',
   },
@@ -132,6 +147,7 @@ export const UPGRADES = [
     maxLevel: 8, tier: 'common',
     stat: 'regen', perLevel: 0.4, mode: 'flat', unit: 'flat', decimals: 1,
     fmt: '+{v} HP/s regeneration', totalFmt: '+{v} HP/s total',
+    desc: 'You heal continuously, in and out of combat. Small per second, enormous over fifteen minutes.',
     weight: 100,
     codex: 'The training arc pays out slowly, but it never once stops paying.',
   },
@@ -140,14 +156,24 @@ export const UPGRADES = [
     maxLevel: 8, tier: 'rare',
     stat: 'armor', perLevel: 1, mode: 'flat', unit: 'flat',
     fmt: '+{v} armor', totalFmt: '+{v} armor total',
+    desc: 'Subtracts a flat amount from every hit you take. Strongest against swarms of small hits, weakest against one big one.',
     weight: 60,
     codex: 'One point of armor. Flat, unglamorous, and quietly undefeated.',
   },
   {
+    // 0.22 -> 0.60 per level.
+    //
+    // The old number was a fifth of a base radius of ~48px — about TEN PIXELS
+    // per level, on a screen showing 1280 world px. Nobody could see it, so an
+    // upgrade whose entire job is a spatial effect read as doing nothing at all.
+    // At 0.60 a maxed Lodestone takes the radius from ~48px to ~278px, which is
+    // a fifth of the screen: gems visibly leap at you, and the ring the HUD
+    // draws around the player grows every single time you take it.
     id: 'lodestone', name: 'Lodestone', icon: '🧲',
     maxLevel: 8, tier: 'common',
-    stat: 'pickupRadiusMult', perLevel: 0.22, mode: 'add', unit: 'percent',
+    stat: 'pickupRadiusMult', perLevel: 0.60, mode: 'add', unit: 'percent',
     fmt: '+{v}% pickup radius', totalFmt: '+{v}% total',
+    desc: 'Widens the ring around you that yanks XP gems and gold in. The ring is drawn on the ground — watch it grow.',
     weight: 100,
     codex: 'Loot comes to you now. This is the correct relationship with loot.',
   },
@@ -156,6 +182,7 @@ export const UPGRADES = [
     maxLevel: 8, tier: 'common',
     stat: 'xpMult', perLevel: 0.12, mode: 'add', unit: 'percent',
     fmt: '+{v}% XP gain', totalFmt: '+{v}% total',
+    desc: 'Every gem is worth more, so you level up sooner and get more choices than you otherwise would.',
     weight: 100,
     codex: 'Reads enemy weaknesses aloud mid-fight. To nobody. Constantly.',
   },
@@ -164,6 +191,7 @@ export const UPGRADES = [
     maxLevel: 8, tier: 'common',
     stat: 'goldMult', perLevel: 0.20, mode: 'add', unit: 'percent',
     fmt: '+{v}% gold gain', totalFmt: '+{v}% total',
+    desc: 'More gold from this run, which you spend at the Shrine between runs. Does nothing for the run itself.',
     weight: 100,
     codex: 'The coin is not actually cursed. Legal made us say that.',
   },
@@ -173,6 +201,7 @@ export const UPGRADES = [
     // luck feeds chest quality (CHEST_TABLE) and rare drop rates.
     stat: 'luck', perLevel: 1, mode: 'flat', unit: 'flat',
     fmt: '+{v} luck', totalFmt: '+{v} luck total',
+    desc: 'Better chest contents, better relic rolls, and slightly better odds on every drop the game rolls for.',
     weight: 60,
     codex: 'Statistically modest. Emotionally load-bearing.',
   },
@@ -183,6 +212,7 @@ export const UPGRADES = [
     maxLevel: 8, tier: 'rare',
     stat: 'cooldownMult', perLevel: -0.08, mode: 'add', unit: 'percent',
     fmt: '{v}% all cooldowns', totalFmt: '{v}% total',
+    desc: 'Your SPECIAL and your ESCAPE come back sooner. Does not speed up weapons — that is Rapid Fire.',
     weight: 60,
     codex: 'The cooldown bar has been downgraded to more of a cooldown suggestion.',
   },
@@ -192,6 +222,7 @@ export const UPGRADES = [
     stat: 'dodge', perLevel: 0.05, mode: 'flat', unit: 'percent',
     cap: 0.60,          // spec line 1425: "cap 60%" — other sources stack into it
     fmt: '+{v}% dodge chance', totalFmt: '+{v}% total, cap 60%',
+    desc: 'A chance for an incoming hit to deal nothing at all. Hard-capped at 60% however many sources you stack.',
     weight: 60,
     codex: 'Technically you were never there. Several enemies quietly disagree.',
   },
@@ -200,6 +231,7 @@ export const UPGRADES = [
     maxLevel: 8, tier: 'rare',
     stat: 'lifesteal', perLevel: 0.015, mode: 'flat', unit: 'percent', decimals: 1,
     fmt: '+{v}% lifesteal', totalFmt: '+{v}% total',
+    desc: 'You heal for a slice of all damage you deal. Scales with how much you are killing, not with how big your hits are.',
     weight: 60,
     codex: 'Healthcare, but you have to hit something first.',
   },
@@ -208,6 +240,7 @@ export const UPGRADES = [
     maxLevel: 8, tier: 'rare',
     stat: 'thorns', perLevel: 0.12, mode: 'flat', unit: 'percent',
     fmt: 'reflect {v}% of contact damage', totalFmt: 'reflecting {v}% total',
+    desc: 'Anything that touches you takes a share of the damage it dealt. Only contact damage — not ranged shots or hazards.',
     weight: 60,
     codex: 'You never hit back. You just stood there being extremely pointy.',
   },
@@ -219,6 +252,7 @@ export const UPGRADES = [
     maxLevel: 2, tier: 'epic',
     stat: 'revives', perLevel: 1, mode: 'flat', unit: 'flat',
     fmt: '+{v} revive at 50% HP', totalFmt: '+{v} revives total',
+    desc: 'When you would die, you stand back up at half HP with two seconds of invulnerability instead. Three revives per run, from all sources combined.',
     weight: 12,
     codex: 'The screen goes white, the music swells, and you get up. Twice, max.',
   },
@@ -231,6 +265,7 @@ export const UPGRADES = [
     stat: 'momentumBonus', perLevel: 0.03, mode: 'flat', unit: 'percent',
     cap: 0.30,
     fmt: '+{v}% damage per second moving', totalFmt: '+{v}% per second, cap +30%',
+    desc: 'Damage builds while you keep moving and resets the moment you stop. Caps at +30% and rewards kiting.',
     weight: 60,
     codex: 'Keep running. The anime only looks good when you are already moving.',
   },

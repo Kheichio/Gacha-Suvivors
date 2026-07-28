@@ -70,6 +70,10 @@ export const runScene = {
     const run = this.run;
     if (!run) return;
 
+    // Presentation-only timer for the pickup-radius flare. Lives on the scene,
+    // not on the player, so it can never perturb a seeded replay.
+    if (this._pickupFlare > 0) this._pickupFlare -= dt;
+
     // --- pause ---------------------------------------------------------------
     if (input.pressed(ACT.PAUSE)) {
       if (run.state === RUN_STATE.PLAYING) { run.state = RUN_STATE.PAUSED; audio.play('uiBack'); }
@@ -165,6 +169,7 @@ export const runScene = {
     this._background(r, run, cx, cy);
     run.obstacles.draw(r, alpha);
     run.hazards.drawUnder(r, alpha);
+    this._pickupRing(r, run, alpha);
     this._altar(r, run);
     run.pickups.draw(r, alpha);
     run.boss.drawUnder(r, alpha);
@@ -238,6 +243,43 @@ export const runScene = {
   },
 
   /** Boss-driven beams / rings / wedges, plus melee arc flashes. */
+  /**
+   * THE PICKUP RADIUS, DRAWN ON THE GROUND.
+   *
+   * Lodestone is a purely spatial upgrade, and an invisible radius is an
+   * upgrade the player has to take on faith — which is how a stat that has been
+   * quietly growing all run reads as "this does nothing". Drawing the ring
+   * makes every level of it a visible, measurable step, and it doubles as a
+   * permanent read on how close a gem has to be before it comes to you.
+   *
+   * Faint by default so it never competes with the horde; it flares for a
+   * couple of seconds whenever the radius actually changes.
+   */
+  _pickupRing(r, run, alpha) {
+    const p = run.player;
+    const rad = p.stats.pickupRadius;
+    if (rad <= 0) return;
+    const x = p.px + (p.x - p.px) * alpha;
+    const y = p.py + (p.y - p.py) * alpha;
+
+    // Flare on change. Tracked here rather than on the player because it is a
+    // presentation concern and must not exist in the simulation.
+    if (this._lastPickupR === undefined) this._lastPickupR = rad;
+    if (Math.abs(rad - this._lastPickupR) > 0.5) {
+      this._lastPickupR = rad;
+      this._pickupFlare = 2.2;
+    }
+    const flare = this._pickupFlare > 0 ? this._pickupFlare / 2.2 : 0;
+
+    const pulse = 0.5 + 0.5 * Math.sin(run.time * 2.2);
+    r.strokeCircle(x, y, rad, '#6ad8ff', 1.5 + flare * 2.5,
+                   0.10 + pulse * 0.05 + flare * 0.55);
+    if (flare > 0.01) {
+      r.drawCircle(x, y, rad, '#6ad8ff', flare * 0.06);
+      r.strokeCircle(x, y, rad * (1 + (1 - flare) * 0.25), '#8ef0ff', 2, flare * 0.35);
+    }
+  },
+
   _overlays(r, run) {
     const o = run.overlays;
     for (const b of o.beams) r.drawBeam(b.x0, b.y0, b.x1, b.y1, b.w, b.color, 0.65);

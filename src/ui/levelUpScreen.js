@@ -14,8 +14,32 @@ import { atlas } from '../render/spriteAtlas.js';
 import { clamp, easeOutBack, easeOutCubic, lerp } from '../core/math.js';
 import { RUN_STATE } from '../game/run.js';
 
+/**
+ * TWO CARD SHAPES, NOT ONE.
+ *
+ * A weapon and a stat upgrade are completely different decisions — one adds a
+ * thing to the screen and takes a permanent slot, the other nudges a number —
+ * and when both arrived as the same 250x340 rectangle with a different icon,
+ * players could not tell them apart at a glance. So they no longer look alike:
+ *
+ *   WEAPON  wider, a solid TYPE RIBBON across the top, a coloured rail down the
+ *           left, the icon in its own framed plate, and a before/after STAT
+ *           TABLE. Loud and angular.
+ *   PASSIVE narrower, no ribbon, no rail; the icon sits inline beside the name
+ *           and the composition is built around one huge number. Quiet.
+ *
+ * PASSIVE stays at exactly 250 because tests/renderSmoke.js measures every
+ * upgrade's name and description against that width at four UI scales.
+ */
 const CARD_W = 250;
-const CARD_H = 340;
+const WEAPON_CARD_W = 306;
+const CARD_H = 348;
+
+/** Which kinds get the weapon treatment. */
+const WEAPON_KINDS = { weapon: 1, newWeapon: 1, weaponEvo: 1 };
+function cardWidth(choice) {
+  return WEAPON_KINDS[choice.kind] ? WEAPON_CARD_W : CARD_W;
+}
 
 class LevelUpScreen {
   constructor() {
@@ -54,20 +78,30 @@ class LevelUpScreen {
     ui.title('LEVEL ' + run.player.level, W / 2, H * 0.17, { size: 46, align: 'center' });
     ui.text('choose one', W / 2, H * 0.17 + 34, { size: 14, color: PALETTE.textDim, align: 'center' });
 
-    const gap = 22;
-    const totalW = choices.length * CARD_W + (choices.length - 1) * gap;
-    const x0 = (W - totalW) / 2;
+    // Cards are no longer a uniform width, so the row is laid out by walking a
+    // running x rather than by multiplying one constant.
+    let gap = 20;
+    let totalW = (choices.length - 1) * gap;
+    for (const c of choices) totalW += cardWidth(c);
+    // Squeeze the gap before anything runs off the edge at four choices.
+    if (totalW > W - 40 && choices.length > 1) {
+      gap = Math.max(8, gap - (totalW - (W - 40)) / (choices.length - 1));
+      totalW = (choices.length - 1) * gap;
+      for (const c of choices) totalW += cardWidth(c);
+    }
+    let x0 = (W - totalW) / 2;
     const y = H / 2 - CARD_H / 2 + 20;
 
     for (let i = 0; i < choices.length; i++) {
       // The cards FLY IN, staggered.
       const inT = clamp((this.t - i * 0.06) / 0.32, 0, 1);
       const e = easeOutBack(inT);
-      const x = x0 + i * (CARD_W + gap);
+      const cw = cardWidth(choices[i]);
       const yy = y + (1 - e) * 90;
 
-      if (inT <= 0) { ui.itemCount++; continue; }
-      this._card(r, run, choices[i], x, yy, i, e);
+      if (inT <= 0) { ui.itemCount++; }
+      else this._card(r, run, choices[i], x0, yy, i, e, cw);
+      x0 += cw + gap;
     }
 
     // reroll / banish / skip
@@ -98,225 +132,288 @@ class LevelUpScreen {
     ui.end();
   }
 
-  _card(r, run, choice, x, y, index, e) {
+  _card(r, run, choice, x, y, index, e, cw) {
     const focused = ui.focus === index;
     const p = run.player;
 
+    // WEAPON KINDS GO FIRST, and they go somewhere else entirely — see the
+    // comment on WEAPON_CARD_W. They must also be handled before the stat-card
+    // body below, which reads `choice.up.tier` unconditionally: a card kind with
+    // no branch of its own throws inside the render loop and blanks the screen.
+    if (WEAPON_KINDS[choice.kind]) {
+      this._weaponCard(r, run, choice, x, y, cw, CARD_H, index, focused);
+      return;
+    }
+
     if (choice.kind === 'evolution') {
       const evo = choice.evo;
-      ui.card(x, y, CARD_W, CARD_H, 6, { focused });
-      ui.text('EVOLUTION', x + CARD_W / 2, y + 26, {
+      ui.card(x, y, cw, CARD_H, 6, { focused });
+      ui.text('BUILD EVOLUTION', x + cw / 2, y + 26, {
         size: 12, color: '#ff5fa2', align: 'center', weight: 800,
       });
-      ui.text(evo.icon || '✦', x + CARD_W / 2, y + 84, { size: 52, align: 'center' });
-      ui.text(ellipsize(r, evo.name, CARD_W - 26, 19, 800), x + CARD_W / 2, y + 140, {
-        size: fitSize(r, evo.name, CARD_W - 26, 19, 800), color: PALETTE.accent,
+      ui.text(evo.icon || '✦', x + cw / 2, y + 84, { size: 52, align: 'center' });
+      ui.text(ellipsize(r, evo.name, cw - 26, 19, 800), x + cw / 2, y + 140, {
+        size: fitSize(r, evo.name, cw - 26, 19, 800), color: PALETTE.accent,
         align: 'center', weight: 800,
       });
-      const lines = wrapText(r, evo.desc, CARD_W - 30, 13, 600);
+      const lines = wrapText(r, evo.desc, cw - 30, 13, 600);
       for (let i = 0; i < lines.length; i++) {
-        ui.text(lines[i], x + CARD_W / 2, y + 176 + i * 17, {
+        ui.text(lines[i], x + cw / 2, y + 176 + i * 17, {
           size: 13, color: PALETTE.text, align: 'center', weight: 600,
         });
       }
       const up = run.data.upgrades.UPGRADES_BY_ID[evo.requires.upgrade];
       const rel = run.data.relics.RELICS_BY_ID[evo.requires.relic];
-      ui.text(`${up.name} (MAX) + ${displayName(rel)}`, x + CARD_W / 2, y + CARD_H - 24, {
+      ui.text(`${up.name} (MAX) + ${displayName(rel)}`, x + cw / 2, y + CARD_H - 24, {
         size: 11, color: PALETTE.textFaint, align: 'center',
       });
-      if (ui.button('card' + index, x, y, CARD_W, CARD_H, '', { radius: 12, invisible: true })) {
-        run.chooseUpgrade(index);
-      }
-      return;
-    }
-
-    // --- weapon cards ---------------------------------------------------------
-    // These three branches MUST come before the stat-card body below, which
-    // reads `choice.up.tier` unconditionally: a card kind with no branch of its
-    // own throws inside the render loop and blanks the whole screen.
-    if (choice.kind === 'weaponEvo') {
-      const evo = choice.evo;
-      const wname = run.weapons.nameOf(choice.w);
-      ui.card(x, y, CARD_W, CARD_H, 6, { focused });
-      ui.text('EVOLVE', x + CARD_W / 2, y + 26, {
-        size: 12, color: '#ffd76a', align: 'center', weight: 800,
-      });
-      ui.text(evo.icon || '♾', x + CARD_W / 2, y + 84, { size: 52, align: 'center' });
-      ui.text(ellipsize(r, evo.name, CARD_W - 26, 19, 800), x + CARD_W / 2, y + 140, {
-        size: fitSize(r, evo.name, CARD_W - 26, 19, 800), color: '#ffd76a',
-        align: 'center', weight: 800,
-      });
-      ui.text('ALWAYS ACTIVE', x + CARD_W / 2, y + 160, {
-        size: 11, color: '#7bf59a', align: 'center', weight: 800,
-      });
-      const elines = wrapText(r, evo.desc, CARD_W - 30, 13, 600);
-      for (let i = 0; i < Math.min(5, elines.length); i++) {
-        ui.text(elines[i], x + CARD_W / 2, y + 186 + i * 17, {
-          size: 13, color: PALETTE.text, align: 'center', weight: 600,
-        });
-      }
-      ui.text(wname + ' — MAX', x + CARD_W / 2, y + CARD_H - 24, {
-        size: 11, color: PALETTE.textFaint, align: 'center',
-      });
-      if (ui.button('card' + index, x, y, CARD_W, CARD_H, '', { radius: 12, invisible: true })) {
-        run.chooseUpgrade(index);
-      }
-      return;
-    }
-
-    if (choice.kind === 'newWeapon') {
-      const def = choice.def;
-      const rar = def.tier === 'epic' ? 5 : def.tier === 'rare' ? 4 : 3;
-      ui.card(x, y, CARD_W, CARD_H, rar, { focused });
-      ui.text('NEW WEAPON', x + CARD_W / 2, y + 24, {
-        size: 12, color: '#7bf59a', align: 'center', weight: 800,
-      });
-      ui.text(def.icon || '⚔', x + CARD_W / 2, y + 82, { size: 48, align: 'center' });
-      ui.text(ellipsize(r, def.name, CARD_W - 26, 20, 800), x + CARD_W / 2, y + 138, {
-        size: fitSize(r, def.name, CARD_W - 26, 20, 800), color: RARITY_COLOR[rar],
-        align: 'center', weight: 800,
-      });
-      const dlines = wrapText(r, def.desc, CARD_W - 30, 13, 600);
-      for (let i = 0; i < Math.min(4, dlines.length); i++) {
-        ui.text(dlines[i], x + CARD_W / 2, y + 172 + i * 17, {
-          size: 13, color: PALETTE.text, align: 'center', weight: 600,
-        });
-      }
-      // The slot cost, stated plainly. Taking a third weapon is the last one you
-      // will ever take, and the card has to say so before you click it.
-      const used = run.weapons.count, max = run.weapons.max;
-      ui.text(`WEAPON SLOT ${used + 1} / ${max}`, x + CARD_W / 2, y + CARD_H - 52, {
-        size: 12, color: used + 1 >= max ? '#ffd23f' : PALETTE.accent2,
-        align: 'center', weight: 800, mono: true,
-      });
-      if (used + 1 >= max) {
-        ui.text('your last slot', x + CARD_W / 2, y + CARD_H - 36, {
-          size: 11, color: '#ffd23f', align: 'center', weight: 700,
-        });
-      }
-      ui.text('[' + (index + 1) + ']', x + CARD_W / 2, y + CARD_H - 15, {
-        size: 11, color: PALETTE.textFaint, align: 'center', mono: true,
-      });
-      if (ui.button('card' + index, x, y, CARD_W, CARD_H, '', { radius: 12, invisible: true })) {
-        run.chooseUpgrade(index);
-      }
-      return;
-    }
-
-    if (choice.kind === 'weapon') {
-      const w = choice.w;
-      const lvl = choice.level;
-      const maxL = run.weapons.maxLevel(w);
-      const row = w.signature ? run.data.weapons.SIGNATURE_LEVELS[lvl - 1]
-                              : w.def.levels[lvl - 1];
-      const rar = w.signature ? 5 : w.def.tier === 'epic' ? 5 : w.def.tier === 'rare' ? 4 : 3;
-      ui.card(x, y, CARD_W, CARD_H, rar, { focused });
-      ui.text(w.signature ? 'SIGNATURE' : 'WEAPON', x + CARD_W / 2, y + 24, {
-        size: 12, color: w.signature ? '#ffd76a' : PALETTE.accent2,
-        align: 'center', weight: 800,
-      });
-      ui.text(run.weapons.iconOf(w), x + CARD_W / 2, y + 82, { size: 48, align: 'center' });
-      const wname = run.weapons.nameOf(w).split(' [')[0];
-      ui.text(ellipsize(r, wname, CARD_W - 26, 20, 800), x + CARD_W / 2, y + 138, {
-        size: fitSize(r, wname, CARD_W - 26, 20, 800), color: RARITY_COLOR[rar],
-        align: 'center', weight: 800,
-      });
-      ui.text(`Lv ${lvl} / ${maxL}`, x + CARD_W / 2, y + 162, {
-        size: 13, color: PALETTE.textDim, align: 'center', weight: 800, mono: true,
-      });
-      // SECTION 10's rule, applied to weapons: never "improves the weapon" —
-      // always the specific thing this specific level buys.
-      const nlines = wrapText(r, (row && row.note) || '', CARD_W - 30, 15, 700);
-      for (let i = 0; i < Math.min(3, nlines.length); i++) {
-        ui.text(nlines[i], x + CARD_W / 2, y + 194 + i * 19, {
-          size: 15, color: PALETTE.text, align: 'center', weight: 700,
-        });
-      }
-      if (lvl >= maxL) {
-        ui.text('next: EVOLUTION', x + CARD_W / 2, y + CARD_H - 52, {
-          size: 12, color: '#ffd76a', align: 'center', weight: 800,
-        });
-      }
-      const pipW = Math.min(14, (CARD_W - 40) / maxL);
-      const pipY = y + CARD_H - 34;
-      const pipX = x + CARD_W / 2 - (maxL * pipW) / 2;
-      for (let i = 0; i < maxL; i++) {
-        r.drawRect(pipX + i * pipW + 2, pipY, pipW - 4, 5,
-                   i < lvl ? RARITY_COLOR[rar] : 'rgba(255,255,255,0.14)', 1);
-      }
-      ui.text('[' + (index + 1) + ']', x + CARD_W / 2, y + CARD_H - 15, {
-        size: 11, color: PALETTE.textFaint, align: 'center', mono: true,
-      });
-      if (ui.button('card' + index, x, y, CARD_W, CARD_H, '', { radius: 12, invisible: true })) {
+      if (ui.button('card' + index, x, y, cw, CARD_H, '', { radius: 12, invisible: true })) {
         run.chooseUpgrade(index);
       }
       return;
     }
 
     if (choice.kind === 'gold') {
-      ui.card(x, y, CARD_W, CARD_H, 3, { focused });
-      ui.text('⭐', x + CARD_W / 2, y + 110, { size: 60, align: 'center' });
-      ui.text('+' + choice.amount + ' GOLD', x + CARD_W / 2, y + 180, {
+      ui.card(x, y, cw, CARD_H, 3, { focused });
+      ui.text('⭐', x + cw / 2, y + 110, { size: 60, align: 'center' });
+      ui.text('+' + choice.amount + ' GOLD', x + cw / 2, y + 180, {
         size: 20, color: PALETTE.gold, align: 'center', weight: 800,
       });
-      ui.text('Everything else is maxed. Take the money.', x + CARD_W / 2, y + 212, {
+      ui.text('Everything else is maxed. Take the money.', x + cw / 2, y + 212, {
         size: 12, color: PALETTE.textDim, align: 'center',
       });
-      if (ui.button('card' + index, x, y, CARD_W, CARD_H, '', { radius: 12, invisible: true })) run.chooseUpgrade(index);
+      if (ui.button('card' + index, x, y, cw, CARD_H, '', { radius: 12, invisible: true })) run.chooseUpgrade(index);
       return;
     }
 
+    this._passiveCard(r, run, choice, x, y, cw, CARD_H, index, focused);
+  }
+
+  /**
+   * A PASSIVE (stat) card. Built around ONE BIG NUMBER, with the icon inline
+   * beside the name rather than centred — so at a glance, before any text is
+   * read, this is visibly not a weapon.
+   */
+  _passiveCard(r, run, choice, x, y, w, h, index, focused) {
     const up = choice.up;
     const level = choice.level;
     const isNew = level === 1;
     const rarity = up.tier === 'epic' ? 5 : up.tier === 'rare' ? 4 : 3;
-    ui.card(x, y, CARD_W, CARD_H, rarity, { focused });
+    const col = RARITY_COLOR[rarity];
+    const bucket = run.data.upgrades.BUILD_SLOTS.bucketOf(up);
+    const slots = run.buildSlots();
 
-    ui.text(isNew ? 'NEW' : `Lv ${level} / ${up.maxLevel}`, x + CARD_W / 2, y + 24, {
-      size: 12, color: isNew ? '#7bf59a' : PALETTE.textFaint, align: 'center', weight: 800,
-    });
-    ui.text(up.icon || '◆', x + CARD_W / 2, y + 82, { size: 48, align: 'center' });
-    ui.text(ellipsize(r, up.name, CARD_W - 26, 20, 800), x + CARD_W / 2, y + 138, {
-      size: fitSize(r, up.name, CARD_W - 26, 20, 800), color: RARITY_COLOR[rarity],
-      align: 'center', weight: 800,
+    ui.panel(x, y, w, h, {
+      color: 'rgba(24,29,46,0.97)', borderColor: focused ? PALETTE.borderHot : col,
+      borderWidth: focused ? 3 : 1.5, radius: 14,
     });
 
-    // THE NUMBERS. Both of them, always.
-    const perLevel = up.perLevel;
-    const totalAfter = perLevel * level;
-    const thisLevel = formatValue(up, perLevel);
-    const total = formatValue(up, totalAfter);
-    ui.text(thisLevel, x + CARD_W / 2, y + 178, {
-      size: fitSize(r, thisLevel, CARD_W - 26, 22, 800), color: PALETTE.text,
+    // Header: type + bucket, quiet, left-aligned. No ribbon — that is the
+    // weapon card's signature and must not be borrowed here.
+    ui.text('PASSIVE · ' + (bucket === 'offensive' ? 'ATTACK' : 'UTILITY'), x + 16, y + 20, {
+      size: 10, color: PALETTE.textFaint, weight: 800, mono: true,
+    });
+    ui.text(isNew ? 'NEW' : `Lv ${level}/${up.maxLevel}`, x + w - 16, y + 20, {
+      size: 10, color: isNew ? '#7bf59a' : PALETTE.textFaint,
+      weight: 800, mono: true, align: 'right',
+    });
+
+    // Icon inline with the name.
+    ui.text(up.icon || '◆', x + 30, y + 52, { size: 26, align: 'center', baseline: 'middle' });
+    const nm = ellipsize(r, up.name, w - 62, 19, 800);
+    ui.text(nm, x + 52, y + 52, {
+      size: fitSize(r, up.name, w - 62, 19, 800), color: col, weight: 800, baseline: 'middle',
+    });
+
+    // THE NUMBER. SECTION 10's rule: never "increases damage" — the per-level
+    // value and the running total, always, both computed from the data.
+    const thisLevel = formatValue(up, up.perLevel);
+    const total = formatValue(up, up.perLevel * level);
+    r.drawRect(x + 16, y + 74, w - 32, 1, 'rgba(150,170,225,0.22)', 1);
+    ui.text(thisLevel, x + w / 2, y + 106, {
+      size: fitSize(r, thisLevel, w - 30, 26, 800), color: PALETTE.text,
       align: 'center', weight: 800,
     });
     if (level > 1) {
-      const totalTxt = `(now ${total} total)`;
-      ui.text(totalTxt, x + CARD_W / 2, y + 204, {
-        size: fitSize(r, totalTxt, CARD_W - 26, 14, 700), color: PALETTE.accent,
+      const totalTxt = `now ${total} total`;
+      ui.text(totalTxt, x + w / 2, y + 132, {
+        size: fitSize(r, totalTxt, w - 30, 13, 700), color: PALETTE.accent,
         align: 'center', weight: 700,
       });
     }
 
-    const lines = wrapText(r, up.codex || up.desc || '', CARD_W - 30, 12, 600);
-    for (let i = 0; i < Math.min(4, lines.length); i++) {
-      ui.text(lines[i], x + CARD_W / 2, y + 236 + i * 15, {
-        size: 12, color: PALETTE.textDim, align: 'center', weight: 600,
+    // WHAT IT DOES, in plain words. This replaced the flavour joke that used to
+    // sit here: a card that made you laugh and left you unsure what you had
+    // just taken was failing at its only job. The joke lives in the Codex.
+    const lines = wrapText(r, up.desc || up.codex || '', w - 32, 13, 600);
+    for (let i = 0; i < Math.min(5, lines.length); i++) {
+      ui.text(lines[i], x + w / 2, y + 166 + i * 17, {
+        size: 13, color: PALETTE.textDim, align: 'center', weight: 600,
       });
     }
 
     // level pips
-    const pipW = 12, pipY = y + CARD_H - 34;
-    const pipX = x + CARD_W / 2 - (up.maxLevel * pipW) / 2;
+    const pipW = Math.min(12, (w - 40) / up.maxLevel);
+    const pipY = y + h - 46;
+    const pipX = x + w / 2 - (up.maxLevel * pipW) / 2;
     for (let i = 0; i < up.maxLevel; i++) {
       r.drawRect(pipX + i * pipW + 2, pipY, pipW - 4, 5,
-                 i < level ? RARITY_COLOR[rarity] : 'rgba(255,255,255,0.14)', 1);
+                 i < level ? col : 'rgba(255,255,255,0.14)', 1);
     }
-    ui.text('[' + (index + 1) + ']', x + CARD_W / 2, y + CARD_H - 15, {
+    const used = slots.used[bucket] + (isNew ? 1 : 0);
+    ui.text(`${bucket === 'offensive' ? 'ATTACK' : 'UTILITY'} SLOT ${used}/${slots.max[bucket]}`,
+            x + w / 2, y + h - 28, {
+      size: 10, color: used >= slots.max[bucket] ? '#ffd23f' : PALETTE.textFaint,
+      align: 'center', weight: 800, mono: true,
+    });
+    ui.text('[' + (index + 1) + ']', x + w / 2, y + h - 13, {
       size: 11, color: PALETTE.textFaint, align: 'center', mono: true,
     });
 
-    if (ui.button('card' + index, x, y, CARD_W, CARD_H, '', { radius: 12, invisible: true })) {
+    if (ui.button('card' + index, x, y, w, h, '', { radius: 14, invisible: true })) {
+      run.chooseUpgrade(index);
+    }
+  }
+
+  /**
+   * A WEAPON card. Deliberately nothing like the passive card:
+   *
+   *   - wider, and squared off rather than rounded
+   *   - a solid TYPE RIBBON across the top, in the weapon's own colour
+   *   - a coloured rail down the left edge
+   *   - the icon inside its own framed plate
+   *   - a BEFORE -> AFTER stat table, so "what does this level actually do"
+   *     is answered with numbers rather than adjectives
+   *
+   * Handles all three weapon kinds — level, new, and evolve — because they are
+   * the same object at three points in its life and should read that way.
+   */
+  _weaponCard(r, run, choice, x, y, w, h, index, focused) {
+    const kind = choice.kind;
+    const ws = run.weapons;
+    const isNew = kind === 'newWeapon';
+    const isEvo = kind === 'weaponEvo';
+    const wpn = choice.w || null;
+    const def = isNew ? choice.def : (wpn.def || null);
+    const sig = !isNew && wpn.signature;
+
+    const tier = def ? def.tier : 'epic';
+    const rarity = isEvo ? 6 : sig ? 5 : tier === 'epic' ? 5 : tier === 'rare' ? 4 : 3;
+    const col = isEvo ? '#ffd76a' : sig ? '#ffd76a' : RARITY_COLOR[rarity];
+
+    const ribbon = isEvo ? 'EVOLVE THIS WEAPON'
+                 : isNew ? 'NEW WEAPON'
+                 : sig ? 'SIGNATURE ATTACK' : 'WEAPON';
+    const name = isEvo ? choice.evo.name
+               : isNew ? def.name
+               : ws.nameOf(wpn).split(' [')[0];
+    const icon = isEvo ? (choice.evo.icon || '♾')
+               : isNew ? (def.icon || '⚔') : ws.iconOf(wpn);
+
+    // --- plate: square, dark, with a rail ------------------------------------
+    r.drawRect(x, y, w, h, 'rgba(13,17,29,0.98)', 1);
+    r.strokeRect(x, y, w, h, focused ? PALETTE.borderHot : col, focused ? 3 : 2, 1);
+    r.drawRect(x, y, 7, h, col, focused ? 1 : 0.85);          // the rail
+
+    // --- ribbon ---------------------------------------------------------------
+    const rh = 30;
+    r.drawRect(x + 7, y, w - 7, rh, col, 1);
+    ui.text(ribbon, x + 7 + (w - 7) / 2, y + rh / 2 + 1, {
+      size: 12, color: '#0d111d', align: 'center', baseline: 'middle', weight: 800, mono: true,
+    });
+
+    // --- icon plate -----------------------------------------------------------
+    const ps = 62;
+    const px2 = x + 20, py = y + rh + 14;
+    r.drawRect(px2, py, ps, ps, 'rgba(255,255,255,0.05)', 1);
+    r.strokeRect(px2, py, ps, ps, col, 1.5, 0.7);
+    ui.text(icon, px2 + ps / 2, py + ps / 2, { size: 34, align: 'center', baseline: 'middle' });
+
+    // --- name + level ---------------------------------------------------------
+    const tx = px2 + ps + 14;
+    const tw = w - (tx - x) - 18;
+    ui.text(ellipsize(r, name, tw, 20, 800), tx, py + 16, {
+      size: fitSize(r, name, tw, 20, 800), color: col, weight: 800, baseline: 'middle',
+    });
+    if (isEvo) {
+      ui.text('ALWAYS ACTIVE', tx, py + 40, { size: 12, color: '#7bf59a', weight: 800 });
+    } else if (isNew) {
+      const used = ws.count, max = ws.max;
+      ui.text(`TAKES SLOT ${used + 1} / ${max}`, tx, py + 40, {
+        size: 12, color: used + 1 >= max ? '#ffd23f' : PALETTE.accent2, weight: 800, mono: true,
+      });
+    } else {
+      const maxL = ws.maxLevel(wpn);
+      ui.text(`Lv ${wpn.level}  →  Lv ${choice.level}   of ${maxL}`, tx, py + 40, {
+        size: 12, color: PALETTE.text, weight: 800, mono: true,
+      });
+    }
+
+    // --- what changes ---------------------------------------------------------
+    let cy = y + rh + ps + 26;
+    r.drawRect(x + 16, cy - 8, w - 32, 1, 'rgba(150,170,225,0.22)', 1);
+    ui.text(isNew || isEvo ? 'WHAT IT DOES' : 'WHAT THIS LEVEL CHANGES', x + 16, cy + 6, {
+      size: 10, color: PALETTE.textFaint, weight: 800, mono: true,
+    });
+    cy += 22;
+    const blurb = isEvo ? choice.evo.desc
+                : isNew ? def.desc
+                : weaponLevelNote(run, wpn, choice.level);
+    const lines = wrapText(r, blurb || '', w - 32, 13, 600);
+    for (let i = 0; i < Math.min(4, lines.length); i++) {
+      ui.text(lines[i], x + 16, cy + i * 17, { size: 13, color: PALETTE.text, weight: 600 });
+      cy += 0;
+    }
+    cy += Math.min(4, lines.length) * 17 + 8;
+
+    // --- the stat table -------------------------------------------------------
+    const rows = weaponStatRows(run, choice);
+    for (let i = 0; i < rows.length && cy < y + h - 52; i++) {
+      const row = rows[i];
+      ui.text(row.label, x + 16, cy, { size: 11, color: PALETTE.textFaint, weight: 700 });
+      if (row.from !== undefined && row.from !== row.to) {
+        ui.text(row.from, x + w - 74, cy, {
+          size: 11, color: PALETTE.textFaint, align: 'right', weight: 700, mono: true,
+        });
+        ui.text('→', x + w - 66, cy, { size: 11, color: PALETTE.textFaint, weight: 700 });
+      }
+      ui.text(row.to, x + w - 16, cy, {
+        size: 12, color: row.better ? '#7bf59a' : PALETTE.text,
+        align: 'right', weight: 800, mono: true,
+      });
+      cy += 16;
+    }
+
+    // --- footer ---------------------------------------------------------------
+    if (!isNew && !isEvo) {
+      const maxL = ws.maxLevel(wpn);
+      const pipW = Math.min(16, (w - 40) / maxL);
+      const pipX = x + w / 2 - (maxL * pipW) / 2;
+      for (let i = 0; i < maxL; i++) {
+        r.drawRect(pipX + i * pipW + 2, y + h - 44, pipW - 4, 6,
+                   i < choice.level ? col : 'rgba(255,255,255,0.14)', 1);
+      }
+      if (choice.level >= maxL) {
+        ui.text('next pick: EVOLUTION', x + w / 2, y + h - 28, {
+          size: 11, color: '#ffd76a', align: 'center', weight: 800,
+        });
+      } else {
+        ui.text(`WEAPON SLOT · ${ws.count}/${ws.max} used`, x + w / 2, y + h - 28, {
+          size: 10, color: PALETTE.textFaint, align: 'center', weight: 800, mono: true,
+        });
+      }
+    } else if (isEvo) {
+      ui.text(ws.nameOf(wpn).split(' [')[0] + ' is MAXED', x + w / 2, y + h - 28, {
+        size: 11, color: PALETTE.textFaint, align: 'center', weight: 700,
+      });
+    }
+    ui.text('[' + (index + 1) + ']', x + w / 2, y + h - 13, {
+      size: 11, color: PALETTE.textFaint, align: 'center', mono: true,
+    });
+
+    if (rarity >= 5 || focused) ui.brackets(x, y, w, h, focused ? PALETTE.borderHot : col, 18, 3);
+
+    if (ui.button('card' + index, x, y, w, h, '', { radius: 2, invisible: true })) {
       run.chooseUpgrade(index);
     }
   }
@@ -538,6 +635,94 @@ class LevelUpScreen {
     ui.text('ESC to resume', W / 2, H - 30, { size: 12, color: PALETTE.textFaint, align: 'center' });
     ui.end();
   }
+}
+
+/** The authored one-liner for a specific weapon level. */
+function weaponLevelNote(run, w, level) {
+  const rows = w.signature ? run.data.weapons.SIGNATURE_LEVELS : w.def.levels;
+  const row = rows[level - 1];
+  return row ? row.note : '';
+}
+
+/**
+ * BEFORE -> AFTER for a weapon card.
+ *
+ * A level note says "a SECOND slash follows the first", which is the right
+ * headline — but the player also wants to know it went from 15 to 20 damage and
+ * from 1.30s to 1.10s. Adjectives sell it; numbers let you compare it against
+ * the card next to it. Both, always.
+ *
+ * The signature's rows are MULTIPLIERS on the character's own attack rather
+ * than absolute numbers, so it gets its own labels and an x prefix — showing
+ * "0.75" as if it were 0.75 damage would be a lie.
+ */
+const SIG_FIELDS = [
+  { key: 'damage', label: 'Damage', mult: true },
+  { key: 'rate', label: 'Swing rate', mult: true },
+  { key: 'area', label: 'Attack size', mult: true },
+  { key: 'count', label: 'Extra strikes', plus: true },
+  { key: 'pierce', label: 'Extra pierce', plus: true },
+];
+const WEAPON_FIELDS = [
+  { key: 'damage', label: 'Damage' },
+  { key: 'interval', label: 'Fires every', seconds: true, lowerIsBetter: true },
+  { key: 'radius', label: 'Reach' },
+  { key: 'blast', label: 'Blast radius' },
+  { key: 'range', label: 'Target range' },
+  { key: 'count', label: 'Count' },
+  { key: 'pierce', label: 'Pierce' },
+  { key: 'burn', label: 'Burn damage' },
+  { key: 'slow', label: 'Slow', percent: true },
+];
+
+function fmtStat(f, v) {
+  if (v === undefined || v === null) return null;
+  if (f.mult) return 'x' + (Math.round(v * 100) / 100).toFixed(2);
+  if (f.plus) return '+' + v;
+  if (f.seconds) return (Math.round(v * 100) / 100).toFixed(2) + 's';
+  if (f.percent) return Math.round(v * 100) + '%';
+  return String(Math.round(v * 10) / 10);
+}
+
+function weaponStatRows(run, choice) {
+  const out = [];
+  const W = run.data.weapons;
+  let fields, from = null, to = null;
+
+  if (choice.kind === 'newWeapon') {
+    fields = WEAPON_FIELDS; to = choice.def.levels[0];
+  } else if (choice.kind === 'weaponEvo') {
+    const w = choice.w;
+    fields = w.signature ? SIG_FIELDS : WEAPON_FIELDS;
+    const rows = w.signature ? W.SIGNATURE_LEVELS : w.def.levels;
+    from = rows[rows.length - 1];
+    to = w.signature ? W.SIGNATURE_EVOLUTION.stats : w.def.evolution.stats;
+  } else {
+    const w = choice.w;
+    fields = w.signature ? SIG_FIELDS : WEAPON_FIELDS;
+    const rows = w.signature ? W.SIGNATURE_LEVELS : w.def.levels;
+    from = rows[choice.level - 2] || null;
+    to = rows[choice.level - 1];
+  }
+  if (!to) return out;
+
+  for (const f of fields) {
+    const tv = to[f.key];
+    if (tv === undefined) continue;
+    const fv = from ? from[f.key] : undefined;
+    const ft = fmtStat(f, fv);
+    const tt = fmtStat(f, tv);
+    if (tt === null) continue;
+    if (ft !== null && ft === tt) continue;          // unchanged: do not list it
+    out.push({
+      label: f.label,
+      from: ft === null ? undefined : ft,
+      to: tt,
+      better: fv === undefined ? true : (f.lowerIsBetter ? tv < fv : tv > fv),
+    });
+    if (out.length >= 5) break;
+  }
+  return out;
 }
 
 /** Renders an upgrade's per-level value using its declared unit. */

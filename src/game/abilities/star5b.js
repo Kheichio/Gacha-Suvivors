@@ -403,12 +403,26 @@ registerAll({
       ctx.puddle = null;
       ctx.igniteT = 0.4;
       ctx.checkT = 0;
+      ctx.fuseT = 0;
+      ctx.done = false;
       ctx.active = true;
       ctx.t = 8;                            // roll window + the puddle's life
       H.grade(run, '#e8c34a', 0.24, 0.4);
       H.particles.burst(p.x, p.y, 10, '#e8c34a', MUZZLE_FX);
     },
     tick(run, p, ctx, dt) {
+      // THE ABILITY IS OVER — DO NOT BUILD ANOTHER BARREL.
+      //
+      // Igniting the rum sets `ctx.t = 0.05` to wind the ability down, but the
+      // driver decrements `ctx.t` and only ends the ability on the tick it
+      // reaches zero — so THREE more ticks of this body ran first, hit the
+      // "no puddle yet" branch below, shattered a fresh barrel and reset
+      // `ctx.t` back to 6. That is an infinite loop: detonate, rebuild,
+      // detonate, for the rest of the run, one nova and one screen flash every
+      // few frames. It was rare before because ignition needed a real fire
+      // source; the evolved signature's standing aura made it certain.
+      if (ctx.done) return;
+
       // --- still rolling (S5 only) -----------------------------------------
       if (ctx.rollT > 0) {
         if (input.held(ACT.ESCAPE)) {
@@ -442,12 +456,28 @@ registerAll({
         if (!ctx.puddle) { ctx.t = 0.05; }
         return;
       }
-      if (!ctx.puddle.active) { ctx.puddle = null; ctx.t = 0.05; return; }
+      if (!ctx.puddle.active) { ctx.puddle = null; ctx.done = true; ctx.t = 0.05; return; }
 
       // --- does anything fire-based touch the rum? --------------------------
+      //
+      // THE RUM LIGHTS FROM FIRE YOU PLACED, NOT FROM THE FIRE YOU PERMANENTLY
+      // ARE. An always-on self-aura — the evolved signature's standing halo, an
+      // evolved Storm Ring — is a BURN field glued to the player, so without
+      // this rule it overlapped the puddle the instant the barrel shattered AND
+      // kept every nearby enemy alight, making the ignition an unconditional
+      // rider on every single dash. A conditional payoff that is always true is
+      // not a payoff, and at a reduced escape cooldown it fired constantly.
+      //
+      // A field that FOLLOWS a host is by definition somebody's aura, so it is
+      // skipped, and so is any enemy standing inside one. Dashing clear and then
+      // walking your aura back over the puddle still lights it — that is the
+      // move working, and it is a decision rather than a freebie.
       ctx.checkT -= dt;
       if (ctx.checkT > 0) return;
       ctx.checkT = 0.2;
+      // A short fuse, so the nova never lands on the same frame as the dash.
+      ctx.fuseT = (ctx.fuseT || 0) + 0.2;
+      if (ctx.fuseT < 0.4) return;
       const f = ctx.puddle;
 
       let lit = false;
@@ -456,6 +486,12 @@ registerAll({
         lit = ctx.igniteT <= 0;
       }
       if (!lit) {                            // anything burning standing in it
+        AURAS.length = 0;
+        const fields = run.hazards.fields.items;
+        for (let i = 0; i < run.hazards.fields.count; i++) {
+          const g = fields[i];
+          if (g !== f && g.effect === H.FIELD.BURN && g.followHost) AURAS.push(g);
+        }
         IGNITE_HIT = false;
         H.forEachEnemyIn(run, f.x, f.y, f.radius, checkBurning);
         lit = IGNITE_HIT;
@@ -464,7 +500,7 @@ registerAll({
         const fields = run.hazards.fields.items;
         for (let i = 0; i < run.hazards.fields.count; i++) {
           const g = fields[i];
-          if (g === f || g.effect !== H.FIELD.BURN) continue;
+          if (g === f || g.effect !== H.FIELD.BURN || g.followHost) continue;
           const rr = g.radius + f.radius;
           if (H.dist2(g.x, g.y, f.x, f.y) < rr * rr) { lit = true; break; }
         }
@@ -479,10 +515,12 @@ registerAll({
       H.flash.fire('#ff9a3d', 0.3, 3);
       run.hazards.fields.release(f);
       ctx.puddle = null;
+      ctx.done = true;
       ctx.t = 0.05;
     },
     end(run, p, ctx) {
       ctx.puddle = null;
+      ctx.done = false;
     },
   },
 
@@ -716,9 +754,20 @@ function igniteOnHit(e) {
 
 /** AKANE — is anything standing in the rum already on fire? */
 let IGNITE_HIT = false;
+/** Self-following burn fields in play this check. Module scope: no allocation. */
+const AURAS = [];
 function checkBurning(e) {
-  if (e.st.burnT > 0) { IGNITE_HIT = true; return false; }
-  return true;
+  if (e.st.burnT <= 0) return true;
+  // An enemy that is only on fire because it is standing in one of YOUR
+  // permanent auras is not "a burning thing that wandered into the rum" — it is
+  // the aura, one step removed. See the comment at the call site.
+  for (let i = 0; i < AURAS.length; i++) {
+    const g = AURAS[i];
+    const rr = g.radius + e.radius;
+    if (H.dist2(g.x, g.y, e.x, e.y) < rr * rr) return true;
+  }
+  IGNITE_HIT = true;
+  return false;
 }
 
 // KIRA — the two enemy-iteration callbacks share these instead of capturing.

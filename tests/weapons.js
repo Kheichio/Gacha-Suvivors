@@ -22,6 +22,7 @@ import { camera } from '../src/render/camera.js';
 import { CONFIG } from '../src/core/config.js';
 import { WEAPON_IMPLS } from '../src/game/abilities/weaponImpls.js';
 import { SIGNATURE_ID } from '../src/game/weapons.js';
+import { abilities as abilitiesDriver } from '../src/game/abilities/index.js';
 
 const DT = CONFIG.TICK_DT;
 const W = data.weapons;
@@ -102,6 +103,33 @@ describe('weapons / data integrity', () => {
       }
     }
     assert.equal(flat.length, 0, 'levels that change nothing: ' + flat.join(', '));
+  });
+
+  it('every upgrade explains itself in plain English', () => {
+    // The card used to print `codex`, which is the flavour gag. A card that
+    // makes you laugh and leaves you unsure what you just took has failed at
+    // its only job, so `desc` is now mandatory and must not BE the joke.
+    const bad = [];
+    for (const u of data.upgrades.UPGRADES) {
+      if (!u.desc || u.desc.length < 24) bad.push(u.id + ': missing or trivial desc');
+      else if (u.desc === u.codex) bad.push(u.id + ': desc is just the codex flavour');
+      else if (!/[.!]$/.test(u.desc)) bad.push(u.id + ': desc is not a sentence');
+    }
+    assert.equal(bad.length, 0, bad.join('\n      '));
+  });
+
+  it('the pickup-radius upgrade is big enough to see', () => {
+    // It was +22% of a ~48px base — about ten world pixels a level on a screen
+    // showing 1280 of them. An upgrade whose whole effect is spatial has to
+    // move the radius by an amount a player can actually perceive.
+    const lode = data.upgrades.UPGRADES.find((u) => u.stat === 'pickupRadiusMult');
+    assert.ok(lode, 'no pickup-radius upgrade found');
+    assert.atLeast(lode.perLevel, 0.4,
+                   'a pickup-radius level must move the ring visibly, got ' + lode.perLevel);
+    // And at max it should be a large fraction of the screen, not a nudge.
+    const base = data.characters.CHARACTERS[0].stats.pickupRadius;
+    const maxed = base * (1 + lode.perLevel * lode.maxLevel);
+    assert.atLeast(maxed, 200, `a maxed pickup radius of ${Math.round(maxed)}px is still small`);
   });
 
   it('the signature curve starts as a real nerf and ends far above it', () => {
@@ -320,6 +348,79 @@ describe('weapons / the signature nerf and its climb', () => {
     run.dispose();
   });
 });
+
+// ---------------------------------------------------------------------------
+describe('weapons / evolved auras do not hijack conditional abilities', () => {
+  it('a permanent self-aura does not auto-detonate a fire-triggered escape', () => {
+    // The evolved signature keeps a BURN field glued to the player. One escape
+    // in the roster drops a pool that "ignites on any fire contact" — and with
+    // a self-aura overlapping it from the instant it lands, plus every nearby
+    // enemy set alight by that same aura, the ignition stopped being a
+    // condition and became an unconditional rider on every dash. Reported from
+    // play as the dash "spamming its passive".
+    freshSave();
+    const run = new Run(data, {
+      characterId: 'akane', stageId: data.stages.STAGES[0].id, tierIndex: 0, seed: 808,
+    });
+    const p = run.player;
+    run.weapons.slots[0].level = 8;
+    assert.ok(run.weapons.evolve(run.weapons.slots[0].id), 'the signature refused to evolve');
+
+    // Let the standing aura come up, then dash.
+    step(run, 90);
+    const auras = run.hazards.fields.items;
+    let following = 0;
+    for (let i = 0; i < run.hazards.fields.count; i++) {
+      if (auras[i].followHost === p) following++;
+    }
+    assert.atLeast(following, 1, 'the evolved signature never spawned its standing aura');
+
+    assert.ok(run.weapons.slots[0].evolved);
+    const ctx = p.state(p.def.escape.id);
+    run.player.escape.refill();
+    assert.ok(abilitiesCast(run), 'the escape did not cast');
+    step(run, 120);                       // two full seconds, well past the fuse
+
+    assert.ok(ctx.puddle, "the pool self-ignited from the player's own aura");
+    assert.ok(ctx.active, 'the escape ended early, which means it detonated');
+
+    // AND the loop that made it "spam": igniting nulls the pool, and the next
+    // tick used to rebuild it and reset the ability timer — detonate, rebuild,
+    // detonate, forever, stacking a fresh burning-ground field every few frames.
+    // A bounded field count is the assertion that catches it.
+    assert.lessThan(run.hazards.fields.count, 5,
+                    'hazard fields are piling up — the escape is rebuilding itself');
+    run.dispose();
+  });
+
+  it('an escape that detonates its own pool ends, and does not rebuild it', () => {
+    freshSave();
+    const run = new Run(data, {
+      characterId: 'akane', stageId: data.stages.STAGES[0].id, tierIndex: 0, seed: 4242,
+    });
+    const p = run.player;
+    const ctx = p.state(p.def.escape.id);
+    p.escape.refill();
+    assert.ok(abilitiesCast(run), 'the escape did not cast');
+    step(run, 30);
+    assert.ok(ctx.puddle, 'no pool was dropped');
+
+    // Force the condition the mechanic is actually for: burning ground that the
+    // player did not bring with them, overlapping the pool.
+    run.hazards.spawnField(ctx.puddle.x, ctx.puddle.y, 90, 3, 'burn', 10, '#ff7a2f');
+    step(run, 90);
+
+    assert.equal(ctx.puddle, null, 'placed fire failed to ignite the pool');
+    assert.equal(ctx.active, false, 'the escape did not end after detonating');
+    assert.lessThan(run.hazards.fields.count, 5, 'the escape rebuilt itself after detonating');
+    run.dispose();
+  });
+});
+
+/** Cast the equipped escape through the real driver, as the run would. */
+function abilitiesCast(run) {
+  return run.player.escape.use() && abilitiesDriver.castEscape(run);
+}
 
 // ---------------------------------------------------------------------------
 describe('weapons / the level-up offer', () => {

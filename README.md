@@ -102,16 +102,18 @@ exactly ONE file" is the easiest rule in the spec to break by accident.
 
 ## Weapons
 
-You carry **three weapons, maximum**, and one of them is always your character's
-own signature attack.
+You carry **five weapons, maximum**, and slot 0 is always your character's own
+signature attack — it sits in the weapon row with everything else, it levels
+like everything else, and it evolves like everything else.
 
-That signature starts **nerfed** — 70% damage, 85% swing rate, 85% size — and is
+That signature starts **nerfed** — 75% damage, 88% swing rate, 85% size — and is
 levelled on the level-up screen like anything else. By level 8 it is 285% damage
 at 178% rate with two extra projectiles and two pierce; at max it can **evolve**
 into a continuous form that fires without pause and leaves a standing aura.
 
-The other two slots are filled from eight pickable weapons, each with its own
-hand-authored eight-level path and its own evolution:
+The other four slots are filled from eight pickable weapons, each with its own
+hand-authored eight-level path and its own evolution — so you leave half the
+arsenal on the table every run:
 
 | Weapon | What it does | Evolves into |
 |---|---|---|
@@ -128,6 +130,12 @@ hand-authored eight-level path and its own evolution:
 damage" — it is another projectile, a wider arc, a second slash, a shorter
 interval. `tests/weapons.js` asserts that: a level that changes nothing
 measurable fails the build.
+
+**Weapon cards and passive cards do not look alike.** A weapon card is wider,
+squared off, carries a solid type ribbon and a coloured rail, puts its icon in a
+framed plate, and shows a before → after stat table. A passive card is narrower,
+rounded, has no ribbon, sits its icon inline beside the name, and is built around
+one large number. You should never have to read a card to know which kind it is.
 
 Weapon levels live in their own list, not in `player.upgrades`, and weapon
 evolutions are not pushed into `player.evolutions`. Both are deliberate —

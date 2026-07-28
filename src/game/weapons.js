@@ -127,9 +127,17 @@ export class WeaponSystem {
     return w.signature ? this.run.player.def.autoAttack.name : w.def.name;
   }
 
+  /**
+   * The signature borrows the CHARACTER'S OWN emoji rather than a generic star,
+   * so the slot that holds your auto-attack is recognisable at a glance as
+   * yours — the player has to be able to see that their basic attack is one of
+   * the things on the upgrade list, not a separate system.
+   */
   iconOf(w) {
     if (w.evolved) return this.evolutionOf(w).icon;
-    return w.signature ? '★' : w.def.icon;
+    if (!w.signature) return w.def.icon;
+    const v = this.run.player.def.visual;
+    return (v && v.emoji) || '★';
   }
 
   /** The stat row in force right now. Never mutated — treat it as read-only. */

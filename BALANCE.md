@@ -42,40 +42,50 @@ rather than above all of them — an earlier draft that always took the weapon
 produced a monoculture where every character ran the same three weapons and no
 stat card at all.
 
+Measured at **five weapon slots** (the signature plus four picks).
+
 | Character | Survived | Δ median | DPS (all) | kills/s | Level | Read |
 |---|---:|---:|---:|---:|---:|---|
-| shiro_same | 849s | +44% | 239 | 7.61 | 45 | **VICTORY** |
-| kira | 846s | +44% | 570 | 20.17 | 62 | **VICTORY** — throughput arc |
-| hikari | 846s | +43% | 1136 | 37.39 | 84 | **VICTORY** — free revive |
-| han | 845s | +43% | 1153 | 36.98 | 81 | **VICTORY** — was the worst character |
-| hoshino_rei | 845s | +43% | 926 | 28.39 | 82 | **VICTORY** |
-| uzu | 845s | +43% | 1378 | 46.99 | 91 | **VICTORY** — clones compound |
-| unit_09 | 845s | +43% | 1463 | 46.64 | 83 | **VICTORY** |
-| sovereign_alicia | 845s | +43% | 1092 | 34.44 | 75 | **VICTORY** — ★6, expected |
-| yamikage | 627s | +6% | 128 | 5.42 | 20 | |
-| **rin** | **590s** | **median** | 58 | 2.94 | 15 | |
-| kagura | 531s | −10% | 78 | 3.63 | 27 | |
-| nekromina | 383s | −35% | 87 | 6.24 | 12 | |
-| sora | 350s | −41% | 23 | 1.76 | 7 | weak-early is his design |
-| niten | 328s | −44% | 36 | 1.96 | 7 | |
-| reika | 319s | −46% | 90 | 6.23 | 13 | |
-| alto | 278s | −53% | 18 | 1.60 | 6 | ★3 starter |
-| captain_yuli | 273s | −54% | 8 | 0.69 | 5 | melee-only, bot kites |
-| akane | 262s | −56% | 22 | 1.99 | 8 | |
-| mochi | 251s | −58% | 15 | 1.34 | 6 | ★3 starter |
+| kira | 849s | +34% | 520 | 18.97 | 60 | **VICTORY** — throughput arc |
+| yamikage | 846s | +34% | 301 | 9.51 | 43 | **VICTORY** |
+| hikari | 846s | +34% | 941 | 29.92 | 76 | **VICTORY** — free revive |
+| sovereign_alicia | 846s | +34% | 775 | 24.74 | 68 | **VICTORY** — ★6, expected |
+| han | 845s | +34% | 909 | 28.20 | 76 | **VICTORY** — was the worst character |
+| reika | 845s | +34% | 871 | 27.37 | 75 | **VICTORY** |
+| uzu | 845s | +34% | 1091 | 35.67 | 81 | **VICTORY** — clones compound |
+| kagura | 845s | +34% | 1279 | 39.53 | 108 | **VICTORY** — was the worst outlier |
+| unit_09 | 845s | +34% | 1170 | 37.47 | 88 | **VICTORY** |
+| **shiro_same** | **632s** | **median** | 112 | 4.61 | 19 | |
+| nekromina | 629s | −0% | 155 | 7.52 | 26 | |
+| sora | 501s | −21% | 41 | 2.27 | 12 | weak-early is his design |
+| hoshino_rei | 446s | −29% | 62 | 4.31 | 11 | |
+| niten | 357s | −43% | 37 | 2.65 | 11 | OUTLIER |
+| rin | 344s | −46% | 28 | 2.08 | 8 | OUTLIER |
+| mochi | 331s | −48% | 21 | 1.65 | 8 | OUTLIER — ★3 starter |
+| akane | 323s | −49% | 28 | 2.30 | 8 | OUTLIER |
+| captain_yuli | 322s | −49% | 14 | 0.88 | 6 | OUTLIER — melee-only, bot kites |
+| alto | 272s | −57% | 18 | 1.48 | 5 | OUTLIER — ★3 starter |
 
-**The distribution is now bimodal, and that is the weapon system working.**
-Eight characters clear the stage; the rest die between 250s and 590s. Sixteen sit
-outside SECTION 17's ±35% band — but that band is measured against a median that
-has been dragged from ~345s to 590s by the clears, so the count is not comparable
-to the pre-fix figure (which was, in any case, noise).
+**SIX outliers — the tightest this roster has ever been.** For reference: eleven
+before the weapon system existed (on the broken harness), sixteen at three
+weapon slots. Every character in the upper half is now inside the ±35% band; the
+whole spread is one long tail at the bottom.
 
-What the shape actually says: **surviving to roughly minute five is now the whole
-game.** Get three weapons levelling and you snowball to a clear; die before they
-come online and you land in the 250–350s band. That is the genre's arc, and it is
-the one this game did not have before — but it does mean the early minutes carry
-far more weight than they used to, and the bottom four (mochi, alto,
-captain_yuli, akane) are the cases to hand-play first.
+**What moved, and why.** At three slots the distribution was violently bimodal —
+either you snowballed to a clear or you died around minute five, with nothing in
+between. Five slots fills the middle in: shiro_same, nekromina, sora and
+hoshino_rei now land between 446s and 632s instead of at one pole or the other.
+The extra two slots are not extra power so much as extra *coverage* — a character
+whose own kit plays badly under the bot has four weapons carrying the load
+instead of two, so its floor is set by the weapons rather than by its worst
+matchup. kagura went from the single worst outlier in the original table (−48%)
+to a clear.
+
+**The remaining six are the ones the harness has always played worst**: the two
+★3 starters, the melee-only character whose entire kit is "be in melee" against a
+bot whose movement policy is *flee the densest cluster*, and two stand-still /
+burst kits. Hand-play these before touching any numbers — that is what this file
+has said from the beginning and it is still the right advice.
 
 **The signature nerf is visible and is meant to be.** A level-1 signature is 75%
 damage at 88% rate — a ★3 opens at ~9 DPS instead of ~20. By level 8 it is 285%
@@ -84,6 +94,13 @@ tuned, not guessed: at 55% × 72% the harness showed a ★3 dying at 111s having
 reached level 3 — too thin to earn the XP that fixes it. The level-up screen also
 now **reserves one card for a new weapon whenever a slot is empty**, which is
 what stops that spiral.
+
+**Lodestone was buffed by 2.7x** (+22% -> +60% pickup radius per level) and the
+radius is now DRAWN on the ground under the player. The old number moved the
+radius by about ten world pixels a level on a screen showing 1280 of them, so an
+upgrade whose entire effect is spatial read as doing nothing at all. A maxed
+Lodestone now takes it from ~48px to ~278px and you can watch the ring grow every
+time you take one.
 
 ---
 

@@ -666,3 +666,64 @@ counters moved from module scope onto each system instance. A new test asserts
 that an INTERVENING run — a different character, stage, tier and seed — cannot
 change a seeded replay. Every number in BALANCE.md predating this is void, and
 the file says so at the top.
+---
+
+## §40 — Weapon cards, passive cards, and saying what things do (2026-07-28)
+
+**Three complaints, one root cause: the cards were not carrying their weight.**
+
+1. *"Make it more clear the difference when picking a generic upgrade vs a
+   weapon."* Both arrived as the same 250x340 rectangle with a different icon.
+   They are now two different objects: a WEAPON card is wider, squared off, has
+   a solid type ribbon, a coloured rail down its left edge, its icon in a framed
+   plate, and a before/after stat table; a PASSIVE card is narrower, rounded, has
+   no ribbon, sits its icon inline beside the name, and is built around one large
+   number. Passive stays at exactly 250px because tests/renderSmoke.js measures
+   every upgrade's text against that width at four UI scales.
+
+2. *"Give more clear explanations on what things do."* Every one of the 22
+   upgrades gained a `desc` field: one plain sentence, no joke in it, stating
+   what the upgrade actually does to the game. The card shows that instead of
+   `codex`, which was the flavour gag — a card that makes you laugh and leaves
+   you unsure what you just took has failed at its only job. `codex` still
+   exists and still belongs in the Codex. Weapon cards additionally print the
+   real numbers changing, because the authored one-liner sells the level and the
+   numbers let you compare it against the card beside it.
+
+3. *"The auto ability should be in the weapons tab and upgradeable and visible."*
+   It already was slot 0 — but it wore a generic star, so nothing said "this is
+   YOUR attack". It now borrows the character's own emoji, and its card is
+   headed SIGNATURE ATTACK.
+
+**Slot cap 3 -> 5.** Four picks out of eight still leaves half the arsenal on
+the table every run, which is the property the cap exists for.
+
+---
+
+## §41 — Two bugs found from one play report (2026-07-28)
+
+Reported as: *"after you evolve PERPETUAL and dash, it spams the dash passive
+too much."* It was two independent defects, and the second one was not about
+weapons at all.
+
+**A. An escape that rebuilt itself forever.** One escape drops a pool that
+"ignites on any fire contact". Igniting it sets `ctx.t = 0.05` to wind the
+ability down — but the driver decrements `ctx.t` and only ends the ability on
+the tick it reaches zero, so three more ticks of the body ran first, hit the "no
+pool yet" branch, shattered a fresh barrel and reset `ctx.t` back to 6.
+Detonate, rebuild, detonate — one nova and one screen flash every few frames for
+the rest of the run, stacking a burning-ground field each time. Rare before,
+because ignition needed a real fire source; the evolved signature's standing aura
+made it certain. Fixed with an explicit `ctx.done` latch.
+
+**B. Fields could not follow the player.** `hazards.update` dropped a field's
+follow-host with `if (!f.followHost.active)`. `active` is a POOL flag —
+enemies, minions and projectiles have one, `Player` does not — so a field told
+to follow the PLAYER detached on its first tick. Every player-anchored aura in
+the game was really a stationary puddle that happened to be respawned underfoot.
+Now tested with `=== false`.
+
+**And a design rule that came out of it:** the rum lights from fire you PLACED,
+not from the fire you permanently ARE. A self-following burn field, and any enemy
+standing inside one, no longer counts as an ignition source. A conditional payoff
+that is always true is not a payoff.
