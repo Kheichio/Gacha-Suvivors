@@ -15,6 +15,7 @@ import * as enemies from './enemies.js';
 import * as stages from './stages.js';
 import * as waves from './waves.js';
 import * as upgrades from './upgrades.js';
+import * as weapons from './weapons.js';
 import * as relics from './relics.js';
 import * as evolutions from './evolutions.js';
 import * as gacha from './gacha.js';
@@ -27,6 +28,10 @@ import * as elements from './elements.js';
 // are not, or DEV_MODE=false would print the source-IP names it exists to hide.
 import { SHIP_NAMES } from './shipNames.js';
 import { spriteFor } from './sprites.js';
+// Namespace import as well as the named one: the portrait art is optional, and a
+// missing NAMED export is a module-link error that would take the whole boot
+// down rather than degrading to "no portrait".
+import * as spriteDefs from './sprites.js';
 
 let refs = null;
 try {
@@ -113,16 +118,41 @@ function attachSprites() {
   return n;
 }
 
+/**
+ * Attach a HD PORTRAIT descriptor to every character.
+ *
+ * The world sprite is 24px of pixel art seen from across an arena; the HUD sits
+ * two inches from the player's eye for twenty minutes and deserves its own,
+ * much more detailed, bust. It is a separate atlas entry with its own id —
+ * registerPixel keys on `'px|' + descriptor.id + '|' + size`, so reusing the
+ * character's own id would silently hand back the world sprite instead.
+ */
+function attachPortraits() {
+  const make = spriteDefs.portraitFor;
+  if (typeof make !== 'function') return 0;
+  const size = spriteDefs.PORTRAIT_SIZE || 26;
+  let n = 0;
+  for (const c of characters.CHARACTERS) {
+    const d = make(c);
+    if (!d) continue;
+    c.portrait = { shape: 'circle', color: c.visual.color, size, pixel: d, flash: false };
+    n++;
+  }
+  return n;
+}
+
 const refsAttached = attachRefs();
 const shipNamesAttached = attachShipNames();
 const spritesAttached = attachSprites();
+const portraitsAttached = attachPortraits();
 
 /** Every distinct visual descriptor in the game, for the boot-time pre-raster. */
 export function allVisuals() {
   const out = [];
   const push = (v) => { if (v) out.push(v); };
-  for (const c of characters.CHARACTERS) push(c.visual);
+  for (const c of characters.CHARACTERS) { push(c.visual); push(c.portrait); }
   for (const e of enemies.ENEMIES) push(e.visual);
+  for (const v of weapons.weaponVisuals()) push(v);
   for (const b of bosses.BOSSES) push(b.visual);
   for (const r of relics.RELICS) push(r.visual);
   for (const e of evolutions.EVOLUTIONS) push(e.visual);
@@ -153,6 +183,11 @@ export function validate() {
     has(upgrades.UPGRADES_BY_ID, e.requires.upgrade, `evolution ${e.id}.requires.upgrade`);
     has(relics.RELICS_BY_ID, e.requires.relic, `evolution ${e.id}.requires.relic`);
   }
+  for (const w of weapons.WEAPONS) {
+    if (!w.levels || w.levels.length !== 8) problems.push(`weapon ${w.id} must have 8 levels`);
+    if (!w.evolution) problems.push(`weapon ${w.id} has no evolution`);
+    if (!w.visual) problems.push(`weapon ${w.id} has no visual to pre-raster`);
+  }
   for (const sid in waves.WAVES) {
     if (!stages.STAGES_BY_ID[sid]) problems.push(`waves: unknown stage "${sid}"`);
     for (const w of waves.WAVES[sid]) {
@@ -166,14 +201,14 @@ export function validate() {
 }
 
 export const data = {
-  characters, enemies, stages, waves, upgrades, relics, evolutions,
+  characters, enemies, stages, waves, upgrades, weapons, relics, evolutions,
   gacha, bosses, achievements, shrine, elements,
-  refs, refsAttached, shipNamesAttached,
+  refs, refsAttached, shipNamesAttached, portraitsAttached,
   allVisuals, validate,
 };
 
 export {
-  characters, enemies, stages, waves, upgrades, relics, evolutions,
+  characters, enemies, stages, waves, upgrades, weapons, relics, evolutions,
   gacha, bosses, achievements, shrine, elements, refs,
 };
 

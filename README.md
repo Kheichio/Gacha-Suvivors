@@ -81,8 +81,9 @@ src/
   game/                 run, player, enemy, projectile, pickup, minion,
                         obstacles, hazards, waveDirector, adaptiveDirector,
                         boss, damage, statusEffects, targeting, relicHooks,
-                        gachaEngine, achievements
-    abilities/          the ability registry — 19 characters x 4 pillars
+                        gachaEngine, achievements, weapons
+    abilities/          the ability registry — 19 characters x 4 pillars,
+                        plus weaponImpls.js (one entry per weapon `kind`)
   data/                 ALL content as plain data objects
   scenes/               hub, stageSelect, run, results, gacha, roster,
                         shrine, codex, achievements, settings
@@ -96,6 +97,41 @@ hardcodes a character name, an enemy stat or a wave. `tests/run.js` greps for
 character-id string literals outside the data layer and fails the build if any
 appear — that test exists because "adding a character must require editing
 exactly ONE file" is the easiest rule in the spec to break by accident.
+
+---
+
+## Weapons
+
+You carry **three weapons, maximum**, and one of them is always your character's
+own signature attack.
+
+That signature starts **nerfed** — 70% damage, 85% swing rate, 85% size — and is
+levelled on the level-up screen like anything else. By level 8 it is 285% damage
+at 178% rate with two extra projectiles and two pierce; at max it can **evolve**
+into a continuous form that fires without pause and leaves a standing aura.
+
+The other two slots are filled from eight pickable weapons, each with its own
+hand-authored eight-level path and its own evolution:
+
+| Weapon | What it does | Evolves into |
+|---|---|---|
+| Blade Arc ⚔ | a sword slash in front of you | ENDLESS EDGE — a 360° blade that never stops |
+| Idol Orbit ✦ | shards circling you | CONSTELLATION — twelve, on two counter-rotating rings |
+| Kunai Fan 🗡 | piercing knives at the nearest enemy | THOUSAND EDGES — ten rays, ten times a second |
+| Storm Ring ⚡ | a shock detonating around you | PERMASTORM — the storm simply stays |
+| Spirit Bell 🔔 | rings that damage and slow | STANDING RESONANCE — a permanent holding field |
+| Wisp Flock 🔥 | foxfire that hunts on its own | WILDFIRE — the flock never thins |
+| Chain Lash 〰 | long lashes with the best reach in the game | ENDLESS LASH — six chains, no pause |
+| Meteor Call ☄ | shells onto the thickest part of the crowd | STARFALL — continuous, and it leaves burning ground |
+
+**Every single level changes something you can see.** No weapon level is "+8%
+damage" — it is another projectile, a wider arc, a second slash, a shorter
+interval. `tests/weapons.js` asserts that: a level that changes nothing
+measurable fails the build.
+
+Weapon levels live in their own list, not in `player.upgrades`, and weapon
+evolutions are not pushed into `player.evolutions`. Both are deliberate —
+DECISIONS.md §37 has the reasoning.
 
 ---
 

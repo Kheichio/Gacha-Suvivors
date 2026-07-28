@@ -111,6 +111,8 @@ export const gachaScene = {
     this.p = null;
     this._emitAcc = 0;
     this.bannerIndex = 0;
+    this.detailScroll = 0;
+    this._detailMax = 0;
 
     this._refresh();
 
@@ -597,7 +599,8 @@ export const gachaScene = {
         textAlign: 'left',
         sub: TYPE_LABEL[b.type] || b.type,
       })) {
-        this.bannerIndex = i;
+        // A different banner is a different document; start it at the top.
+        if (this.bannerIndex !== i) { this.bannerIndex = i; this.detailScroll = 0; }
       }
       if (sel) {
         const col = (b.art && b.art.color) || PALETTE.accent;
@@ -625,53 +628,73 @@ export const gachaScene = {
     r.drawRoundRect(x + 2, y + 2, w - 4, 92, 12, col, 0.08);
 
     const px = x + 20;
-    const pw = w - 40;
     let cy = y + 30;
 
-    ui.title(this._fit(r, displayName(b), pw - 150, 26), px, cy, { size: 26 });
+    ui.title(this._fit(r, displayName(b), w - 190, 26), px, cy, { size: 26 });
     const badge = TYPE_LABEL[b.type] || b.type;
     const bw = r.measureText(badge, 12, 800) + 20;
     ui.panel(x + w - 20 - bw, cy - 13, bw, 26, { radius: 13, color: 'rgba(0,0,0,0.4)', borderColor: col });
     ui.text(badge, x + w - 20 - bw / 2, cy, { size: 12, color: col, weight: 800, align: 'center' });
     cy += 24;
     ui.text(TYPE_BLURB[b.type] || '', px, cy, { size: 12, color: PALETTE.textFaint });
-    cy += 22;
+    cy += 18;
 
-    for (const line of wrapText(r, b.desc || '', pw, 13)) {
-      ui.text(line, px, cy, { size: 13, color: PALETTE.text }); cy += 18;
-    }
-    cy += 4;
-    for (const line of wrapText(r, b.subDesc || '', pw, 12)) {
-      ui.text(line, px, cy, { size: 12, color: PALETTE.textDim }); cy += 16;
-    }
-    cy += 10;
-
-    // --- the buttons are anchored to the bottom; everything else flows into
-    //     whatever space is left, and blocks that do not fit are dropped.
+    // --- everything between the header and the buttons SCROLLS -----------------
+    // The featured lineup, the rates block and the ENTIRE PITY BLOCK used to be
+    // dropped, silently and with no indicator, whenever they did not fit. On a
+    // short window that meant the pity counters this screen's own copy promises
+    // ("The pity counters are on screen because hiding them is hostile") were
+    // simply not on the screen.
     const btnH = 54;
     const lockMsg = this._lockReason(b);
     const btnY = y + h - 18 - btnH - (lockMsg ? 26 : 22);
 
-    const compact = h < 620;
-    const cardH = compact ? 104 : 132;
+    const railW = 26;
+    const viewTop = cy;
+    const viewH = Math.max(60, btnY - 12 - viewTop);
+    const pw = w - 40 - railW - 8;
 
-    if (cy + cardH + 34 < btnY) {
-      cy = this._drawFeatured(r, b, px, cy, pw, cardH);
-      cy += 12;
+    if (input.wheel && ui.pointIn(x, viewTop, w, viewH)) this.detailScroll += input.wheel * 52;
+    this.detailScroll = clamp(this.detailScroll, 0, this._detailMax);
+
+    r.clipRect(x + 2, viewTop, w - 4, viewH);
+    const top = viewTop + 12 - this.detailScroll;
+    let sy = top;
+    for (const line of wrapText(r, b.desc || '', pw, 13)) {
+      ui.text(line, px, sy, { size: 13, color: PALETTE.text }); sy += 18;
     }
-    if (b.type !== 'relic' && cy + 52 < btnY) {
-      cy = this._drawRates(r, b, px, cy, pw);
-      cy += 10;
+    sy += 4;
+    for (const line of wrapText(r, b.subDesc || '', pw, 12)) {
+      ui.text(line, px, sy, { size: 12, color: PALETTE.textDim }); sy += 16;
     }
-    if (cy + 74 < btnY) {
-      cy = this._drawPity(r, b, px, cy, pw);
-    }
+    sy += 10;
+
+    const cardH = h < 620 ? 104 : 132;
+    sy = this._drawFeatured(r, b, px, sy, pw, cardH) + 12;
+    if (b.type !== 'relic') sy = this._drawRates(r, b, px, sy, pw) + 10;
+    sy = this._drawPity(r, b, px, sy, pw);
     if (!showHistory) {
       ui.text('★5+ in the last 100 pulls: ' + this.fivePlus + '/' + this.history.length,
-        px, btnY - 30, { size: 12, color: PALETTE.accent, weight: 700 });
+        px, sy + 14, { size: 12, color: PALETTE.accent, weight: 700 });
+      sy += 28;
     }
+    r.unclip();
 
-    this._drawPullButtons(r, b, px, btnY, pw, btnH, lockMsg);
+    // --- the rail: two 36px buttons and a draggable bar between them ----------
+    this._detailMax = Math.max(0, (sy - top) + 12 - viewH);
+    const canScroll = this._detailMax > 1;
+    const railX = x + w - 14 - railW;
+    if (ui.button('bdUp', railX, viewTop, railW, 36, '▲', { size: 13, radius: 8, disabled: !canScroll })) {
+      this.detailScroll -= viewH * 0.6;
+    }
+    if (ui.button('bdDn', railX, viewTop + viewH - 36, railW, 36, '▼', { size: 13, radius: 8, disabled: !canScroll })) {
+      this.detailScroll += viewH * 0.6;
+    }
+    this.detailScroll = clamp(this.detailScroll, 0, this._detailMax);
+    this.detailScroll = ui.scrollbar('bannerBar', railX + railW / 2 - 4, viewTop + 42, 8,
+      Math.max(12, viewH - 84), this.detailScroll, viewH, viewH + this._detailMax);
+
+    this._drawPullButtons(r, b, px, btnY, w - 40, btnH, lockMsg);
   },
 
   /** Featured lineup, pool summary, or the relic bank — one per banner type. */
@@ -990,8 +1013,6 @@ export const gachaScene = {
     particles.draw(r, alpha);
     r.setAlpha(1);
 
-    let consumed = false;
-
     switch (p.state) {
       case 'charge': this._drawCharge(r, cxs + sx, cys + sy, beam); break;
       case 'hold':   this._drawHold(r, cxs + sx, cys + sy); break;
@@ -1006,21 +1027,31 @@ export const gachaScene = {
 
     // --- controls -------------------------------------------------------------
     // The advance/continue affordance is declared FIRST so it owns focus index 0
-    // and Enter never means "skip the whole thing" by accident.
+    // and Enter never means "skip the whole thing" by accident. SKIP follows it,
+    // and the hand-rolled "click anywhere" fallback comes LAST of all.
+    let advance = false;
+    const abw = 220, abh = 48;
     if (p.state === 'splash') {
-      const bw = 220, bh = 44;
-      const hit = ui.button('splashNext', r.w / 2 - bw / 2, r.h - 74, bw, bh, 'CONTINUE ▸', { size: 16 });
-      if (hit) consumed = true;
-      if (p.splashT >= SPLASH_LOCK && (hit || (input.mouseClicked && !consumed))) this._endSplash();
+      advance = ui.button('splashNext', r.w / 2 - abw / 2, r.h - 78, abw, abh, 'CONTINUE ▸', { size: 16 });
     } else if (p.state === 'reveal') {
-      const bw = 220, bh = 44;
-      const hit = ui.button('revealNext', r.w / 2 - bw / 2, r.h - 74, bw, bh, 'NEXT ▸', { size: 16 });
-      if (hit) consumed = true;
-      if (hit || (input.mouseClicked && !consumed)) this._revealNext();
+      advance = ui.button('revealNext', r.w / 2 - abw / 2, r.h - 78, abw, abh, 'NEXT ▸', { size: 16 });
     }
 
     if (p.state === 'summary') this._drawSummary(r);
     else this._drawSkip(r);
+
+    // ui.consumeClick() asks the toolkit for THIS FRAME'S click and gets refused
+    // if any widget already took it. The old spelling was `input.mouseClicked &&
+    // !consumed` with a local flag that only ever saw the NEXT button — SKIP was
+    // drawn afterwards, so one press on SKIP fired _revealNext() and _skip()
+    // together and the reveal jumped two steps.
+    if (p.state === 'splash') {
+      if (p.splashT >= SPLASH_LOCK && (advance || (input.mouseReleased && ui.consumeClick()))) {
+        this._endSplash();
+      }
+    } else if (p.state === 'reveal') {
+      if (advance || (input.mouseReleased && ui.consumeClick())) this._revealNext();
+    }
 
     // ESC / gamepad B: skip while it is playing, leave once it is done.
     if (ui.backPressed()) {
@@ -1033,9 +1064,14 @@ export const gachaScene = {
 
   /** SECTION 6: available and instant from the FIRST FRAME. Non-negotiable. */
   _drawSkip(r) {
-    if (ui.button('skip', r.w - 152, 20, 132, 40, 'SKIP ▸▸', { size: 15 })) this._skip();
+    // TOP-LEFT, and 176x48. It used to be a 132x40 button at (r.w - 152, 20) —
+    // which is exactly the rect the toast stack draws into, so a "NEXT ★6
+    // GUARANTEED FEATURED" toast landed on top of the one control the spec calls
+    // non-negotiable. This corner is empty in every pull state (the cards never
+    // start above y=96) and is not where toasts live at either end of the screen.
+    if (ui.button('skip', 24, 18, 176, 48, 'SKIP ▸▸', { size: 16 })) this._skip();
     ui.text('ESC also skips. Nothing is lost — the result is already saved.',
-      r.w - 20, 70, { size: 11, color: PALETTE.textFaint, align: 'right' });
+      24, 78, { size: 11, color: PALETTE.textFaint });
   },
 
   _drawCharge(r, cx, cy, beam) {
@@ -1290,8 +1326,19 @@ export const gachaScene = {
     const n = single ? 3 : 1;
     const bw = Math.min(240, (Math.min(r.w - 80, 820) - (n - 1) * gap) / n);
     const totalW = n * bw + (n - 1) * gap;
-    let bx = (r.w - totalW) / 2;
+    const bx0 = (r.w - totalW) / 2;
+    let bx = bx0;
     const by = r.h - 80;
+
+    // SUMMARY_LOCK is 450ms of dead input so a mash through the reveal cannot
+    // spend another 135💎 by accident. It used to be three silently greyed
+    // buttons: you click, nothing happens, and nothing on screen says why.
+    if (lock) {
+      const f = 1 - clamp(p.inputLock / SUMMARY_LOCK, 0, 1);
+      ui.text('unlocking in ' + p.inputLock.toFixed(2) + 's — so a mash cannot spend another ' + c10 + '💎',
+        r.w / 2, by - 42, { size: 12, color: PALETTE.textFaint, align: 'center', weight: 700 });
+      ui.bar(bx0, by - 30, totalW, 6, f, PALETTE.accent, { segments: false, bg: 'rgba(0,0,0,0.6)' });
+    }
 
     if (ui.button('done', bx, by, bw, btnH, '‹ BANNERS', { size: 16, disabled: lock })) this._toSelect();
     bx += bw + gap;

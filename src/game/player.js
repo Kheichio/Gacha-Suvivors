@@ -92,6 +92,8 @@ export class Player {
 
     this.autoTimer = new Interval(1);
     this.autoShotIndex = 0;
+    /** True only inside a synchronous auto-attack fire(). See helpers.js sig(). */
+    this.autoScope = false;
     this.special = new Cooldown(charDef.special.cooldown, 1);
     this.escape = new Cooldown(charDef.escape.cooldown, 1);
 
@@ -432,9 +434,14 @@ export class Player {
     if (run.obstacles.count > 0) run.obstacles.resolve(this, this.radius + 6);
   }
 
-  /** Effective damage multiplier for an auto-attack, after everything. */
+  /**
+   * Effective damage multiplier for an auto-attack, after everything —
+   * including the SIGNATURE WEAPON's level, which is the reason a level-1 auto
+   * hits for about half what it used to and a maxed one hits for four times it.
+   */
   autoDamageMultiplier() {
     let m = this.stats.damageMult * this.stats.autoDamageMult;
+    if (this.run.weapons) m *= this.run.weapons.mods.damage;
     if (this.flags.momentumDamage) m *= 1 + this.flags.momentumDamage;
     if (this.flags.damageMultBonus) m *= 1 + this.flags.damageMultBonus;
     return m;
@@ -465,7 +472,7 @@ export class Player {
     else if (this.st.untargetableT > 0) a = 0.6;
     else if (this.iframeT > 0) a = 0.55 + 0.45 * Math.sin(this.iframeT * 40);
 
-    const scale = (this.flags.sizeMult || 1);
+    const scale = (this.flags.sizeMult || 1) * this.sprite.unit * feel.playerDrawScale;
     // Bob faster while moving — it reads as a walk cycle without needing one.
     const rate = Math.hypot(this.vx, this.vy) > 8 ? 9 : 4;
     const anim = ((this.run.time * rate) | 0) & 1;

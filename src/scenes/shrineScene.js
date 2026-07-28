@@ -22,7 +22,11 @@
 // which is the spec's own "100 * 1.55^n" for Might and sums to the ~14,370 gold
 // the data file documents for all ten levels.
 //
-// Every number laid out here comes off r.w / r.h. Nothing assumes 1920x1080.
+// Every number laid out here comes off r.w / r.h. Nothing assumes 1920x1080 —
+// and the card grid runs a fit loop rather than trusting a fixed column count,
+// because r.clipRect() hides an overflowing card without making it any less
+// clickable. Buy buttons that cannot be seen are buy buttons that spend gold on
+// empty space, so every one of them also carries the clip rect.
 
 import { ui, PALETTE, wrapText, formatCount } from '../ui/widgets.js';
 import { save, spendCurrency } from '../core/save.js';
@@ -171,9 +175,30 @@ export const shrineScene = {
     return out;
   },
 
+  /** The gate sentence, for the toast and for the card. */
+  _gateText() {
+    return (this.gateAch && this.gateAch.desc)
+      ? this.gateAch.desc.split('.')[0]
+      : 'Kill 10,000 enemies in total';
+  },
+
   _buy(u) {
     const lv = this._level(u);
-    if (lv >= u.maxLevel || this._locked(u)) return;
+    // Every refusal SAYS something. A card you cannot afford used to be
+    // `disabled`, which meant it was neither clickable nor focusable — so the
+    // "you are N gold short" line below could not be reached by clicking at all,
+    // and clicking the card you most wanted did precisely nothing.
+    if (this._locked(u)) {
+      this.manager.toast('Locked. ' + this._gateText() + '.', PALETTE.bad, '🔒');
+      audio.play('uiBack');
+      return;
+    }
+    if (lv >= u.maxLevel) {
+      this.manager.toast(displayName(u) + ' is already Lv ' + u.maxLevel + '. Nothing left to buy.',
+        PALETTE.good, u.icon);
+      audio.play('uiBack');
+      return;
+    }
     const cost = costOf(u, lv);
     if (!spendCurrency('gold', cost)) {
       this.manager.toast('You are ' + comma(cost - (save.data.currencies.gold || 0)) +
@@ -234,10 +259,13 @@ export const shrineScene = {
     const rightX = pad + leftW + gap;
 
     // --- header ---------------------------------------------------------------
-    const back = this._btn('__back', pad, pad, 92, 34, '‹ BACK', { size: 14 });
-    ui.title('THE SHRINE', pad + 104, pad + headerH / 2, { size: 24 });
+    // 108x40 to match ui.backButton — 92x34 was under every platform's minimum
+    // touch target and this screen cannot use the toolkit's own back button,
+    // because it needs the dead-facsimile treatment while the modal is up.
+    const back = this._btn('__back', pad, pad, 108, 40, '‹ BACK', { size: 15 });
+    ui.title('THE SHRINE', pad + 120, pad + headerH / 2, { size: 24 });
     ui.text('Permanent. Bought with gold. Refundable in full, for free, forever.',
-      pad + 104 + r.measureText('THE SHRINE', 24 * (ui.scale || 1), 800) + 16,
+      pad + 120 + r.measureText('THE SHRINE', 24 * (ui.scale || 1), 800) + 16,
       pad + headerH / 2, { size: 13 });
 
     const gold = save.data.currencies.gold || 0;
@@ -275,13 +303,27 @@ export const shrineScene = {
     const gh = ph - ip * 2;
 
     const cardGap = 10;
-    const cols = gw >= 660 ? 2 : 1;
+    const minCardH = 74;
+    // Columns come from the available WIDTH first, then get added until the rows
+    // also fit the available HEIGHT — rosterScene does the same for its 19 cards.
+    // Without the second half, a 1000x720 window laid 830px of cards into a
+    // 612px panel and let the last four fall off the bottom, where clipRect hid
+    // them while leaving them fully clickable.
+    let cols = gw >= 660 ? 2 : 1;
+    while (cols < 4 &&
+           Math.ceil(this.ups.length / cols) * (minCardH + cardGap) - cardGap > gh) cols++;
     const rows = Math.ceil(this.ups.length / cols);
     const cardW = (gw - cardGap * (cols - 1)) / cols;
-    const cardH = clamp((gh - cardGap * (rows - 1)) / rows, 74, 168);
+    const fitH = (gh - cardGap * (rows - 1)) / rows;
+    // Even at four columns a very short window can still overflow. Squashed
+    // cards are survivable; invisible clickable ones are not.
+    const cardH = fitH < minCardH ? Math.max(34, fitH) : Math.min(fitH, 168);
     const gold = save.data.currencies.gold || 0;
 
-    r.clipRect(px + 2, py + 2, pw - 4, ph - 4);
+    // clipRect clips DRAWING only. Every button inside it is handed the same
+    // rect so it refuses to hover or fire when it falls outside.
+    const clip = { x: px + 2, y: py + 2, w: pw - 4, h: ph - 4 };
+    r.clipRect(clip.x, clip.y, clip.w, clip.h);
     for (let i = 0; i < this.ups.length; i++) {
       const u = this.ups[i];
       const col = i % cols, row = (i / cols) | 0;
@@ -298,10 +340,16 @@ export const shrineScene = {
       let price = locked ? 'LOCKED' : maxed ? 'MAX' : comma(cost) + ' 🪙';
       if (!locked && !maxed && !afford) price += '  (' + comma(cost - gold) + ' short)';
 
-      if (this._btn('u_' + u.id, x, y, cardW, cardH, '', {
-        radius: 12, disabled: !afford,
-      })) {
+      // NOT disabled when you cannot afford it: a card the player wants and
+      // cannot pay for is exactly the card they will click, and it has to answer
+      // them. _buy() turns every refusal into a toast.
+      if (this._btn('u_' + u.id, x, y, cardW, cardH, '', { radius: 12, clip })) {
         this._buy(u);
+      }
+      // Since the button no longer greys itself out, the card says "not now"
+      // with its own wash instead.
+      if (locked || (!maxed && !afford)) {
+        r.drawRoundRect(x, y, cardW, cardH, 12, '#05060d', locked ? 0.36 : 0.24);
       }
 
       // Accent wash: gold normally, caution red for the row that bites back.
@@ -347,9 +395,7 @@ export const shrineScene = {
         const kills = save.data.stats.kills || 0;
         const target = (this.gateAch && this.gateAch.condition &&
                         this.gateAch.condition.value) || 10000;
-        const req = (this.gateAch && this.gateAch.desc)
-          ? this.gateAch.desc.split('.')[0]
-          : 'Kill 10,000 enemies in total';
+        const req = this._gateText();
         ui.text(fit(r, '🔒 ' + req + ' — ' + comma(Math.min(kills, target)) + '/' + comma(target),
           cardW - 28, 12, 700), x + 14, y + 54,
           { size: 12, color: PALETTE.bad, weight: 700 });

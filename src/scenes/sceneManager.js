@@ -6,11 +6,22 @@
 //
 // Everything meta-facing (hub, roster, gacha, shrine, codex, settings, results)
 // is a scene; the run itself is a scene that owns a Run.
+//
+// TWO THINGS ARE ENFORCED CENTRALLY HERE, because ten screens will not each
+// remember to do them:
+//   · UI input is blocked for the duration of a transition. The cross-fade is
+//     painted AFTER the scene, so an outgoing screen is fully hit-testable
+//     behind it; two screens had grown a private `_nav` guard for this and the
+//     rest had not.
+//   · Toasts live at the bottom centre and dismiss on click. They used to stack
+//     down the top-right — opaque, for 3.4s, over the gacha SKIP button and
+//     every screen's currency pills, with no way to clear them.
 
 import { events } from '../core/events.js';
 import { audio } from '../core/audio.js';
 import { save, addCurrency } from '../core/save.js';
 import { ui } from '../ui/widgets.js';
+import { input, ACT } from '../core/input.js';
 import { clamp, easeOutCubic } from '../core/math.js';
 import { createGacha } from '../game/gachaEngine.js';
 import { createAchievements } from '../game/achievements.js';
@@ -28,6 +39,18 @@ import { achievementsScene } from './achievementsScene.js';
 
 const FADE_TIME = 0.22;
 
+// The UI half of the action set. `input.pressed()` is documented as UI-only —
+// the simulation reads presses through consume()/the latch — so clearing these
+// during a transition cannot drop a gameplay input.
+const UI_ACTIONS = [ACT.CONFIRM, ACT.SPECIAL, ACT.BACK, ACT.PAUSE,
+                    ACT.UP, ACT.DOWN, ACT.LEFT, ACT.RIGHT];
+
+// Toasts. Bottom-centre, stacked upward, newest lowest.
+const TOAST_W = 400;
+const TOAST_H = 52;
+const TOAST_GAP = 8;
+const TOAST_BOTTOM = 18;
+
 class SceneManager {
   constructor() {
     this.scenes = Object.create(null);
@@ -41,6 +64,8 @@ class SceneManager {
     this._fade = 0;
     this._pending = null;
     this._toast = [];
+    /** The toast a click went down on, so a dismiss needs press AND release. */
+    this._toastPress = null;
   }
 
   async init(data) {
@@ -187,11 +212,58 @@ class SceneManager {
   }
 
   render(r, alpha) {
+    // The cursor has to be resolved BEFORE the scene draws. Both of the input
+    // gates below have to take a click AWAY from the scene, and by the time the
+    // overlay and the toasts are painted the scene has already hit-tested and
+    // fired. attach() binds the renderer and resolves ui.mx/ui.my without
+    // touching the focus state, which is exactly what is needed here.
+    ui.attach(r);
+    const rects = this._toastRects(r);
+    const overToast = this._toastAt(rects);
+
+    // Click-to-dismiss, tracked here rather than in _drawToasts for the same
+    // reason: the press edge belongs to this frame, before the scene sees it.
+    if (overToast >= 0 && input.mouseClicked) this._toastPress = this._toast[overToast];
+    const dismiss = (overToast >= 0 && input.mouseReleased &&
+                     this._toastPress === this._toast[overToast]) ? this._toast[overToast] : null;
+    if (input.mouseReleased) this._toastPress = null;
+
+    // UI INPUT IS DEAD WHILE THE SCREEN IS COVERED.
+    //
+    // The cross-fade overlay is painted after the scene renders, so for the
+    // whole of FADE_TIME the outgoing screen stayed fully hit-testable behind a
+    // fading black rectangle — clicking a character card on a screen that is 80%
+    // gone fired a real selection. hubScene and stageSelectScene each grew their
+    // own `_nav` guard for this and the other eight screens never did, so it is
+    // blocked here, once, for all of them: outright while leaving, and while the
+    // incoming screen is still more than half hidden.
+    const blocked = !!this._pending || (this._fade > 0 && this._fade / FADE_TIME >= 0.5);
+    const wasInside = input.mouseInside;
+    const wasClicked = input.mouseClicked;
+    const wasReleased = input.mouseReleased;
+    if (blocked || overToast >= 0) {
+      // mouseInside false puts ui.mx/my off-canvas, so nothing hovers either.
+      input.mouseInside = false;
+      input.mouseClicked = false;
+      input.mouseReleased = false;
+    }
+    if (blocked) for (const a of UI_ACTIONS) input._pressed[a] = false;
+
     if (this.current && this.current.render) {
       try { this.current.render(r, alpha); }
       catch (e) { this._sceneError('render', e); }
     }
-    this._drawToasts(r);
+
+    input.mouseInside = wasInside;
+    input.mouseClicked = wasClicked;
+    input.mouseReleased = wasReleased;
+
+    this._drawToasts(r, rects, overToast);
+    if (dismiss) {
+      const k = this._toast.indexOf(dismiss);
+      if (k >= 0) this._toast.splice(k, 1);
+      audio.play('uiBack');
+    }
 
     // cross-fade
     if (this._fade > 0) {
@@ -226,20 +298,63 @@ class SceneManager {
     }
   }
 
-  _drawToasts(r) {
+  /**
+   * Where the toasts sit.
+   *
+   * They used to stack DOWN THE TOP-RIGHT CORNER — four opaque 360x52 panels
+   * from y=20, for 3.4 seconds each, directly on top of the gacha's SKIP button
+   * and every screen's currency pills, with no way to get rid of them. Bottom
+   * centre is the one strip of every screen in this game that holds no controls,
+   * and a click dismisses them anyway.
+   */
+  _toastRects(r) {
+    const out = [];
+    const n = this._toast.length;
+    if (n === 0) return out;
+    const w = Math.min(TOAST_W, r.w - 40);
+    const x = Math.round((r.w - w) / 2);
+    for (let i = 0; i < n; i++) {
+      // Newest lowest; older ones are pushed up the stack.
+      const y = r.h - TOAST_BOTTOM - TOAST_H - (n - 1 - i) * (TOAST_H + TOAST_GAP);
+      out.push({ x, y, w, h: TOAST_H });
+    }
+    return out;
+  }
+
+  /** Index of the toast under the cursor, topmost (newest) first, or -1. */
+  _toastAt(rects) {
+    for (let i = rects.length - 1; i >= 0; i--) {
+      const q = rects[i];
+      if (ui.pointIn(q.x, q.y, q.w, q.h)) return i;
+    }
+    return -1;
+  }
+
+  _drawToasts(r, rects, over) {
     if (this._toast.length === 0) return;
     r.setScreenSpace();
-    const w = 360;
-    let y = 20;
-    for (const t of this._toast) {
+    for (let i = 0; i < this._toast.length; i++) {
+      const t = this._toast[i];
+      const q = rects[i];
+      if (!q) continue;
       const inT = clamp(t.t / 0.28, 0, 1);
       const outT = clamp((t.life - t.t) / 0.4, 0, 1);
-      const x = r.w - w - 20 + (1 - easeOutCubic(inT)) * (w + 30);
+      // Rises into place instead of flying in from the right.
+      const y = q.y + (1 - easeOutCubic(inT)) * (q.h + 24);
       const a = Math.min(1, outT);
-      ui.panel(x, y, w, 52, { color: 'rgba(10,13,24,0.95)', borderColor: t.color, alpha: a });
-      ui.text(t.icon, x + 26, y + 26, { size: 22, align: 'center', color: t.color, alpha: a });
-      ui.text(t.text, x + 50, y + 26, { size: 14, color: '#e8ecf5', weight: 700, alpha: a });
-      y += 60;
+      const hot = over === i;
+      ui.panel(q.x, y, q.w, q.h, {
+        color: hot ? 'rgba(26,32,52,0.97)' : 'rgba(10,13,24,0.95)',
+        borderColor: hot ? '#ffd76a' : t.color, alpha: a,
+      });
+      ui.text(t.icon, q.x + 26, y + 26, { size: 22, align: 'center', color: t.color, alpha: a });
+      ui.text(t.text, q.x + 50, y + 26, {
+        size: 14, color: '#e8ecf5', weight: 700, alpha: a * (hot ? 1 : 0.98),
+      });
+      ui.text(hot ? '✕' : '·', q.x + q.w - 14, y + 26, {
+        size: hot ? 14 : 12, align: 'center', weight: 800,
+        color: hot ? '#ffd76a' : '#8994b3', alpha: a,
+      });
     }
   }
 }

@@ -29,7 +29,7 @@
 // phrase from Run._describeKiller ("a crowd you could not read"), presented in a
 // freeze-frame film card — a record of what happened, never a taunt.
 
-import { ui, PALETTE, wrapText } from '../ui/widgets.js';
+import { ui, PALETTE, wrapText, ellipsize } from '../ui/widgets.js';
 import { save, addCurrency, rosterEntry, stageEntry } from '../core/save.js';
 import { audio } from '../core/audio.js';
 import { displayName } from '../core/config.js';
@@ -73,6 +73,19 @@ function groupNum(n) {
   let out = '';
   while (s.length > 3) { out = ',' + s.slice(-3) + out; s = s.slice(0, -3); }
   return (neg ? '-' : '') + s + out;
+}
+
+/**
+ * `some_upgrade_id` -> "Some upgrade id".
+ *
+ * Only ever seen when a run reports something this build has no definition for —
+ * a weapon from a newer system, a save written by a later version. Printing the
+ * raw snake_case id is how the screen admits it does not know, badly; this is
+ * how it admits it politely.
+ */
+function humaniseId(id) {
+  const s = String(id).replace(/[_-]+/g, ' ').trim();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—';
 }
 
 /** Deterministic pick so the headline does not reshuffle every frame. */
@@ -122,6 +135,8 @@ export const resultsScene = {
     this.award = { gold: 0, frag: 0, lines: [] };
     this.unlockLines = [];
     this.build = [];
+    this.weaponRows = [];
+    this.weaponMax = 3;
     this.relicRows = [];
     this.evoRows = [];
     this.graph = null;
@@ -336,13 +351,30 @@ export const resultsScene = {
   },
 
   // --- cached view lists ------------------------------------------------------
+  /**
+   * AN UNKNOWN ID IS NOT AN ERROR. A run summary can legitimately name something
+   * this build has no definition for — the weapon system's entries arrive in
+   * `summary.upgrades` the same way, and a save can outlive a downgrade. Every
+   * list below degrades to "a readable name and the level we were told", never
+   * to a raw id claiming a level cap nobody can see.
+   */
   _buildLists(D, s) {
+    // The arsenal, straight off the run summary. A weapon's display name is
+    // resolved during the run (the signature borrows the character's own
+    // attack name) so this list needs no lookup and cannot drift.
+    this.weaponRows = (s.weapons || []).map((w) => ({
+      icon: w.icon || '⚔',
+      name: String(w.name || '').split(' [')[0],
+      level: w.level, max: w.maxLevel, evolved: !!w.evolved, signature: !!w.signature,
+    }));
+    this.weaponMax = (D.weapons && D.weapons.WEAPON_SLOTS) || 3;
+
     const relics = [];
     for (const id of s.relics || []) {
       const rel = D.relics.RELICS_BY_ID[id];
       relics.push({
         icon: (rel && rel.icon) || '◆',
-        name: rel ? displayName(rel) : id,
+        name: rel ? displayName(rel) : humaniseId(id),
         color: (rel && RELIC_COLOR[rel.rarity]) || PALETTE.text,
       });
     }
@@ -351,7 +383,7 @@ export const resultsScene = {
     const evos = [];
     for (const id of s.evolutions || []) {
       const ev = D.evolutions.EVOLUTIONS_BY_ID[id];
-      evos.push({ icon: (ev && ev.icon) || '✦', name: ev ? displayName(ev) : id });
+      evos.push({ icon: (ev && ev.icon) || '✦', name: ev ? displayName(ev) : humaniseId(id) });
     }
     this.evoRows = evos;
 
@@ -361,17 +393,27 @@ export const resultsScene = {
       const lvl = s.upgrades[id] | 0;
       if (lvl <= 0) continue;
       const u = byId[id];
-      const max = u ? u.maxLevel : lvl;
+      // `max = lvl` was the old fallback, which made every unknown id render as
+      // permanently MAXED in gold. max 0 means "cap unknown": the row prints
+      // "Lv 3" instead of "3/3" and is never dressed up as a finished build.
+      const max = (u && u.maxLevel) || 0;
       build.push({
         icon: (u && u.icon) || '•',
-        name: u ? displayName(u) : id,
-        lvl, max,
-        maxed: lvl >= max,
+        name: u ? displayName(u) : humaniseId(id),
+        lvl,
+        max,
+        label: max ? lvl + '/' + max : 'Lv ' + lvl,
+        maxed: max > 0 && lvl >= max,
         color: (u && TIER_COLOR[u.tier]) || PALETTE.text,
       });
     }
-    // Maxed first (they are the evolution ingredients), then by raw level.
-    build.sort((a, b) => (b.lvl / b.max) - (a.lvl / a.max) || b.lvl - a.lvl);
+    // Maxed first (they are the evolution ingredients), then by raw level. An
+    // unknown cap sorts as "not close to done" rather than as NaN/Infinity.
+    build.sort((a, b) => {
+      const fa = a.max ? a.lvl / a.max : 0;
+      const fb = b.max ? b.lvl / b.max : 0;
+      return (fb - fa) || (b.lvl - a.lvl);
+    });
     this.build = build;
   },
 
@@ -505,12 +547,16 @@ export const resultsScene = {
     this._rewards(r, s, midX, bodyY + graphH + gap, midW, bodyH - graphH - gap, S);
 
     // --- right: what you were running ------------------------------------------
-    const relicH = Math.round(clamp(bodyH * 0.26, 96, 168));
-    const evoH = Math.round(clamp(bodyH * 0.20, 78, 140));
-    this._relicPanel(r, rightX, bodyY, rightW, relicH);
-    this._evoPanel(r, rightX, bodyY + relicH + gap, rightW, evoH);
-    this._buildPanel(r, rightX, bodyY + relicH + evoH + gap * 2, rightW,
-      bodyH - relicH - evoH - gap * 2);
+    // Weapons lead the column: they are the loudest thing that happened during
+    // the run and the first thing a player wants to see again afterwards.
+    const wepH = Math.round(clamp(bodyH * 0.22, 86, 140));
+    const relicH = Math.round(clamp(bodyH * 0.22, 84, 150));
+    const evoH = Math.round(clamp(bodyH * 0.17, 70, 124));
+    this._weaponPanel(r, rightX, bodyY, rightW, wepH);
+    this._relicPanel(r, rightX, bodyY + wepH + gap, rightW, relicH);
+    this._evoPanel(r, rightX, bodyY + wepH + relicH + gap * 2, rightW, evoH);
+    this._buildPanel(r, rightX, bodyY + wepH + relicH + evoH + gap * 3, rightW,
+      bodyH - wepH - relicH - evoH - gap * 3);
 
     // --- callout ----------------------------------------------------------------
     if (calloutH) this._callout(r, pad, bodyY + bodyH + 8, W - pad * 2, calloutH);
@@ -852,6 +898,34 @@ export const resultsScene = {
     }
   },
 
+  _weaponPanel(r, x, y, w, h) {
+    if (h < 36) return;
+    const rows = this.weaponRows || [];
+    ui.panel(x, y, w, h);
+    ui.text('ARSENAL  ' + rows.length + '/' + (this.weaponMax || 3), x + 14, y + 16,
+      { size: 11, color: PALETTE.textFaint, weight: 800 });
+    const rowH = clamp((h - 32) / Math.max(1, this.weaponMax || 3), 18, 30);
+    for (let i = 0; i < (this.weaponMax || 3); i++) {
+      const row = rows[i];
+      const ry = y + 28 + rowH * (i + 0.5);
+      if (ry > y + h - 4) break;
+      if (!row) {
+        ui.text('·  empty slot', x + 20, ry, { size: Math.min(12, rowH * 0.5), color: PALETTE.textFaint });
+        continue;
+      }
+      const col = row.evolved ? PALETTE.accent
+                : row.level >= row.max ? '#7bf59a'
+                : row.signature ? PALETTE.text : PALETTE.accent2;
+      ui.text(row.icon, x + 20, ry, { size: Math.min(17, rowH * 0.68), align: 'center' });
+      ui.text(ellipsize(r, row.name, w - 96, Math.min(13, rowH * 0.5), 700), x + 36, ry, {
+        size: Math.min(13, rowH * 0.5), color: col, weight: 700,
+      });
+      ui.text(row.evolved ? 'EVO' : row.level + '/' + row.max, x + w - 14, ry, {
+        size: Math.min(11, rowH * 0.45), color: col, align: 'right', weight: 800, mono: true,
+      });
+    }
+  },
+
   _relicPanel(r, x, y, w, h) {
     if (h < 40) return;
     ui.panel(x, y, w, h);
@@ -911,18 +985,27 @@ export const resultsScene = {
 
     const top = y + 28;
     const availH = h - 28 - 8;
-    // Two columns only when one will not fit. Nothing here scrolls, so everything
-    // a run produced (22 upgrades at most) is on screen at once.
-    let cols = 1;
-    let rows = this.build.length;
-    if (rows * 16 > availH) { cols = 2; rows = Math.ceil(this.build.length / 2); }
-    const rowH = clamp(availH / Math.max(1, rows), 12, 22);
+    const MIN_ROW = 12;
+    const n = this.build.length;
+
+    // Nothing on this screen scrolls, so the panel takes as many columns as it
+    // needs — up to three — instead of computing two and then `break`ing, which
+    // dropped everything past column two with no indicator at all. If even three
+    // columns cannot hold the list, the last slot spells out how many are left.
+    const perCol = Math.max(1, Math.floor(availH / MIN_ROW));
+    const cols = clamp(Math.ceil(n / perCol), 1, 3);
+    const rowH = clamp(availH / Math.max(1, Math.ceil(n / cols)), MIN_ROW, 22);
+    const rows = Math.max(1, Math.floor(availH / rowH));
+    const cap = rows * cols;
+    const shown = n > cap ? cap - 1 : n;
+    const hidden = n - shown;
+
     const colW = (w - 20) / cols;
     const fs = clamp(rowH * 0.62, 9, 13);
+    const nameW = colW - 18 - Math.max(26, r.measureText('99/99', fs * (ui.scale || 1), 700)) - 6;
 
-    for (let i = 0; i < this.build.length; i++) {
+    for (let i = 0; i < shown; i++) {
       const col = Math.floor(i / rows);
-      if (col >= cols) break;
       const row = i - col * rows;
       const bx = x + 10 + col * colW;
       const by = top + rowH * (row + 0.5);
@@ -930,11 +1013,19 @@ export const resultsScene = {
       const u = this.build[i];
       const col2 = u.maxed ? PALETTE.accent : u.color;
       ui.text(u.icon, bx + 8, by, { size: Math.min(13, fs + 1), align: 'center' });
-      ui.text(u.name, bx + 18, by, { size: fs, color: col2, weight: u.maxed ? 800 : 600 });
-      ui.text(u.lvl + '/' + u.max, bx + colW - 10, by, {
+      ui.text(ellipsize(r, u.name, Math.max(24, nameW), fs, u.maxed ? 800 : 600), bx + 18, by,
+        { size: fs, color: col2, weight: u.maxed ? 800 : 600 });
+      ui.text(u.label, bx + colW - 10, by, {
         size: fs, color: u.maxed ? PALETTE.accent : PALETTE.textDim,
         align: 'right', weight: 700, mono: true,
       });
+    }
+
+    if (hidden > 0) {
+      const col = Math.floor(shown / rows);
+      const row = shown - col * rows;
+      ui.text('+' + hidden + ' more', x + 18 + col * colW, top + rowH * (row + 0.5),
+        { size: fs, color: PALETTE.accent2, weight: 800 });
     }
   },
 

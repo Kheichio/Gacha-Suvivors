@@ -64,7 +64,8 @@ function resetProjectile(p) {
   p.accumulatedPierceBonus = 0; p.pierceBonusPerHit = 0;
 }
 
-let nextUid = 1;
+/** Per-system, so a uid means the same thing on run 2 as on run 1. */
+let uidCounter = 1;
 
 export class ProjectileSystem {
   /** @param fromEnemy true for the enemy-owned pool. */
@@ -73,6 +74,7 @@ export class ProjectileSystem {
     this.fromEnemy = fromEnemy;
     this.pool = new Pool(makeProjectile, resetProjectile, 128, capacity || CONFIG.MAX_PROJECTILES, true);
     this._hitStamp = 0;
+    this._nextUid = uidCounter;
   }
 
   get items() { return this.pool.items; }
@@ -86,7 +88,7 @@ export class ProjectileSystem {
     const o = opts || EMPTY;
     const p = this.pool.spawn();
     if (!p) return null;
-    p.uid = nextUid++;
+    p.uid = this._nextUid++;
     p.x = p.px = x; p.y = p.py = y;
     p.angle = angle;
     p.speed = o.speed || 420;
@@ -314,7 +316,10 @@ export class ProjectileSystem {
     const run = this.run;
     const hash = run.enemyHash;
     const items = run.enemies.items;
-    const n = hash.query(p.x, p.y, p.radius + 40);
+    // The exact test below is `p.radius + e.radius`, so the broadphase margin
+    // has to cover the largest enemy radius in the game or big targets stop
+    // being hit by projectiles entirely — with no error anywhere.
+    const n = hash.query(p.x, p.y, p.radius + CONFIG.HIT_QUERY_PAD);
     const stamp = ++this._hitStamp;
 
     for (let k = 0; k < n; k++) {

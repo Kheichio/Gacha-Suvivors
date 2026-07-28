@@ -10,6 +10,7 @@
 // It is also what makes the balance harness honest: `runStats.damageDealt` is
 // the sum of what actually passed through here.
 
+import { CONFIG } from '../core/config.js';
 import { events, EV } from '../core/events.js';
 import { runRng } from '../core/rng.js';
 import { feel } from '../core/feel.js';
@@ -291,7 +292,11 @@ export function areaDamage(run, x, y, radius, amount, src, opts) {
   const o = opts || EMPTY;
   const hash = run.enemyHash;
   const items = run.enemies.items;
-  const n = hash.query(x, y, radius);
+  // The broadphase margin has to cover the TARGET's radius as well as the
+  // effect's, because the exact test below is `radius + e.radius`. Querying the
+  // bare radius meant anything bigger than the cell overhang simply never came
+  // back from the hash and quietly stopped being hittable.
+  const n = hash.query(x, y, radius + CONFIG.HIT_QUERY_PAD);
   let hits = 0;
   for (let k = 0; k < n; k++) {
     const e = items[hash.resultAt(k)];
@@ -337,7 +342,7 @@ export function lineDamage(run, x0, y0, x1, y1, halfWidth, amount, src, opts) {
   for (let s = 0; s <= steps; s++) {
     const t = s / steps;
     const px = x0 + dx * t, py = y0 + dy * t;
-    const n = hash.query(px, py, halfWidth + 40);
+    const n = hash.query(px, py, halfWidth + CONFIG.HIT_QUERY_PAD);
     for (let k = 0; k < n; k++) {
       const e = items[hash.resultAt(k)];
       if (!e || !e.active || e.hp <= 0 || e.lastLineStamp === stamp) continue;
@@ -367,7 +372,7 @@ export function coneDamage(run, x, y, angle, arc, radius, amount, src, opts) {
   const o = opts || EMPTY;
   const hash = run.enemyHash;
   const items = run.enemies.items;
-  const n = hash.query(x, y, radius);
+  const n = hash.query(x, y, radius + CONFIG.HIT_QUERY_PAD);
   const half = arc * 0.5;
   let hits = 0;
   for (let k = 0; k < n; k++) {

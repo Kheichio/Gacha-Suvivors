@@ -283,6 +283,7 @@ await import('./suites.js');
 await import('./abilityCoverage.js');
 await import('./pixelArt.js');
 await import('./abilityRuntime.js');
+await import('./weapons.js');
 await import('./renderSmoke.js');
 
 const COLORS = {

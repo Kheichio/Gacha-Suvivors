@@ -37,6 +37,9 @@ const BOT_PRIORITY = [
   'quick_recovery', 'second_wind', 'guardian_plate', 'scholar', 'bloodthirst',
 ];
 
+/** Where "level a weapon" sits in BOT_PRIORITY's ranking. See chooseUpgrade(). */
+const WEAPON_LEVEL_RANK = 3;
+
 class Bot {
   constructor(run) {
     this.run = run;
@@ -105,21 +108,41 @@ class Bot {
     input._latched[ACT.ESCAPE] = false;
   }
 
-  /** "Always picks the highest-damage upgrade." */
+  /**
+   * "Always picks the highest-damage upgrade."
+   *
+   * The ranking is deliberate rather than incidental: weapons now carry most of
+   * a build's damage, so a bot that only recognised stat cards would fall
+   * through to index 0 whenever it was offered three weapons and would report
+   * every character as far weaker than a human plays them.
+   *
+   *   weapon evolution  >  build evolution  >  fill the empty weapon slots
+   *
+   * and after that, LEVELLING A WEAPON COMPETES WITH STAT CARDS rather than
+   * beating all of them. A bot that always took the weapon produced a
+   * monoculture — every character ran the same three weapons and no stat card
+   * at all — which is a worse slander than the one the bot already commits by
+   * never dodging. `WEAPON_LEVEL_RANK` puts a weapon level just behind the top
+   * three damage stats, which is roughly where a human puts it.
+   */
   chooseUpgrade() {
     const run = this.run;
     const choices = run.levelUpChoices;
     if (!choices || choices.length === 0) { run.state = RUN_STATE.PLAYING; return; }
-    // An evolution always beats a stat card.
-    for (let i = 0; i < choices.length; i++) {
-      if (choices[i].kind === 'evolution') { run.chooseUpgrade(i); return; }
+    for (const kind of ['weaponEvo', 'evolution', 'newWeapon']) {
+      for (let i = 0; i < choices.length; i++) {
+        if (choices[i].kind === kind) { run.chooseUpgrade(i); return; }
+      }
     }
     let best = 0, bestRank = 999;
     for (let i = 0; i < choices.length; i++) {
       const ch = choices[i];
-      if (ch.kind !== 'upgrade') continue;
-      const rank = BOT_PRIORITY.indexOf(ch.up.id);
-      const r = rank < 0 ? 500 : rank;
+      let r;
+      if (ch.kind === 'weapon') r = WEAPON_LEVEL_RANK;
+      else if (ch.kind === 'upgrade') {
+        const rank = BOT_PRIORITY.indexOf(ch.up.id);
+        r = rank < 0 ? 500 : rank;
+      } else continue;
       if (r < bestRank) { bestRank = r; best = i; }
     }
     run.chooseUpgrade(best);

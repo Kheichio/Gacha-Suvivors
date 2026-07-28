@@ -17,6 +17,22 @@
 // those keys we consume them first and park the toolkit's nav cooldown for a
 // frame so the cursor does not also jump.
 //
+// THE HIT REGION IS THE CONTROL, NEVER THE ROW.
+// Each row used to declare ONE button spanning the full ~1080px list while the
+// only thing the player could see was a 108px toggle, three 96px pills or a
+// 260px action button. Clicking the grey note under DELETE SAVE opened the wipe
+// confirmation; clicking the red warning under "Reduce flashing effects" flipped
+// it. So every row now registers exactly one focus stop and it sits ON the
+// control — the label and the note are inert text. The consequences:
+//   · the enum pills look like radio buttons, so a click SELECTS the pill it
+//     landed on instead of advancing the value by one (CONFIRM still advances,
+//     because a keyboard has no cursor to land anywhere);
+//   · a slider drag is locked to the track it started on and ignores the wheel,
+//     so scrolling mid-drag can no longer teleport the value;
+//   · FOCUS FOLLOWS THE ROW, not the screen slot. ui.focus is a flat per-frame
+//     index, so scrolling used to slide a different setting under an unchanged
+//     index and LEFT/RIGHT then adjusted whatever had slid into place.
+//
 // PHOTOSENSITIVITY: reduceFlashing DEFAULTS TO ON (DECISIONS.md, deferred item
 // 5) and the row states plainly what has and has not been verified. This screen
 // makes no safety claim, because nobody has run the frame capture that would
@@ -44,7 +60,11 @@ export const settingsScene = {
     this.drag = null;
     this.confirmWipe = false;
     this.wipeArm = 0;          // cooling-off timer on the destructive button
-    this.rowByFocus = [];
+    this.rowByFocus = [];      // frame-local focus index -> index into this.rows
+    this.focusRow = -1;        // the ROW that holds focus, immune to scrolling
+    this._focusInList = false;
+    this._lastScroll = -1;
+    this._refocus = true;
     this.rows = this._buildRows();
 
     // A console-driven import, for anyone who would rather paste than click.
@@ -175,6 +195,62 @@ export const settingsScene = {
     return row.h || ROW_H;
   },
 
+  // --- scrolling -------------------------------------------------------------
+  /**
+   * The row indices that fit in `listH` at the current scroll.
+   *
+   * Rows have three different heights, so the visible count is not a division —
+   * and the old `maxScroll = rows.length - 1` let you scroll until one row sat
+   * alone on an otherwise empty panel.
+   */
+  _visible(listH) {
+    const out = [];
+    let y = 0;
+    for (let i = this.scroll; i < this.rows.length; i++) {
+      const h = this._rowHeight(this.rows[i]);
+      if (y + h > listH) break;
+      out.push(i);
+      y += h;
+    }
+    return out;
+  },
+
+  /** The scroll position at which the LAST row sits flush with the bottom. */
+  _maxScroll(listH) {
+    let s = this.rows.length;
+    let used = 0;
+    while (s > 0) {
+      const h = this._rowHeight(this.rows[s - 1]);
+      if (used + h > listH) break;
+      used += h;
+      s--;
+    }
+    return Math.max(0, Math.min(s, this.rows.length - 1));
+  },
+
+  /** Scroll the window until `idx` is on screen. Row heights vary, so: a loop. */
+  _ensureVisible(idx, listH, maxScroll) {
+    if (idx < 0) return;
+    if (idx <= this.scroll) {
+      // Bring the section header above it along for the ride when there is one.
+      const head = idx > 0 && this.rows[idx - 1].type === 'head' ? idx - 1 : idx;
+      this.scroll = clamp(head, 0, maxScroll);
+      return;
+    }
+    let guard = this.rows.length + 1;
+    while (guard-- > 0 && this.scroll < maxScroll &&
+           this._visible(listH).indexOf(idx) < 0) this.scroll++;
+  },
+
+  /** The next focusable (non-header) row in `dir`, or -1. */
+  _nextStop(from, dir) {
+    for (let i = from + dir; i >= 0 && i < this.rows.length; i += dir) {
+      if (this.rows[i].type !== 'head') return i;
+    }
+    return -1;
+  },
+
+  // --- values ----------------------------------------------------------------
   _setSlider(row, v) {
     const s = save.data.settings;
     const nv = clamp(snap(v, row.step), row.min, row.max);
@@ -215,6 +291,18 @@ export const settingsScene = {
       return true;
     }
     return false;
+  },
+
+  /** Pick an enum option OUTRIGHT — what three bordered pills have always looked
+   *  like they do, and what the old advance-by-one behaviour never did. */
+  _select(row, i) {
+    const s = save.data.settings;
+    const o = row.options[i];
+    if (!o) return;
+    if (s[row.key] === o.value) { audio.play('uiMove'); return; }
+    s[row.key] = o.value;
+    save.save();
+    audio.play('uiConfirm');
   },
 
   _activate(row) {
@@ -326,9 +414,13 @@ export const settingsScene = {
     const W = r.w, H = r.h;
     const M = Math.round(clamp(W * 0.02, 14, 30));
 
-    if (!input.mouseDown && this.drag) { this.drag = null; save.save(); }
-
-    if (this.confirmWipe) { this._renderConfirm(r, W, H, M); return; }
+    if (this.confirmWipe) {
+      // Coming back out of the modal, focus has to be put back on the row that
+      // opened it rather than on whatever slot index the modal left behind.
+      this._refocus = true;
+      this._renderConfirm(r, W, H, M);
+      return;
+    }
 
     // ---- header -----------------------------------------------------------
     ui.title('SETTINGS', M, 34, { size: 32 });
@@ -336,60 +428,96 @@ export const settingsScene = {
       M, 62, { size: 13, color: PALETTE.textFaint });
     ui.text('LEFT / RIGHT changes the highlighted row  ·  ENTER or A activates it',
       W - M, 34, { size: 12, color: PALETTE.textDim, align: 'right', weight: 700 });
-    ui.text('Mouse: drag any slider bar directly.',
+    ui.text('Mouse: drag a slider knob, click a pill, drag the scrollbar.',
       W - M, 54, { size: 12, color: PALETTE.textFaint, align: 'right' });
 
     const ctrlY = 84;
     if (ui.backButton(M, ctrlY)) { audio.play('uiBack'); this.manager.go('hub'); }
 
-    // ---- the rows ---------------------------------------------------------
+    // ---- geometry ---------------------------------------------------------
     const listY = ctrlY + 48;
     const listH = H - listY - M;
     const listW = Math.min(W - M * 2, 1080);
     const listX = M + Math.max(0, (W - M * 2 - listW) / 2);
 
-    if (input.wheel) this.scroll = clamp(this.scroll + input.wheel, 0, Math.max(0, this.rows.length - 1));
-    this.scroll = clamp(this.scroll, 0, Math.max(0, this.rows.length - 1));
+    const maxScroll = this._maxScroll(listH);
+    const barW = maxScroll > 0 ? 14 : 0;
+    const rowW = listW - barW;
 
+    // The wheel belongs to the LIST. It used to scroll from anywhere on the
+    // screen, including from over the back button — and it is ignored outright
+    // mid-drag, because sliding the track out from under a held knob is how the
+    // volume used to jump to 0%.
+    if (input.wheel && !this.drag && ui.pointIn(listX, listY, listW, listH)) {
+      this.scroll = clamp(this.scroll + input.wheel, 0, maxScroll);
+    }
+    this.scroll = clamp(this.scroll, 0, maxScroll);
+
+    if (this.drag) this._applyDrag();
+
+    // ---- focus follows the ROW, not the slot ------------------------------
+    const base = ui.itemCount;              // the rows start after the back button
+    const stops = [];
+    for (const j of this._visible(listH)) if (this.rows[j].type !== 'head') stops.push(j);
+    if (stops.length && (this._refocus || (this.scroll !== this._lastScroll && this._focusInList))) {
+      let p = stops.indexOf(this.focusRow);
+      if (p < 0) p = this.focusRow >= 0 && this.focusRow > stops[stops.length - 1] ? stops.length - 1 : 0;
+      this.focusRow = stops[p];
+      ui.focus = base + p;
+    }
+    this._lastScroll = this.scroll;
+    this._refocus = false;
+
+    // ---- the rows ---------------------------------------------------------
+    const clip = { x: listX, y: listY, w: rowW, h: listH };
     this.rowByFocus.length = 0;
     r.clipRect(listX, listY, listW, listH);
     let y = listY;
     let firstIdx = -1, lastIdx = -1;
-    let i = this.scroll;
-    for (; i < this.rows.length; i++) {
-      const row = this.rows[i];
+    const vis = this._visible(listH);
+    for (const j of vis) {
+      const row = this.rows[j];
       const h = this._rowHeight(row);
-      if (y + h > listY + listH) break;
       if (row.type === 'head') {
-        this._drawHead(r, listX, y, listW, row);
+        this._drawHead(r, listX, y, rowW, row);
       } else {
         const idx = ui.itemCount;
         if (firstIdx < 0) firstIdx = idx;
         lastIdx = idx;
-        this.rowByFocus[idx] = row;
-        const hit = ui.button('row' + i, listX, y, listW, h - 6, '');
-        const focused = ui.focus === idx;
-        this._drawRow(r, listX, y, listW, h - 6, row, focused, hit);
+        this.rowByFocus[idx] = j;
+        const rect = this._ctrlRect(row, listX, y, rowW, h - 6);
+        // The slider grabs its own press BEFORE the focus widget is declared,
+        // then takes the frame's click so the widget stays silent on release.
+        if (row.type === 'slider') this._sliderPress(row, rect);
+        if (this.drag && this.drag.row === row) ui.consumeClick();
+        // `invisible` + a rect that IS the control: the row stays a focus stop
+        // for the keyboard, but a click can only land on the thing you see.
+        const hit = ui.button('row' + j, rect.x, rect.y, rect.w, rect.h, '',
+          { invisible: true, clip });
+        this._drawRow(r, listX, y, rowW, h - 6, row, ui.focus === idx, hit, rect);
       }
       y += h;
     }
     r.unclip();
+    const nextRow = vis.length ? vis[vis.length - 1] + 1 : this.scroll;
 
-    // ---- scroll affordance + edge scroll ---------------------------------
-    const maxScroll = Math.max(0, this.rows.length - 1);
-    if (maxScroll > 0 && (i < this.rows.length || this.scroll > 0)) {
-      const t = this.scroll / maxScroll;
-      const visible = Math.max(1, i - this.scroll);
-      const bh = Math.max(30, listH * (visible / this.rows.length));
-      r.drawRect(listX + listW - 3, listY + (listH - bh) * t, 3, bh, PALETTE.textFaint, 0.6);
-      if (i < this.rows.length) {
-        ui.text('▾ ' + (this.rows.length - i) + ' MORE', listX + listW - 18, listY + listH - 8,
+    // ---- a real scrollbar -------------------------------------------------
+    // The old affordance was a 3px painted rectangle: a mouse with no wheel
+    // could not reach the SAVE DATA section at all.
+    if (maxScroll > 0) {
+      const seen = this.rows.length - maxScroll;
+      this.scroll = Math.round(ui.scrollbar('setScroll', listX + listW - 10, listY, 8, listH,
+        this.scroll, seen, this.rows.length));
+      this.scroll = clamp(this.scroll, 0, maxScroll);
+      if (nextRow < this.rows.length) {
+        ui.text('▾ ' + (this.rows.length - nextRow) + ' MORE', listX + rowW - 8, listY + listH - 8,
           { size: 11, color: PALETTE.textFaint, align: 'right', weight: 700 });
       }
     }
 
     // ---- LEFT / RIGHT belongs to the focused row -------------------------
-    const focusedRow = this.rowByFocus[ui.focus];
+    const focusIdx = this.rowByFocus[ui.focus];
+    const focusedRow = focusIdx === undefined ? null : this.rows[focusIdx];
     let consumed = false;
     if (focusedRow && focusedRow.type !== 'action') {
       let dir = 0;
@@ -397,21 +525,82 @@ export const settingsScene = {
       else if (input.pressed(ACT.LEFT)) dir = -1;
       if (dir !== 0) { this._adjust(focusedRow, dir); consumed = true; }
     }
-    if (!consumed && firstIdx >= 0) {
-      if (input.pressed(ACT.DOWN) && ui.focus === lastIdx && i < this.rows.length) {
-        this.scroll = clamp(this.scroll + 1, 0, maxScroll); consumed = true; audio.play('uiMove');
-      } else if (input.pressed(ACT.UP) && ui.focus === firstIdx && this.scroll > 0) {
-        this.scroll = clamp(this.scroll - 1, 0, maxScroll); consumed = true; audio.play('uiMove');
+    // At the edges of the window, DOWN/UP move the WINDOW and take the focused
+    // row with them — ui.end() would otherwise wrap the flat index around.
+    if (!consumed && focusedRow) {
+      let target = -1;
+      if (input.pressed(ACT.DOWN) && ui.focus === lastIdx) target = this._nextStop(focusIdx, 1);
+      else if (input.pressed(ACT.UP) && ui.focus === firstIdx) target = this._nextStop(focusIdx, -1);
+      if (target >= 0) {
+        this.focusRow = target;
+        this._ensureVisible(target, listH, maxScroll);
+        this._refocus = true;
+        consumed = true;
+        audio.play('uiMove');
       }
     }
     // Parking the toolkit's nav cooldown is what stops ui.end() ALSO moving the
     // cursor on the same key press.
     if (consumed) ui._navCooldown = 0.14;
 
+    // Letting go writes the save immediately; touch() only queues it.
+    if (this.drag && !input.mouseDown) { this.drag = null; save.save(); }
+
     ui.focusGrid(1);
     ui.end();
+
+    // ui.end() has just resolved the arrow keys, so THIS is where the row that
+    // owns the focus is recorded for the next frame.
+    const settled = this.rowByFocus[ui.focus];
+    this._focusInList = settled !== undefined;
+    if (this._focusInList && !this._refocus) this.focusRow = settled;
   },
 
+  // --- geometry --------------------------------------------------------------
+  /**
+   * The rect the player can SEE and therefore the only rect they may click.
+   * `cx`/`cw` come back with it so the row's note knows where to stop wrapping.
+   */
+  _ctrlRect(row, x, y, w, h) {
+    const cw = Math.min(300, Math.max(150, w * 0.28));
+    const cx = x + w - 20 - cw;
+    const cy = y + h / 2;
+    if (row.type === 'toggle') return { x: cx + cw - 108, y: cy - 15, w: 108, h: 30, cx, cw };
+    if (row.type === 'enum') return { x: cx, y: cy - 15, w: cw, h: 30, cx, cw };
+    if (row.type === 'action') {
+      const bw = Math.min(cw, 260);
+      return { x: cx + cw - bw, y: cy - 16, w: bw, h: 32, cx, cw };
+    }
+    // Slider: the TRACK. The value readout to its left is a label, not a target.
+    const labelW = 66;
+    return { x: cx + labelW, y: cy - 14, w: Math.max(60, cw - labelW - 8), h: 28, cx, cw };
+  },
+
+  // --- the slider drag -------------------------------------------------------
+  /**
+   * Start a drag, remembering the track it started ON.
+   *
+   * The old version re-derived the track from the row's live on-screen position
+   * every frame, so one wheel notch mid-drag slid the row and teleported the
+   * value to wherever the cursor now sat relative to a different row.
+   */
+  _sliderPress(row, rect) {
+    if (this.drag || !input.mouseClicked || !input.mouseInside) return;
+    if (!ui.pointIn(rect.x - 12, rect.y, rect.w + 24, rect.h)) return;
+    this.drag = { row, tx: rect.x, tw: rect.w };
+    this._applyDrag();
+  },
+
+  _applyDrag() {
+    // A pointer that has left the canvas reads as x = -10000; applying that
+    // would slam the value to its minimum on the way out.
+    if (!input.mouseInside) return;
+    const d = this.drag;
+    const span = d.row.max - d.row.min;
+    this._setSlider(d.row, d.row.min + clamp((ui.mx - d.tx) / d.tw, 0, 1) * span);
+  },
+
+  // --- drawing ---------------------------------------------------------------
   _drawHead(r, x, y, w, row) {
     ui.text(row.label, x + 4, y + 16, { size: 13, color: PALETTE.accent, weight: 800 });
     const lw = r.measureText(row.label, 13 * ui.scale, 800);
@@ -419,16 +608,23 @@ export const settingsScene = {
     r.drawRect(x + 4, y + 26, w - 8, 1, PALETTE.border, 1);
   },
 
-  _drawRow(r, x, y, w, h, row, focused, hit) {
-    const labelX = x + 16;
-    const ctrlW = Math.min(300, Math.max(150, w * 0.28));
-    const ctrlX = x + w - 20 - ctrlW;
+  _drawRow(r, x, y, w, h, row, focused, hit, rect) {
+    // Row-level feedback. The click target is the control, but the cursor
+    // resting anywhere on the row should still say which row that is.
+    // Kept translucent on purpose: the toolkit's focus ring is drawn around the
+    // control BEFORE this, and a solid plate would bury it.
+    const over = ui.pointIn(x, y, w, h);
+    if (focused || over) {
+      r.drawRoundRect(x + 2, y, w - 4, h, 8, PALETTE.panelHi, focused ? 0.34 : 0.18);
+      r.drawRect(x + 2, y, 3, h, focused ? PALETTE.accent : PALETTE.border, focused ? 1 : 0.6);
+    }
 
+    const labelX = x + 16;
     ui.text(row.label, labelX, y + (row.note ? 20 : h / 2), {
       size: 15, weight: 800, color: focused ? PALETTE.accent : PALETTE.text,
     });
     if (row.note) {
-      const noteW = Math.max(120, ctrlX - labelX - 24);
+      const noteW = Math.max(120, rect.cx - labelX - 24);
       const lines = wrapText(r, row.note, noteW, 11 * ui.scale);
       for (let i = 0; i < lines.length && i < 3; i++) {
         ui.text(lines[i], labelX, y + 36 + i * 14, {
@@ -437,58 +633,60 @@ export const settingsScene = {
       }
     }
 
-    if (row.type === 'slider') this._drawSlider(r, row, ctrlX, y, ctrlW, h, focused);
-    else if (row.type === 'toggle') this._drawToggle(r, row, ctrlX, y, ctrlW, h, focused, hit);
-    else if (row.type === 'enum') this._drawEnum(r, row, ctrlX, y, ctrlW, h, focused, hit);
-    else if (row.type === 'action') this._drawAction(r, row, ctrlX, y, ctrlW, h, focused, hit);
+    if (row.type === 'slider') this._drawSlider(r, row, rect, focused);
+    else if (row.type === 'toggle') this._drawToggle(r, row, rect, focused, hit);
+    else if (row.type === 'enum') this._drawEnum(r, row, rect, focused, hit);
+    else if (row.type === 'action') this._drawAction(r, row, rect, focused, hit);
 
     if (focused && row.type !== 'action') {
-      ui.text('‹', ctrlX - 14, y + h / 2, { size: 16, color: PALETTE.accent, weight: 800, align: 'center' });
+      ui.text('‹', rect.cx - 14, y + h / 2, { size: 16, color: PALETTE.accent, weight: 800, align: 'center' });
       ui.text('›', x + w - 8, y + h / 2, { size: 16, color: PALETTE.accent, weight: 800, align: 'center' });
     }
   },
 
-  _drawSlider(r, row, x, y, w, h, focused) {
+  _drawSlider(r, row, rect, focused) {
     const s = save.data.settings;
     const v = typeof s[row.key] === 'number' ? s[row.key] : row.min;
     const span = row.max - row.min;
     const frac = span > 0 ? clamp((v - row.min) / span, 0, 1) : 0;
+    const dragging = !!(this.drag && this.drag.row === row);
+    const cy = rect.y + rect.h / 2;
 
-    const labelW = 66;
-    const tx = x + labelW;
-    const tw = Math.max(60, w - labelW - 8);
-    const ty = y + h / 2 - 5;
-
-    ui.text(row.fmt ? row.fmt(v) : String(v), x + labelW - 12, y + h / 2, {
-      size: 14, color: focused ? PALETTE.accent : PALETTE.text,
+    ui.text(row.fmt ? row.fmt(v) : String(v), rect.x - 12, cy, {
+      size: 14, color: focused || dragging ? PALETTE.accent : PALETTE.text,
       align: 'right', weight: 800, mono: true,
     });
 
-    ui.bar(tx, ty, tw, 10, frac, frac <= 0.001 ? PALETTE.textFaint : (focused ? PALETTE.accent : PALETTE.accent2));
-    const kx = tx + tw * frac;
-    r.drawCircle(kx, ty + 5, focused ? 8 : 6, focused ? PALETTE.accent : PALETTE.text, 1);
-    r.strokeCircle(kx, ty + 5, focused ? 8 : 6, '#05060d', 2, 0.8);
+    ui.bar(rect.x, cy - 6, rect.w, 12, frac,
+      frac <= 0.001 ? PALETTE.textFaint : (focused || dragging ? PALETTE.accent : PALETTE.accent2));
 
-    // Mouse drag. Grabbing anywhere on the track jumps the value there, which is
-    // what every slider in every other program does.
-    const mx = input.mouseX / (r.dpr || 1), my = input.mouseY / (r.dpr || 1);
-    const overTrack = mx >= tx - 12 && mx <= tx + tw + 12 && my >= y && my <= y + h;
-    if (input.mouseDown && (this.drag === row.key || (overTrack && input.mouseClicked))) {
-      this.drag = row.key;
-      this._setSlider(row, row.min + clamp((mx - tx) / tw, 0, 1) * span);
-    }
+    // A 6px dot did not read as something you could pick up. This one is 20-26px
+    // across and carries grip lines, which is the difference between "indicator"
+    // and "handle".
+    const kx = rect.x + rect.w * frac;
+    const kr = dragging ? 13 : focused ? 12 : 10;
+    const col = dragging || focused ? PALETTE.accent : PALETTE.text;
+    r.drawCircle(kx, cy, kr, col, 1);
+    r.strokeCircle(kx, cy, kr, '#05060d', 2.5, 0.85);
+    r.drawRect(kx - 3.5, cy - kr * 0.42, 1.5, kr * 0.84, '#05060d', 0.55);
+    r.drawRect(kx + 2, cy - kr * 0.42, 1.5, kr * 0.84, '#05060d', 0.55);
+
+    if (ui.pointIn(rect.x - 12, rect.y, rect.w + 24, rect.h)) ui.markHot();
   },
 
-  _drawToggle(r, row, x, y, w, h, focused, hit) {
+  _drawToggle(r, row, rect, focused, hit) {
+    // `hit` can now only come from the pill itself — the red warning paragraph
+    // under this row used to flip it.
     if (hit) this._activate(row);
     const on = !!save.data.settings[row.key];
-    const pw = 108, ph = 30;
-    const px = x + w - pw, py = y + h / 2 - ph / 2;
+    const px = rect.x, py = rect.y, pw = rect.w, ph = rect.h;
+    const hot = ui.pointIn(px, py, pw, ph);
     ui.panel(px, py, pw, ph, {
       radius: 15,
-      color: on ? 'rgba(123,245,154,0.12)' : 'rgba(255,255,255,0.04)',
-      borderColor: on ? PALETTE.good : PALETTE.border,
+      color: on ? 'rgba(123,245,154,0.12)' : hot ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)',
+      borderColor: on ? PALETTE.good : hot || focused ? PALETTE.borderHot : PALETTE.border,
       borderWidth: focused ? 2 : 1.5,
+      bevel: false,
     });
     const knobX = on ? px + pw - 17 : px + 17;
     r.drawCircle(knobX, py + ph / 2, 11, on ? PALETTE.good : PALETTE.textFaint, 1);
@@ -499,40 +697,62 @@ export const settingsScene = {
       });
   },
 
-  _drawEnum(r, row, x, y, w, h, focused, hit) {
-    if (hit) this._activate(row);
+  _drawEnum(r, row, rect, focused, hit) {
     const cur = save.data.settings[row.key];
     const n = row.options.length;
     const gap = 6;
-    const bw = (w - gap * (n - 1)) / n;
+    const bw = (rect.w - gap * (n - 1)) / n;
+
+    let over = -1;
+    for (let i = 0; i < n; i++) {
+      if (ui.pointIn(rect.x + i * (bw + gap), rect.y, bw, rect.h)) over = i;
+    }
+
+    if (hit) {
+      // A keyboard or a gamepad has no cursor to land on a pill, so CONFIRM
+      // keeps its old advance-by-one meaning. A CLICK selects what it hit —
+      // three individually-bordered pills have always looked like radio buttons
+      // and now they behave like them.
+      const byKey = input.pressed(ACT.CONFIRM) || input.pressed(ACT.SPECIAL);
+      if (byKey || over < 0) this._adjust(row, 1);
+      else this._select(row, over);
+    }
+
     for (let i = 0; i < n; i++) {
       const o = row.options[i];
       const active = o.value === cur;
-      const bx = x + i * (bw + gap);
-      ui.panel(bx, y + h / 2 - 15, bw, 30, {
+      const hot = over === i;
+      const bx = rect.x + i * (bw + gap);
+      ui.panel(bx, rect.y, bw, rect.h, {
         radius: 8,
-        color: active ? 'rgba(255,215,106,0.14)' : 'rgba(255,255,255,0.03)',
-        borderColor: active ? PALETTE.accent : PALETTE.border,
+        color: active ? 'rgba(255,215,106,0.16)' : hot ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.03)',
+        borderColor: active ? PALETTE.accent : hot ? PALETTE.borderHot : PALETTE.border,
         borderWidth: active && focused ? 2 : 1.5,
+        bevel: false,
       });
-      ui.text(o.label, bx + bw / 2, y + h / 2, {
+      ui.text(o.label, bx + bw / 2, rect.y + rect.h / 2, {
         size: 11, weight: 800, align: 'center',
-        color: active ? PALETTE.accent : PALETTE.textFaint,
+        color: active ? PALETTE.accent : hot ? PALETTE.text : PALETTE.textFaint,
       });
     }
   },
 
-  _drawAction(r, row, x, y, w, h, focused, hit) {
+  _drawAction(r, row, rect, focused, hit) {
+    // Tight hit box, deliberately: DELETE SAVE used to fire from anywhere on the
+    // row, including the grey sentence explaining what it destroys.
     if (hit) this._activate(row);
     const col = row.danger ? PALETTE.bad : PALETTE.accent2;
-    const bw = Math.min(w, 260), bx = x + w - bw;
-    ui.panel(bx, y + h / 2 - 16, bw, 32, {
+    const hot = ui.pointIn(rect.x, rect.y, rect.w, rect.h);
+    ui.panel(rect.x, rect.y, rect.w, rect.h, {
       radius: 8,
-      color: row.danger ? 'rgba(255,111,145,0.10)' : 'rgba(106,216,255,0.08)',
-      borderColor: focused ? col : PALETTE.border,
+      color: row.danger
+        ? (hot ? 'rgba(255,111,145,0.22)' : 'rgba(255,111,145,0.10)')
+        : (hot ? 'rgba(106,216,255,0.20)' : 'rgba(106,216,255,0.08)'),
+      borderColor: focused || hot ? col : PALETTE.border,
       borderWidth: focused ? 2 : 1.5,
+      bevel: false,
     });
-    ui.text(focused ? '▸ ' + row.label : row.label, bx + bw / 2, y + h / 2, {
+    ui.text(focused || hot ? '▸ ' + row.label : row.label, rect.x + rect.w / 2, rect.y + rect.h / 2, {
       size: 12, weight: 800, align: 'center', color: col,
     });
   },

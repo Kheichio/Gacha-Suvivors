@@ -22,7 +22,19 @@ import { makeStatus, clearStatus, tickStatus, isStunned, speedMultiplier, MARK }
 import { dealDamage, damagePlayer, areaDamage, SRC } from './damage.js';
 import { SCALING } from '../data/stages.js';
 
-let nextUid = 1;
+/**
+ * Per-SYSTEM, not per-module.
+ *
+ * `e.uid` is not just an identity: three behaviours read it as a seed —
+ * the swarmer's wobble phase (`sin(aiT * 3.2 + e.uid)`), and the orbiter's and
+ * ambusher's rotation direction (`e.uid & 1`). A module-level counter that
+ * never resets meant the SECOND run in a process got a different swarm and a
+ * different set of orbit directions from the first, on the same seed. That made
+ * `node sim.js --all` measure a different game for every character after the
+ * first — the same character on the same seed ranged from 185s to 307s — and
+ * every number in BALANCE.md with it.
+ */
+let uidCounter = 1;
 
 export function makeEnemy() {
   return {
@@ -94,6 +106,8 @@ export class EnemySystem {
     this.run = run;
     this.pool = new Pool(makeEnemy, resetEnemy, 512, CONFIG.MAX_ENEMIES, true);
     this.splitBudget = CONFIG.SPLIT_BUDGET_PER_RUN;
+    // Restarts with the run. See the comment on uidCounter.
+    this._nextUid = uidCounter;
   }
 
   get items() { return this.pool.items; }
@@ -111,7 +125,7 @@ export class EnemySystem {
     const run = this.run;
     const minutes = run.time / 60;
 
-    e.uid = nextUid++;
+    e.uid = this._nextUid++;
     e.def = def; e.id = def.id;
     e.x = e.px = x; e.y = e.py = y;
     e.vx = 0; e.vy = 0; e.kbx = 0; e.kby = 0;
@@ -122,7 +136,8 @@ export class EnemySystem {
     e.tier = def.tier || 1;
     e.visual = def.visual;
     e.sprite = atlas.ensure(def.visual);
-    e.radius = (def.visual && def.visual.size ? def.visual.size : 12) * (o.scale || 1);
+    e.radius = (def.visual && def.visual.size ? def.visual.size : 12) *
+               (o.scale || 1) * feel.enemySizeMult;
     e.weight = def.weight || 1;
     e.goldChance = def.goldChance || 0;
     e.isElite = !!o.isElite;
@@ -429,7 +444,17 @@ export class EnemySystem {
       // hitbox radius made a 9px fodder enemy render at two-thirds size against
       // the player. Enemies are people too — they should read at roughly the
       // player's scale, with size class stepping up from there.
-      const scale = clamp(e.radius / 14, 0.85, 2.6);
+      //
+      // `enemyDrawScale` then lifts the whole family: even at parity with the
+      // player a rank-and-file enemy was too small to pick out of a horde of
+      // two hundred. The ceiling moved with it, because bosses were already
+      // pinned at the old 2.6 and would otherwise have stopped growing while
+      // everything else caught up to them.
+      // `sprite.unit` cancels the atlas's integer-upscale rounding, so a mob's
+      // on-screen size follows its declared size and its hitbox rather than
+      // whichever side of 0.5 its grid happened to land on. Small fodder gains
+      // the most from that, which is exactly the class that read too small.
+      const scale = e.sprite.unit * clamp(e.radius / 14, 0.85, 2.6) * feel.enemyDrawScale;
       // Idle bob, offset per entity so a pack does not pulse in lockstep.
       const anim = ((run.time * 5 + e.uid * 0.37) | 0) & 1;
       r.drawSprite(e.sprite, x, y, e.behavior === 'ranged' || e.isBoss ? e.facing : 0,

@@ -92,6 +92,23 @@ export const feel = {
   particleLife: 0.5,
   particleDrag: 5.0,
 
+  // --- enemy presence --------------------------------------------------------
+  /**
+   * How big enemies are, as two SEPARATE numbers.
+   *
+   * `enemySizeMult` scales the hitbox (`e.radius`), which also moves the elite
+   * ring, the HP bar and the contact reach with it. `enemyDrawScale` scales only
+   * what you SEE. They are split because "the enemies are too small to read" is
+   * a readability complaint, not a request for a harder game — so the sprite
+   * grows a lot and the hitbox grows a little, which also means the visual is
+   * slightly more generous than the hitbox. That is the right way round.
+   * RANGE 1.0-2.0 both.
+   */
+  enemySizeMult: 1.14,
+  enemyDrawScale: 1.15,
+  /** Player draw scale. The sprite is deliberately larger than the 9px hitbox. */
+  playerDrawScale: 1.30,
+
   // --- enemy behaviour -------------------------------------------------------
   /** SPEC: soft separation so hordes spread into readable blobs. RANGE 0-260 */
   separationForce: 92,
@@ -153,6 +170,9 @@ export const FEEL_RANGES = {
   levelUpFreeze: [0, 0.6, 0.01],
   lowHpThreshold: [0.05, 0.6, 0.01],
   killStreakThreshold: [5, 100, 1],
+  enemySizeMult: [0.8, 2.2, 0.02],
+  enemyDrawScale: [0.8, 3.0, 0.05],
+  playerDrawScale: [0.8, 2.4, 0.02],
   separationForce: [0, 400, 5],
   separationRadius: [8, 60, 1],
   avoidanceForce: [0, 600, 10],

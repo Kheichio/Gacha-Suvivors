@@ -20,7 +20,7 @@
 // generically here. Nothing in this file compares a character id to a literal —
 // tests/run.js greps for exactly that and fails the build if it finds one.
 
-import { ui, PALETTE, RARITY_COLOR } from './widgets.js';
+import { ui, PALETTE, RARITY_COLOR, ellipsize } from './widgets.js';
 import { displayName, DEV_MODE, IS_TOUCH } from '../core/config.js';
 import { save } from '../core/save.js';
 import { input, ACT } from '../core/input.js';
@@ -39,7 +39,21 @@ class Hud {
     this.killStreakT = 0;
   }
 
-  reset() { this.hpGhost = 1; this.bossBarT = 0; this.introT = 0; }
+  reset() { this.hpGhost = 1; this.bossBarT = 0; this.introT = 0; this._portraitSprite = null; }
+
+  /**
+   * The HD portrait, resolved once per run.
+   *
+   * `def.portrait` is joined on in data/index.js and pre-rastered at boot. If
+   * the art layer has not published one, this degrades to the world sprite
+   * rather than to nothing — a HUD with no face is worse than a small one.
+   */
+  _portrait(p) {
+    if (this._portraitSprite && this._portraitFor === p.id) return this._portraitSprite;
+    this._portraitFor = p.id;
+    this._portraitSprite = p.def.portrait ? atlas.ensure(p.def.portrait) : p.sprite;
+    return this._portraitSprite;
+  }
 
   update(run, dt) {
     const p = run.player;
@@ -79,33 +93,61 @@ class Hud {
     if (input.held(ACT.STATS)) this._statSheet(r, run, W, H);
   }
 
-  // --- HP, armour, revives ---------------------------------------------------
+  // --- portrait, HP, armour, revives -----------------------------------------
   _topLeft(r, run, s) {
     const p = run.player;
-    const x = 20, y = 20;
-    const w = 300 * s, h = 26 * s;
+    const x = 20, y = 18;
+    const w = 356 * s, h = 30 * s;
 
-    // Portrait plate beside the bar — the sprite is already rastered, so this
-    // costs one drawImage and immediately says "this is you".
-    const port = 40 * s;
-    ui.panel(x, y - 2, port, port, { radius: 4, color: '#141a2b', borderColor: 'rgba(160,180,230,0.55)' });
-    if (p.sprite) {
-      const fit = (port - 8) / Math.max(p.sprite.w, p.sprite.h);
-      r.drawSprite(p.sprite, x + port / 2, y - 2 + port / 2, 0, fit, 1, false, 0);
+    // THE PORTRAIT. A dedicated high-resolution bust — its own atlas entry with
+    // its own id, drawn from data/sprites.js's `portraitFor()` — rather than the
+    // 24px world sprite scaled up. The world sprite has to read at a glance from
+    // across an arena; this sits two inches from the player's eye for twenty
+    // minutes and can afford real detail.
+    const port = 66 * s;
+    const rar = RARITY_COLOR[p.def.rarity] || PALETTE.border;
+    ui.panel(x, y, port, port, {
+      radius: 6, color: '#141a2b', borderColor: rar, borderWidth: 2.5,
+    });
+    // Rarity band across the top of the plate, matching the roster cards.
+    r.drawRect(x + 3, y + 3, port - 6, Math.max(3, port * 0.055), rar, 0.95);
+    // drawSprite culls against the CAMERA box; the HUD is screen space and only
+    // survived by accident. Open the window explicitly for the portrait blit.
+    const cmx = r.cullMinX, cMx = r.cullMaxX, cmy = r.cullMinY, cMy = r.cullMaxY;
+    r.cullMinX = -4000; r.cullMaxX = r.w + 4000;
+    r.cullMinY = -4000; r.cullMaxY = r.h + 4000;
+    const sp = this._portrait(p);
+    if (sp) {
+      const fit = (port - 12) / Math.max(sp.w, sp.h);
+      r.drawSprite(sp, x + port / 2, y + port / 2 + 2 * s, 0, fit, 1, p.flashT > 0, 0);
+    }
+    r.cullMinX = cmx; r.cullMaxX = cMx; r.cullMinY = cmy; r.cullMaxY = cMy;
+    if (p.isLowHp && !p.dead) {
+      // The plate itself pulses red under 25% — the portrait is the thing the
+      // eye is already on, so it is the cheapest place to put a warning.
+      const beat = 0.5 + 0.5 * Math.sin(run.time * feel.lowHpPulseHz * TAU);
+      r.strokeRect(x - 2, y - 2, port + 4, port + 4, '#ff4a6e', 3, 0.35 + beat * 0.5);
     }
 
-    const bx = x + port + 8;
-    const bw = w - port - 8;
-    ui.bar(bx, y, bw, h, p.hpFraction,
+    const bx = x + port + 10 * s;
+    const bw = w - port - 10 * s;
+    ui.text(displayName(p.def).split(' [')[0], bx, y + 8 * s, {
+      size: 13 * s, color: rar, weight: 800,
+    });
+    ui.text('S' + p.starLevel, bx + bw, y + 8 * s, {
+      size: 11 * s, color: PALETTE.textFaint, weight: 800, align: 'right', mono: true,
+    });
+    const by = y + 20 * s;
+    ui.bar(bx, by, bw, h, p.hpFraction,
            p.hpFraction > 0.5 ? '#4ee07a' : p.hpFraction > 0.25 ? '#ffd23f' : '#ff4a6e', {
       ghost: this.hpGhost, ghostColor: 'rgba(255,255,255,0.5)',
       segments: 10,
     });
-    ui.text(`${Math.ceil(p.hp)} / ${Math.round(p.maxHp)}`, bx + bw / 2, y + h / 2 + 1, {
-      size: 15 * s, color: '#ffffff', align: 'center', weight: 800, outline: true, mono: true,
+    ui.text(`${Math.ceil(p.hp)} / ${Math.round(p.maxHp)}`, bx + bw / 2, by + h / 2 + 1, {
+      size: 16 * s, color: '#ffffff', align: 'center', weight: 800, outline: true, mono: true,
     });
 
-    let yy = y + Math.max(h, 40 * s) + 8;
+    let yy = y + Math.max(port, h + 22 * s) + 8;
 
     // armour pips
     if (p.stats.armor > 0) {
@@ -235,109 +277,193 @@ class Hud {
   _buildStrip(r, run, W, H, s) {
     const p = run.player;
     const slots = run.buildSlots();
-    const ids = Object.keys(p.upgrades);
+    const ws = run.weapons;
 
-    // One tile per held upgrade, laid out in a bar directly above the XP bar.
-    // Bottom-centre is where the eye already goes for the XP fill, so the build
-    // sits in the player's natural glance path instead of hiding in a corner.
-    const n = ids.length + p.evolutions.length;
-    if (n === 0) return;
+    // EVERY POSITION IS DRAWN, FILLED OR NOT.
+    //
+    // The old strip drew only what you held, at 46px, which answered "what do I
+    // have" and never "how much more can I have" — so the level-up screen
+    // quietly refusing a new upgrade read as a bug rather than as the cap doing
+    // its job. Weapons make that worse: three slots is the single most
+    // important number in a build and it has to be visible at all times, before
+    // you spend the third one.
+    const WT = 62 * s;             // weapon tile
+    const WG = 8 * s;
+    const UT = 42 * s;             // upgrade tile
+    const UG = 4 * s;
+    const GG = 16 * s;             // gap between the ATK and UTL groups
+    const padX = 12 * s;
+    const headerH = 20 * s;
+    const labelH = 13 * s;
 
-    // Every measurement below is derived from ONE tile size so nothing can
-    // overlap: the icon, the level text and the fill ramp each get their own
-    // band inside the tile, and the header gets its own row above the grid.
-    const tile = 46 * s;
-    const gap = 5 * s;
-    const padX = 10 * s;
-    const headerH = 18 * s;
-    const cols = Math.max(1, Math.min(n, Math.floor((W * 0.80 - padX * 2) / (tile + gap))));
-    const rows = Math.ceil(n / cols);
-    const boxW = cols * (tile + gap) - gap + padX * 2;
-    const boxH = headerH + rows * (tile + gap) - gap + 8 * s;
+    const evos = [];
+    for (const eid of p.evolutions) {
+      const evo = run.data.evolutions.EVOLUTIONS_BY_ID[eid];
+      if (evo) evos.push(evo);
+    }
+
+    const nAtk = slots.max.offensive, nUtl = slots.max.utility;
+    const upRowW = (nAtk + nUtl + evos.length) * (UT + UG) - UG + GG +
+                   (evos.length ? GG : 0);
+    const wpRowW = ws.max * (WT + WG) - WG;
+    let boxW = Math.max(upRowW, wpRowW) + padX * 2;
+
+    // Shrink to fit rather than overflow: the plate is centred, and at 1024 or
+    // at uiScale 1.4 the full-width row does not fit.
+    const k = Math.min(1, (W * 0.94) / boxW);
+    const wt = WT * k, wg = WG * k, ut = UT * k, ug = UG * k, gg = GG * k;
+    const px = padX * k;
+    boxW = Math.max((nAtk + nUtl + evos.length) * (ut + ug) - ug + gg + (evos.length ? gg : 0),
+                    ws.max * (wt + wg) - wg) + px * 2;
+
+    const boxH = headerH + wt + labelH + ut + 12 * s;
     const bx = (W - boxW) / 2;
     // Sit clear of the XP bar (10*s tall + 4px) with real breathing room.
     const by = H - (10 * s + 4) - boxH - 10 * s;
 
     ui.panel(bx, by, boxW, boxH, {
-      radius: 5, color: 'rgba(16,21,35,0.90)',
+      radius: 6, color: 'rgba(16,21,35,0.92)',
       borderColor: 'rgba(150,170,225,0.45)', borderWidth: 2,
     });
 
-    // Slot counters on the header line — the cap has to be legible or the
-    // level-up screen suddenly refusing new upgrades reads as a bug.
+    // --- header: the two counters that used to be the only cap cue -----------
     const atkFull = slots.used.offensive >= slots.max.offensive;
     const utlFull = slots.used.utility >= slots.max.utility;
-    const hy = by + headerH / 2 + 1;
-    // Right-aligned counters measured from the right edge, so they cannot run
-    // into each other or off the plate however wide the box gets.
-    ui.text(`UTL ${slots.used.utility}/${slots.max.utility}`, bx + boxW - padX, hy, {
-      size: 10 * s, color: utlFull ? '#ffd23f' : PALETTE.textDim,
+    const hy = by + headerH / 2 + 2;
+    ui.text(`UTL ${slots.used.utility}/${nUtl}`, bx + boxW - px, hy, {
+      size: 11 * s, color: utlFull ? '#ffd23f' : PALETTE.textDim,
       weight: 800, mono: true, align: 'right',
     });
-    const utlW = r.measureText(`UTL ${slots.used.utility}/${slots.max.utility}`, 10 * s, 800);
-    ui.text(`ATK ${slots.used.offensive}/${slots.max.offensive}`,
-            bx + boxW - padX - utlW - 12 * s, hy, {
-      size: 10 * s, color: atkFull ? '#ffd23f' : PALETTE.textDim,
+    const utlW = r.measureText(`UTL ${slots.used.utility}/${nUtl}`, 11 * s, 800);
+    ui.text(`ATK ${slots.used.offensive}/${nAtk}`, bx + boxW - px - utlW - 14 * s, hy, {
+      size: 11 * s, color: atkFull ? '#ffd23f' : PALETTE.textDim,
       weight: 800, mono: true, align: 'right',
     });
-    ui.text('BUILD', bx + padX, hy, {
-      size: 10 * s, color: PALETTE.textFaint, weight: 800, mono: true,
+    ui.text(`WEAPONS ${ws.count}/${ws.max}`, bx + px, hy, {
+      size: 11 * s, color: ws.full ? '#ffd23f' : PALETTE.accent2,
+      weight: 800, mono: true,
     });
 
-    let i = 0;
-    const place = (ix) => ({
-      x: bx + padX + (ix % cols) * (tile + gap),
-      y: by + headerH + Math.floor(ix / cols) * (tile + gap),
-    });
+    // --- the weapon slots ----------------------------------------------------
+    const wy = by + headerH;
+    const wx0 = bx + (boxW - (ws.max * (wt + wg) - wg)) / 2;
+    for (let i = 0; i < ws.max; i++) {
+      const x = wx0 + i * (wt + wg);
+      const w = ws.slots[i];
+      if (!w) {
+        ui.slot(x, wy, wt, wt, { label: 'EMPTY', size: 9 * s });
+        continue;
+      }
+      const maxL = ws.maxLevel(w);
+      const evolved = w.evolved;
+      const maxed = ws.isMaxed(w);
+      const frac = evolved ? 1 : w.level / maxL;
+      const col = evolved ? '#ffd76a' : maxed ? '#7bf59a' : '#6ad8ff';
+      const pulse = evolved ? 0.6 + 0.4 * Math.sin(run.time * 3) : 1;
 
-    for (const id of ids) {
-      const up = run.data.upgrades.UPGRADES_BY_ID[id];
-      if (!up) continue;
-      const lv = p.upgrades[id];
-      const maxed = lv >= up.maxLevel;
-      const { x, y } = place(i++);
-
-      r.drawRect(x, y, tile, tile, maxed ? 'rgba(255,210,63,0.16)' : 'rgba(8,11,20,0.85)', 1);
-      r.strokeRect(x, y, tile, tile, maxed ? '#ffd23f' : 'rgba(150,170,225,0.40)', 2, 1);
-      // Three bands that cannot collide: icon centred at 32%, level text at
-      // 68%, ramp pinned to the foot. All explicitly baselined 'middle' so the
-      // glyph box never bleeds into the band below it.
-      ui.text(up.icon || '◆', x + tile / 2, y + tile * 0.32, {
-        size: 16 * s, align: 'center', baseline: 'middle',
+      r.drawRoundRect(x, wy, wt, wt, 5,
+                      evolved ? 'rgba(255,215,106,0.20)' : 'rgba(8,11,20,0.9)', 1);
+      r.strokeRect(x, wy, wt, wt, col, evolved ? 2.5 : 2, pulse);
+      ui.text(ws.iconOf(w), x + wt / 2, wy + wt * 0.30, {
+        size: 22 * s * k, align: 'center', baseline: 'middle',
       });
-      ui.text(`${lv}/${up.maxLevel}`, x + tile / 2, y + tile * 0.68, {
-        size: 10 * s, color: maxed ? '#ffd23f' : PALETTE.textDim,
-        align: 'center', baseline: 'middle', weight: 800, mono: true,
-      });
-      r.drawRect(x + 4, y + tile - 7, tile - 8, 3, 'rgba(5,7,14,0.8)', 1);
-      r.drawRect(x + 4, y + tile - 7, (tile - 8) * (lv / up.maxLevel), 3,
-                 maxed ? '#ffd23f' : '#6ad8ff', 1);
-    }
-
-    // Evolutions get a gold tile — they are the payoff and should stand out.
-    for (const eid of p.evolutions) {
-      const evo = run.data.evolutions.EVOLUTIONS_BY_ID[eid];
-      if (!evo) continue;
-      const { x, y } = place(i++);
-      const pulse = 0.6 + 0.4 * Math.sin(run.time * 3);
-      r.drawRect(x, y, tile, tile, 'rgba(255,215,106,0.22)', 1);
-      r.strokeRect(x, y, tile, tile, '#ffd76a', 2, pulse);
-      ui.text(evo.icon || '✦', x + tile / 2, y + tile * 0.32, {
-        size: 16 * s, align: 'center', baseline: 'middle',
-      });
-      ui.text('EVO', x + tile / 2, y + tile * 0.68, {
-        size: 9 * s, color: '#ffd76a', align: 'center', baseline: 'middle',
+      ui.text(evolved ? 'EVOLVED' : `Lv ${w.level}/${maxL}`, x + wt / 2, wy + wt * 0.60, {
+        size: 10 * s * k, color: col, align: 'center', baseline: 'middle',
         weight: 800, mono: true,
       });
+      ui.text(ellipsize(r, ws.nameOf(w).split(' [')[0], wt - 6 * k, 9 * k),
+              x + wt / 2, wy + wt * 0.80, {
+        size: 9 * s * k, color: PALETTE.textFaint, align: 'center', baseline: 'middle',
+      });
+      r.drawRect(x + 4, wy + wt - 7, wt - 8, 3.5, 'rgba(5,7,14,0.8)', 1);
+      r.drawRect(x + 4, wy + wt - 7, (wt - 8) * frac, 3.5, col, 1);
     }
+
+    // --- the upgrade grid: every position, filled or empty --------------------
+    const ly = wy + wt + labelH * 0.5;
+    const uy = wy + wt + labelH;
+    const held = { offensive: [], utility: [] };
+    for (const id in p.upgrades) {
+      const up = run.data.upgrades.UPGRADES_BY_ID[id];
+      if (!up) continue;
+      held[run.data.upgrades.BUILD_SLOTS.bucketOf(up)].push(up);
+    }
+
+    const rowW = (nAtk + nUtl + evos.length) * (ut + ug) - ug + gg + (evos.length ? gg : 0);
+    let ux = bx + (boxW - rowW) / 2;
+
+    ui.text('ATK', ux, ly, { size: 9 * s, color: PALETTE.textFaint, weight: 800, mono: true });
+    ux = this._upGroup(r, run, held.offensive, nAtk, ux, uy, ut, ug, s, k, '#ff8a6b');
+    ux += gg;
+    ui.text('UTL', ux, ly, { size: 9 * s, color: PALETTE.textFaint, weight: 800, mono: true });
+    ux = this._upGroup(r, run, held.utility, nUtl, ux, uy, ut, ug, s, k, '#6ad8ff');
+
+    if (evos.length) {
+      ux += gg;
+      ui.text('EVO', ux, ly, { size: 9 * s, color: '#ffd76a', weight: 800, mono: true });
+      for (const evo of evos) {
+        const pulse = 0.6 + 0.4 * Math.sin(run.time * 3);
+        r.drawRoundRect(ux, uy, ut, ut, 4, 'rgba(255,215,106,0.22)', 1);
+        r.strokeRect(ux, uy, ut, ut, '#ffd76a', 2, pulse);
+        ui.text(evo.icon || '✦', ux + ut / 2, uy + ut * 0.38, {
+          size: 17 * s * k, align: 'center', baseline: 'middle',
+        });
+        ui.text('EVO', ux + ut / 2, uy + ut * 0.76, {
+          size: 8 * s * k, color: '#ffd76a', align: 'center', baseline: 'middle',
+          weight: 800, mono: true,
+        });
+        ux += ut + ug;
+      }
+    }
+  }
+
+  /** One bucket of the upgrade grid: the held tiles, then the empty positions. */
+  _upGroup(r, run, list, max, x, y, ut, ug, s, k, accent) {
+    for (let i = 0; i < max; i++) {
+      const up = list[i];
+      if (!up) {
+        ui.slot(x, y, ut, ut, { radius: 4 });
+        x += ut + ug;
+        continue;
+      }
+      const lv = run.player.upgrades[up.id];
+      const maxed = lv >= up.maxLevel;
+      const col = maxed ? '#ffd23f' : accent;
+      r.drawRoundRect(x, y, ut, ut, 4,
+                      maxed ? 'rgba(255,210,63,0.16)' : 'rgba(8,11,20,0.88)', 1);
+      r.strokeRect(x, y, ut, ut, maxed ? '#ffd23f' : 'rgba(150,170,225,0.45)', 2, 1);
+      ui.text(up.icon || '◆', x + ut / 2, y + ut * 0.32, {
+        size: 16 * s * k, align: 'center', baseline: 'middle',
+      });
+      ui.text(`${lv}/${up.maxLevel}`, x + ut / 2, y + ut * 0.66, {
+        size: 9 * s * k, color: maxed ? '#ffd23f' : PALETTE.textDim,
+        align: 'center', baseline: 'middle', weight: 800, mono: true,
+      });
+      r.drawRect(x + 3, y + ut - 6, ut - 6, 3, 'rgba(5,7,14,0.8)', 1);
+      r.drawRect(x + 3, y + ut - 6, (ut - 6) * (lv / up.maxLevel), 3, col, 1);
+      x += ut + ug;
+    }
+    return x;
   }
 
   // --- relics + buffs --------------------------------------------------------
   _bottomRight(r, run, W, H, s) {
     const p = run.player;
-    const size = 34 * s;
+    const size = 38 * s;
+    const maxRelics = run.data.relics.RELIC_SLOTS;
     let x = W - 18 - size;
     const y = H - 42 * s - size;
+
+    // Relic slots draw their maximum too, for the same reason the build grid
+    // does: "you can carry three" is a rule the player has to be able to see
+    // before the fourth one forces a swap decision on them mid-fight.
+    for (let i = maxRelics - 1; i >= p.relics.length; i--) {
+      ui.slot(x, y, size, size, { radius: 8 });
+      x -= size + 6;
+    }
+    ui.text(`RELICS ${p.relics.length}/${maxRelics}`, W - 18, y - 8 * s, {
+      size: 10 * s, color: PALETTE.textFaint, align: 'right', weight: 800, mono: true,
+    });
 
     for (let i = p.relics.length - 1; i >= 0; i--) {
       const id = p.relics[i];
@@ -472,7 +598,9 @@ class Hud {
   // --- TAB: detailed stats ---------------------------------------------------
   _statSheet(r, run, W, H) {
     const p = run.player;
-    const w = 420, h = 520;
+    // Taller than it was: the sheet now carries the arsenal as well as the
+    // stats, and a sheet that runs off its own panel is worse than no sheet.
+    const w = 460, h = Math.min(660, H - 40);
     const x = (W - w) / 2, y = (H - h) / 2;
     r.overlay('#05060d', 0.6);
     ui.panel(x, y, w, h, { color: 'rgba(10,13,24,0.97)' });
@@ -505,6 +633,27 @@ class Hud {
     for (const [k, v] of rows) {
       ui.statRow(k, v, x + 20, yy, w - 40);
       yy += 19;
+    }
+
+    // Weapons first — they are the biggest single contributor to what is
+    // actually happening on screen, so they lead the sheet, not trail it.
+    yy += 8;
+    ui.text('WEAPONS  ' + run.weapons.count + '/' + run.weapons.max,
+            x + 20, yy, { size: 12, color: PALETTE.accent2, weight: 800 });
+    yy += 18;
+    // `wep`, not `w`: `w` is this function's panel width, and a `for (const w …)`
+    // here shadows it, so the row width silently becomes NaN.
+    for (const wep of run.weapons.slots) {
+      const maxL = run.weapons.maxLevel(wep);
+      const tail = wep.evolved ? 'EVOLVED' : 'Lv ' + wep.level + '/' + maxL;
+      ui.statRow(`${run.weapons.iconOf(wep)}  ${run.weapons.nameOf(wep).split(' [')[0]}`,
+                 tail, x + 20, yy, w - 40,
+                 { color: wep.evolved ? '#ffd76a' : run.weapons.isMaxed(wep) ? '#7bf59a' : PALETTE.text });
+      yy += 17;
+    }
+    for (let i = run.weapons.count; i < run.weapons.max; i++) {
+      ui.text('·  empty slot', x + 20, yy, { size: 11, color: PALETTE.textFaint });
+      yy += 17;
     }
 
     // Upgrade list

@@ -130,6 +130,129 @@ class LevelUpScreen {
       return;
     }
 
+    // --- weapon cards ---------------------------------------------------------
+    // These three branches MUST come before the stat-card body below, which
+    // reads `choice.up.tier` unconditionally: a card kind with no branch of its
+    // own throws inside the render loop and blanks the whole screen.
+    if (choice.kind === 'weaponEvo') {
+      const evo = choice.evo;
+      const wname = run.weapons.nameOf(choice.w);
+      ui.card(x, y, CARD_W, CARD_H, 6, { focused });
+      ui.text('EVOLVE', x + CARD_W / 2, y + 26, {
+        size: 12, color: '#ffd76a', align: 'center', weight: 800,
+      });
+      ui.text(evo.icon || '♾', x + CARD_W / 2, y + 84, { size: 52, align: 'center' });
+      ui.text(ellipsize(r, evo.name, CARD_W - 26, 19, 800), x + CARD_W / 2, y + 140, {
+        size: fitSize(r, evo.name, CARD_W - 26, 19, 800), color: '#ffd76a',
+        align: 'center', weight: 800,
+      });
+      ui.text('ALWAYS ACTIVE', x + CARD_W / 2, y + 160, {
+        size: 11, color: '#7bf59a', align: 'center', weight: 800,
+      });
+      const elines = wrapText(r, evo.desc, CARD_W - 30, 13, 600);
+      for (let i = 0; i < Math.min(5, elines.length); i++) {
+        ui.text(elines[i], x + CARD_W / 2, y + 186 + i * 17, {
+          size: 13, color: PALETTE.text, align: 'center', weight: 600,
+        });
+      }
+      ui.text(wname + ' — MAX', x + CARD_W / 2, y + CARD_H - 24, {
+        size: 11, color: PALETTE.textFaint, align: 'center',
+      });
+      if (ui.button('card' + index, x, y, CARD_W, CARD_H, '', { radius: 12, invisible: true })) {
+        run.chooseUpgrade(index);
+      }
+      return;
+    }
+
+    if (choice.kind === 'newWeapon') {
+      const def = choice.def;
+      const rar = def.tier === 'epic' ? 5 : def.tier === 'rare' ? 4 : 3;
+      ui.card(x, y, CARD_W, CARD_H, rar, { focused });
+      ui.text('NEW WEAPON', x + CARD_W / 2, y + 24, {
+        size: 12, color: '#7bf59a', align: 'center', weight: 800,
+      });
+      ui.text(def.icon || '⚔', x + CARD_W / 2, y + 82, { size: 48, align: 'center' });
+      ui.text(ellipsize(r, def.name, CARD_W - 26, 20, 800), x + CARD_W / 2, y + 138, {
+        size: fitSize(r, def.name, CARD_W - 26, 20, 800), color: RARITY_COLOR[rar],
+        align: 'center', weight: 800,
+      });
+      const dlines = wrapText(r, def.desc, CARD_W - 30, 13, 600);
+      for (let i = 0; i < Math.min(4, dlines.length); i++) {
+        ui.text(dlines[i], x + CARD_W / 2, y + 172 + i * 17, {
+          size: 13, color: PALETTE.text, align: 'center', weight: 600,
+        });
+      }
+      // The slot cost, stated plainly. Taking a third weapon is the last one you
+      // will ever take, and the card has to say so before you click it.
+      const used = run.weapons.count, max = run.weapons.max;
+      ui.text(`WEAPON SLOT ${used + 1} / ${max}`, x + CARD_W / 2, y + CARD_H - 52, {
+        size: 12, color: used + 1 >= max ? '#ffd23f' : PALETTE.accent2,
+        align: 'center', weight: 800, mono: true,
+      });
+      if (used + 1 >= max) {
+        ui.text('your last slot', x + CARD_W / 2, y + CARD_H - 36, {
+          size: 11, color: '#ffd23f', align: 'center', weight: 700,
+        });
+      }
+      ui.text('[' + (index + 1) + ']', x + CARD_W / 2, y + CARD_H - 15, {
+        size: 11, color: PALETTE.textFaint, align: 'center', mono: true,
+      });
+      if (ui.button('card' + index, x, y, CARD_W, CARD_H, '', { radius: 12, invisible: true })) {
+        run.chooseUpgrade(index);
+      }
+      return;
+    }
+
+    if (choice.kind === 'weapon') {
+      const w = choice.w;
+      const lvl = choice.level;
+      const maxL = run.weapons.maxLevel(w);
+      const row = w.signature ? run.data.weapons.SIGNATURE_LEVELS[lvl - 1]
+                              : w.def.levels[lvl - 1];
+      const rar = w.signature ? 5 : w.def.tier === 'epic' ? 5 : w.def.tier === 'rare' ? 4 : 3;
+      ui.card(x, y, CARD_W, CARD_H, rar, { focused });
+      ui.text(w.signature ? 'SIGNATURE' : 'WEAPON', x + CARD_W / 2, y + 24, {
+        size: 12, color: w.signature ? '#ffd76a' : PALETTE.accent2,
+        align: 'center', weight: 800,
+      });
+      ui.text(run.weapons.iconOf(w), x + CARD_W / 2, y + 82, { size: 48, align: 'center' });
+      const wname = run.weapons.nameOf(w).split(' [')[0];
+      ui.text(ellipsize(r, wname, CARD_W - 26, 20, 800), x + CARD_W / 2, y + 138, {
+        size: fitSize(r, wname, CARD_W - 26, 20, 800), color: RARITY_COLOR[rar],
+        align: 'center', weight: 800,
+      });
+      ui.text(`Lv ${lvl} / ${maxL}`, x + CARD_W / 2, y + 162, {
+        size: 13, color: PALETTE.textDim, align: 'center', weight: 800, mono: true,
+      });
+      // SECTION 10's rule, applied to weapons: never "improves the weapon" —
+      // always the specific thing this specific level buys.
+      const nlines = wrapText(r, (row && row.note) || '', CARD_W - 30, 15, 700);
+      for (let i = 0; i < Math.min(3, nlines.length); i++) {
+        ui.text(nlines[i], x + CARD_W / 2, y + 194 + i * 19, {
+          size: 15, color: PALETTE.text, align: 'center', weight: 700,
+        });
+      }
+      if (lvl >= maxL) {
+        ui.text('next: EVOLUTION', x + CARD_W / 2, y + CARD_H - 52, {
+          size: 12, color: '#ffd76a', align: 'center', weight: 800,
+        });
+      }
+      const pipW = Math.min(14, (CARD_W - 40) / maxL);
+      const pipY = y + CARD_H - 34;
+      const pipX = x + CARD_W / 2 - (maxL * pipW) / 2;
+      for (let i = 0; i < maxL; i++) {
+        r.drawRect(pipX + i * pipW + 2, pipY, pipW - 4, 5,
+                   i < lvl ? RARITY_COLOR[rar] : 'rgba(255,255,255,0.14)', 1);
+      }
+      ui.text('[' + (index + 1) + ']', x + CARD_W / 2, y + CARD_H - 15, {
+        size: 11, color: PALETTE.textFaint, align: 'center', mono: true,
+      });
+      if (ui.button('card' + index, x, y, CARD_W, CARD_H, '', { radius: 12, invisible: true })) {
+        run.chooseUpgrade(index);
+      }
+      return;
+    }
+
     if (choice.kind === 'gold') {
       ui.card(x, y, CARD_W, CARD_H, 3, { focused });
       ui.text('⭐', x + CARD_W / 2, y + 110, { size: 60, align: 'center' });
@@ -350,12 +473,39 @@ class LevelUpScreen {
 
     ui.title('PAUSED', W / 2, H * 0.16, { size: 44, align: 'center' });
 
-    // Evolution recipes live here. SECTION 10: "A hidden recipe is a wasted recipe."
     const p = run.player;
-    const hints = run.data.evolutions.EVOLUTION_HINTS;
-    ui.text('EVOLUTIONS', W * 0.5, H * 0.26, { size: 14, color: PALETTE.accent, align: 'center', weight: 800 });
     const colW = 460;
-    let y = H * 0.30;
+
+    // YOUR ARSENAL. Same reasoning as the evolution recipes below it: a weapon
+    // you cannot see the level of is a weapon you cannot plan around, and the
+    // "this one is maxed, take the evolve card" moment has to be legible before
+    // the card shows up rather than after.
+    ui.text('WEAPONS  ' + run.weapons.count + ' / ' + run.weapons.max,
+            W * 0.5, H * 0.20, { size: 14, color: PALETTE.accent2, align: 'center', weight: 800 });
+    let wy = H * 0.24;
+    for (const w of run.weapons.slots) {
+      const maxL = run.weapons.maxLevel(w);
+      const done = w.evolved;
+      const ready = run.weapons.isMaxed(w);
+      const col = done ? '#ffd76a' : ready ? '#7bf59a' : PALETTE.text;
+      const tail = done ? 'EVOLVED'
+                 : ready ? 'MAX — can evolve into ' + run.weapons.evolutionOf(w).name
+                 : 'Lv ' + w.level + ' / ' + maxL;
+      ui.text(`${run.weapons.iconOf(w)}  ${run.weapons.nameOf(w).split(' [')[0]}`,
+              W / 2 - colW / 2, wy, { size: 13, color: col, weight: 700 });
+      ui.text(tail, W / 2 + colW / 2, wy, { size: 12, color: col, align: 'right' });
+      wy += 19;
+    }
+    for (let i = run.weapons.count; i < run.weapons.max; i++) {
+      ui.text('·  empty weapon slot', W / 2 - colW / 2, wy,
+              { size: 13, color: PALETTE.textFaint });
+      wy += 19;
+    }
+
+    // Evolution recipes live here. SECTION 10: "A hidden recipe is a wasted recipe."
+    const hints = run.data.evolutions.EVOLUTION_HINTS;
+    ui.text('EVOLUTIONS', W * 0.5, wy + 14, { size: 14, color: PALETTE.accent, align: 'center', weight: 800 });
+    let y = wy + 34;
     for (const hint of hints) {
       const evo = run.data.evolutions.EVOLUTIONS_BY_ID[hint.id];
       const haveUp = p.isMaxed(evo.requires.upgrade);

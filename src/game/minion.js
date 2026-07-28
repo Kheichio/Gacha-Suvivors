@@ -46,12 +46,14 @@ function resetMinion(m) {
   m.target = null; m.sprite = null; m.visual = null; m.onExpire = null; m.tag = '';
 }
 
-let nextUid = 1;
+/** Per-system, so a uid means the same thing on run 2 as on run 1. */
+let uidCounter = 1;
 
 export class MinionSystem {
   constructor(run) {
     this.run = run;
     this.pool = new Pool(makeMinion, resetMinion, 32, CONFIG.MAX_MINIONS, true);
+    this._nextUid = uidCounter;
   }
 
   get items() { return this.pool.items; }
@@ -77,7 +79,7 @@ export class MinionSystem {
     }
     const m = this.pool.spawn();
     if (!m) return null;
-    m.uid = nextUid++;
+    m.uid = this._nextUid++;
     m.role = o.role || MINION_ROLE.MELEE;
     m.x = m.px = x; m.y = m.py = y;
     m.vx = 0; m.vy = 0;

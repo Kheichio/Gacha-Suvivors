@@ -42,6 +42,27 @@ export class Camera {
     this.lookX = 0; this.lookY = 0;
   }
 
+  /**
+   * Return to a neutral camera. CALLED AT THE START OF EVERY RUN.
+   *
+   * This is a determinism fix, not a tidiness one. `zoom`, `targetZoom` and the
+   * punch timers are module-level state that outlived the run that set them —
+   * and `viewHalfW/viewHalfH`, which enemy.js uses to decide what to CULL and
+   * what counts as off-screen, are derived from `scale = baseZoom * zoom`. So a
+   * run that ended mid-punch (or under a sustained zoom override) handed the
+   * next run a different culling radius on tick zero, and the balance harness
+   * quietly measured a different game for every character after the first: the
+   * same character on the same seed came out anywhere between 229s and 307s.
+   */
+  reset() {
+    this.zoom = 1;
+    this.targetZoom = 1;
+    this._punchT = 0; this._punchDur = 0; this._punchAmt = 0;
+    this.lookX = 0; this.lookY = 0;
+    this.shakeX = 0; this.shakeY = 0;
+    this.clampToBounds = true;
+  }
+
   /** Punch OUT to `amt` extra zoom over `dur` seconds, then ease back. */
   punch(amt = 0.06, dur = 0.4) {
     this._punchAmt = Math.max(this._punchAmt, amt);

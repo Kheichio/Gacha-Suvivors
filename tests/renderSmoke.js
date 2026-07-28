@@ -49,6 +49,20 @@ class RecordingCtx {
     this.drawn = [];          // {x, y, w, h, alpha}
     this.zeroAlphaDraws = 0;
     this.offscreenDraws = 0;
+    /**
+     * Draws with a NaN coordinate or size. A real canvas silently discards
+     * these, so a `const w` shadowed by a loop variable — which is exactly how
+     * one of the HUD panels lost its width — renders as nothing at all, with no
+     * error and no failing assertion anywhere.
+     */
+    this.nanDraws = 0;
+  }
+
+  _record(rec) {
+    this.drawn.push(rec);
+    if (!isFinite(rec.x) || !isFinite(rec.y) || !isFinite(rec.w) || !isFinite(rec.h)) {
+      this.nanDraws++;
+    }
   }
 
   _apply(x, y) {
@@ -70,8 +84,7 @@ class RecordingCtx {
     const p = this._apply(x, y);
     const sw = (w === undefined ? (img && img.width) || 0 : w) * this._m[0];
     const sh = (h === undefined ? (img && img.height) || 0 : h) * this._m[3];
-    const rec = { x: p.x, y: p.y, w: sw, h: sh, alpha: this.globalAlpha };
-    this.drawn.push(rec);
+    this._record({ x: p.x, y: p.y, w: sw, h: sh, alpha: this.globalAlpha });
     if (this.globalAlpha <= 0.001) this.zeroAlphaDraws++;
     // Off-screen by a wide margin means a broken transform, not culling —
     // the renderer culls before it ever reaches drawImage.
@@ -82,12 +95,17 @@ class RecordingCtx {
   fillRect(x, y, w, h) {
     this.calls.fillRect++;
     const p = this._apply(x, y);
-    this.drawn.push({ x: p.x, y: p.y, w: w * this._m[0], h: h * this._m[3], alpha: this.globalAlpha });
+    this._record({ x: p.x, y: p.y, w: w * this._m[0], h: h * this._m[3], alpha: this.globalAlpha });
   }
 
-  fillText() { this.calls.fillText++; }
-  strokeText() { this.calls.strokeText++; }
-  strokeRect() { this.calls.stroke++; }
+  // Text position is checked for NaN as well as geometry: a label drawn at a
+  // NaN x simply does not appear, and nothing anywhere reports it.
+  fillText(s, x, y) { this.calls.fillText++; if (!isFinite(x) || !isFinite(y)) this.nanDraws++; }
+  strokeText(s, x, y) { this.calls.strokeText++; if (!isFinite(x) || !isFinite(y)) this.nanDraws++; }
+  strokeRect(x, y, w, h) {
+    this.calls.stroke++;
+    if (!isFinite(x) || !isFinite(y) || !isFinite(w) || !isFinite(h)) this.nanDraws++;
+  }
   beginPath() {}
   closePath() {}
   moveTo() {}
@@ -296,6 +314,59 @@ describe('render / the screen is not black', () => {
     run.state = RUN_STATE.PLAYING;
   });
 
+  it('the HUD renders a FULL, EVOLVED arsenal — slots, placeholders and portrait', () => {
+    // The build strip draws every position it could ever hold, not just the
+    // ones that are filled, and the portrait is its own atlas entry. Both are
+    // the kind of layout that renders "fine" while being wrong.
+    ctx.reset();
+    run.weapons.slots[0].level = 8;
+    run.weapons.evolve(run.weapons.slots[0].id);
+    for (const def of data.weapons.WEAPONS) {
+      const rec = run.weapons.add(def.id);
+      if (!rec) break;
+      rec.level = 8;
+      run.weapons.evolve(def.id);
+    }
+    assert.equal(run.weapons.count, data.weapons.WEAPON_SLOTS, 'the arsenal did not fill');
+    runScene.render(renderer, 0.5);
+    assert.equal(ctx.nanDraws, 0, `${ctx.nanDraws} HUD draws had a NaN coordinate or size`);
+    assert.atLeast(ctx.calls.fillText, 20, 'the enlarged build strip drew almost no text');
+  });
+
+  it('the TAB stat sheet renders the arsenal without a NaN width', () => {
+    // The exact bug this guards: `for (const w of run.weapons.slots)` inside a
+    // function whose panel width is also `w`. Legal JS, silently NaN, invisible.
+    ctx.reset();
+    input.down[ACT.STATS] = true;
+    runScene.render(renderer, 0.5);
+    input.down[ACT.STATS] = false;
+    assert.equal(ctx.nanDraws, 0, `${ctx.nanDraws} stat-sheet draws had a NaN coordinate or size`);
+    assert.atLeast(ctx.calls.fillText, 30, 'the stat sheet drew almost no text');
+  });
+
+  it('every weapon level-up card kind renders', () => {
+    // levelUpScreen._card reads `choice.up.tier` unconditionally after its two
+    // early-returns, so a card kind with no branch throws inside the render loop
+    // and blanks the whole screen.
+    const wsys = run.weapons;
+    const kinds = [
+      { kind: 'newWeapon', def: data.weapons.WEAPONS[0] },
+      { kind: 'weapon', w: wsys.slots[1], level: 3 },
+      { kind: 'weaponEvo', w: wsys.slots[1], evo: wsys.evolutionOf(wsys.slots[1]) },
+      { kind: 'gold', amount: 120 },
+    ];
+    run.state = RUN_STATE.LEVEL_UP;
+    for (const choice of kinds) {
+      ctx.reset();
+      run.levelUpChoices = [choice];
+      runScene.render(renderer, 0.5);
+      assert.atLeast(ctx.calls.fillText, 3, `the ${choice.kind} card drew no text`);
+      assert.equal(ctx.nanDraws, 0, `the ${choice.kind} card produced a NaN draw`);
+    }
+    run.levelUpChoices = null;
+    run.state = RUN_STATE.PLAYING;
+  });
+
   it('a boss renders, including its health bar', () => {
     ctx.reset();
     const stage = run.stage;
@@ -395,6 +466,10 @@ describe('render / the screen is not black', () => {
         const total = ctx.calls.drawImage + ctx.calls.fillRect + ctx.calls.fill + ctx.calls.arc;
         if (total < 10) failures.push(`${id}: only ${total} draw ops`);
         if (ctx.calls.fillText < 2) failures.push(`${id}: rendered no text`);
+        // A NaN coordinate is discarded by a real canvas: the widget is simply
+        // absent, with no error. It is the single most common way a layout
+        // rewrite loses a panel.
+        if (ctx.nanDraws > 0) failures.push(`${id}: ${ctx.nanDraws} draws at a NaN position/size`);
         if (scene.exit) scene.exit();
       } catch (e) {
         failures.push(`${id}: ${(e && e.message) || String(e)}`);

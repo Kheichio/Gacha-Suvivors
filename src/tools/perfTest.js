@@ -50,6 +50,17 @@ export function runPerfTest(game, data) {
     const up = data.upgrades.UPGRADES_BY_ID[id];
     for (let i = 0; i < up.maxLevel; i++) run.player.addUpgrade(id);
   }
+  // A FULL, EVOLVED ARSENAL. Weapons are now the dominant source of live
+  // projectiles — a perf run without them measures a build no real player has
+  // and reports a frame budget that does not exist.
+  run.weapons.slots[0].level = 8;
+  run.weapons.evolve(run.weapons.slots[0].id);
+  for (const w of data.weapons.WEAPONS) {
+    const rec = run.weapons.add(w.id);
+    if (!rec) continue;
+    rec.level = 8;
+    run.weapons.evolve(w.id);
+  }
   run.player.level = 60;
 
   // Fill the arena.

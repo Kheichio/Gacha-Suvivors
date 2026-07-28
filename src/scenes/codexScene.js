@@ -23,6 +23,13 @@
 // The ELEMENTS page exists because DECISIONS.md §26 made the seven elements a
 // real ±15% system instead of decoration. If the game applies it, the codex has
 // to teach it.
+//
+// SCROLLING. Three surfaces here overflow and all three scroll the same way: a
+// wheel gated on the surface's own rect, a DRAGGABLE ui.scrollbar, and a pair of
+// ▲/▼ buttons on a plate for keyboard and gamepad. The card grid scrolls by ROWS
+// (a wheel notch used to turn a whole page), and the ELEMENTS page scrolls at all
+// (its matrix ran to y≈749 against a 720px screen, so the bottom two rows of the
+// chart and the caption under them were unreachable).
 
 import { ui, PALETTE, RARITY_COLOR, RARITY_NAME, wrapText, formatCount } from '../ui/widgets.js';
 import { input } from '../core/input.js';
@@ -102,10 +109,15 @@ export const codexScene = {
   enter(params, mgr) {
     this.manager = mgr || this.manager;
     this.tab = 0;
-    this.page = 0;
+    this.gridRow = 0;
     this.sel = 0;
     this.detailScroll = 0;
     this._detailMax = 0;
+    this.elementScroll = 0;
+    this._elementMax = 0;
+    // See the card loop in _renderBrowser: the focus index as it stood when the
+    // last frame finished declaring cards.
+    this._focusMark = -1;
 
     const data = this.manager.data;
 
@@ -247,7 +259,15 @@ export const codexScene = {
         r.drawRoundRect(x, tabY, tabW, tabH, 10, PALETTE.accent, 0.10);
       }
       if (ui.button('tab' + t.id, x, tabY, tabW, tabH, label, { size: 14 })) {
-        if (this.tab !== i) { this.tab = i; this.page = 0; this.sel = 0; this.detailScroll = 0; }
+        if (this.tab !== i) {
+          this.tab = i;
+          this.gridRow = 0; this.sel = 0; this.detailScroll = 0; this.elementScroll = 0;
+          // Park the cursor on the tab that was just chosen. Tabs declare
+          // different numbers of focusable things, and the previous answer to
+          // that was four DISABLED 10x10 buttons at (-400,-400) — arrow
+          // navigation could settle on one and the highlight simply vanished.
+          ui.focus = ui.itemCount - 1;
+        }
       }
       if (active) r.drawRect(x + 12, tabY + tabH - 3, tabW - 24, 3, PALETTE.accent, 0.95);
     }
@@ -257,9 +277,6 @@ export const codexScene = {
 
     if (TABS[this.tab].id === 'elements') {
       this._renderElements(r, M, bodyY, W - M * 2, bodyH);
-      // Keep the focus index count stable across tabs: the four navigation
-      // buttons still exist, they are simply disabled and parked off-screen.
-      this._parkedButtons(r, W, H);
       ui.focusGrid(3);
       ui.end();
       return;
@@ -270,12 +287,17 @@ export const codexScene = {
     ui.end();
   },
 
-  /** Disabled stand-ins so every tab has the same focus-index layout. */
-  _parkedButtons(r, W, H) {
-    ui.button('pgPrev', -400, -400, 10, 10, '', { disabled: true });
-    ui.button('pgNext', -400, -400, 10, 10, '', { disabled: true });
-    ui.button('dScrollUp', -400, -400, 10, 10, '', { disabled: true });
-    ui.button('dScrollDown', -400, -400, 10, 10, '', { disabled: true });
+  /**
+   * Point the detail panel at a different entry.
+   *
+   * Re-selecting what is already open must NOT reset the scroll: the cursor on
+   * its way from the grid down to the PREV/NEXT buttons crosses the bottom row,
+   * and throwing away the reading position every time it did was the bug.
+   */
+  _select(i) {
+    if (this.sel === i) return;
+    this.sel = i;
+    this.detailScroll = 0;
   },
 
   // --- grid + detail ---------------------------------------------------------
@@ -289,23 +311,33 @@ export const codexScene = {
 
     const cols = 3;
     const gap = 10;
-    const cardW = (gridW - gap * (cols - 1)) / cols;
+    const barW = 12;
+    const cardW = (gridW - barW - 6 - gap * (cols - 1)) / cols;
     const cardH = 76;
-    const footerH = 44;
+    const footerH = 48;
     const gridH = h - footerH;
     const rows = Math.max(1, Math.floor((gridH + gap) / (cardH + gap)));
-    const pageSize = cols * rows;
-    const pages = Math.max(1, Math.ceil(list.length / pageSize));
-    this.page = clamp(this.page, 0, pages - 1);
-    const start = this.page * pageSize;
-    const end = Math.min(list.length, start + pageSize);
+    const totalRows = Math.max(1, Math.ceil(list.length / cols));
+    const maxRow = Math.max(0, totalRows - rows);
 
-    // Mouse wheel over the grid turns pages.
-    const mx = input.mouseX / (r.dpr || 1), my = input.mouseY / (r.dpr || 1);
-    const overGrid = mx >= x && mx <= x + gridW && my >= y && my <= y + h;
-    if (overGrid && input.wheel) this.page = clamp(this.page + input.wheel, 0, pages - 1);
+    // The grid scrolls BY ROWS, gated on the grid's own rect. One notch used to
+    // turn a whole page — a dozen entries gone in a flick of the finger — and it
+    // did so wherever the pointer happened to be inside the body.
+    if (input.wheel && ui.pointIn(x, y, gridW, gridH)) this.gridRow += input.wheel;
+    this.gridRow = clamp(Math.round(this.gridRow), 0, maxRow);
+    const start = this.gridRow * cols;
+    const end = Math.min(list.length, start + cols * rows);
 
-    // ---- cards (focus 6 .. 6+n-1) ----------------------------------------
+    // ---- cards ------------------------------------------------------------
+    // KEYBOARD AND GAMEPAD FOCUS PREVIEWS; THE POINTER DOES NOT. Hover also
+    // takes ui.focus, so selecting on focus meant sweeping the cursor down to the
+    // PREV/NEXT buttons re-selected every card it crossed — and each of those
+    // threw away the detail panel's scroll position.
+    //
+    // The discriminator: hover can only move the focus DURING this loop, so a
+    // focus index that is already different when the loop STARTS was moved by
+    // ui.end()'s arrow/stick navigation on the previous frame.
+    const kbNav = ui.focus !== this._focusMark;
     for (let i = start; i < end; i++) {
       const entry = list[i];
       const col = (i - start) % cols;
@@ -314,23 +346,26 @@ export const codexScene = {
       const cy = y + row * (cardH + gap);
       const idx = ui.itemCount;
       const seen = this._seen(kind, entry);
-      if (ui.button('card' + entry.id, cx, cy, cardW, cardH, '')) {
-        this.sel = i; this.detailScroll = 0;
-      }
-      if (ui.focus === idx) {
-        if (this.sel !== i) { this.sel = i; this.detailScroll = 0; }
-      }
+      if (ui.button('card' + entry.id, cx, cy, cardW, cardH, '')) this._select(i);
+      else if (kbNav && ui.focus === idx) this._select(i);
       this._drawCard(r, cx, cy, cardW, cardH, kind, entry, seen);
     }
+    this._focusMark = ui.focus;
 
-    // ---- page footer ------------------------------------------------------
-    const fy = y + gridH + 6;
-    const prevHit = ui.button('pgPrev', x, fy, 92, 34, '‹ PREV', { size: 13, disabled: pages <= 1 });
-    const nextHit = ui.button('pgNext', x + 100, fy, 92, 34, 'NEXT ›', { size: 13, disabled: pages <= 1 });
-    if (prevHit) this.page = (this.page - 1 + pages) % pages;
-    if (nextHit) this.page = (this.page + 1) % pages;
-    ui.text('PAGE ' + (this.page + 1) + ' / ' + pages + '   ·   ' + list.length + ' ENTRIES',
-      x + 204, fy + 17, { size: 12, color: PALETTE.textFaint, mono: true });
+    this.gridRow = clamp(Math.round(ui.scrollbar('gridBar', x + gridW - barW + 2, y, 8, gridH,
+      this.gridRow, rows, totalRows)), 0, maxRow);
+
+    // ---- footer: page jumps + where you are -------------------------------
+    const fy = y + gridH + 8;
+    const canPage = maxRow > 0;
+    if (ui.button('pgPrev', x, fy, 96, 36, '‹ PREV', { size: 13, disabled: !canPage })) {
+      this.gridRow = Math.max(0, this.gridRow - rows);
+    }
+    if (ui.button('pgNext', x + 104, fy, 96, 36, 'NEXT ›', { size: 13, disabled: !canPage })) {
+      this.gridRow = Math.min(maxRow, this.gridRow + rows);
+    }
+    ui.text('SHOWING ' + (list.length ? start + 1 : 0) + '–' + end + '  OF  ' + list.length,
+      x + 212, fy + 18, { size: 12, color: PALETTE.textFaint, mono: true });
 
     // ---- detail -----------------------------------------------------------
     this.sel = clamp(this.sel, 0, Math.max(0, list.length - 1));
@@ -339,13 +374,18 @@ export const codexScene = {
 
     ui.panel(detailX, y, detailW, h, { radius: 14, color: PALETTE.panel });
 
-    const overDetail = mx >= detailX && mx <= detailX + detailW && my >= y && my <= y + h;
-    if (overDetail && input.wheel) this.detailScroll += input.wheel * 46;
+    // The scroll controls get a plate of their own at the foot of the panel.
+    // They used to be two 34x30 buttons floating directly on top of the text,
+    // beside a painted 3px rect with a FIXED 60px thumb that nothing could drag.
+    const railH = 48;
+    const viewH = h - railH - 4;
+
+    if (input.wheel && ui.pointIn(detailX, y, detailW, viewH)) this.detailScroll += input.wheel * 46;
     this.detailScroll = clamp(this.detailScroll, 0, this._detailMax);
 
     const padX = 18, padY = 16;
-    const innerW = detailW - padX * 2 - 14;
-    r.clipRect(detailX + 2, y + 2, detailW - 4, h - 4);
+    const innerW = detailW - padX * 2 - 18;
+    r.clipRect(detailX + 2, y + 2, detailW - 4, viewH);
     const top = y + padY - this.detailScroll;
     let endY = top;
     if (entry) {
@@ -357,16 +397,24 @@ export const codexScene = {
     }
     r.unclip();
 
-    this._detailMax = Math.max(0, (endY - top) - (h - padY * 2));
-    // Scroll affordance + the two focusable scroll buttons (index stability).
+    this._detailMax = Math.max(0, (endY - top) + padY * 2 - viewH);
     const canScroll = this._detailMax > 1;
-    const sx = detailX + detailW - 84, sy = y + h - 40;
-    if (canScroll) {
-      r.drawRect(detailX + detailW - 6, y + 10 + (h - 20 - 60) * (this._detailMax ? this.detailScroll / this._detailMax : 0),
-        3, 60, PALETTE.textFaint, 0.6);
+
+    this.detailScroll = ui.scrollbar('detailBar', detailX + detailW - 16, y + 10, 8, viewH - 20,
+      this.detailScroll, viewH, viewH + this._detailMax);
+
+    const ry = y + h - railH;
+    ui.panel(detailX + 2, ry, detailW - 4, railH - 2, { radius: 10, color: 'rgba(6,8,16,0.94)' });
+    ui.text(canScroll ? 'wheel · drag the bar · or' : 'all of it fits',
+      detailX + 14, ry + railH / 2 - 1, { size: 11, color: PALETTE.textFaint });
+    const bw = 46, bh = 36;
+    const bx = detailX + detailW - 12 - bw * 2 - 8;
+    if (ui.button('dScrollUp', bx, ry + 5, bw, bh, '▲', { size: 14, disabled: !canScroll })) {
+      this.detailScroll -= viewH * 0.6;
     }
-    if (ui.button('dScrollUp', sx, sy, 34, 30, '▲', { size: 13, disabled: !canScroll })) this.detailScroll -= 90;
-    if (ui.button('dScrollDown', sx + 40, sy, 34, 30, '▼', { size: 13, disabled: !canScroll })) this.detailScroll += 90;
+    if (ui.button('dScrollDown', bx + bw + 8, ry + 5, bw, bh, '▼', { size: 14, disabled: !canScroll })) {
+      this.detailScroll += viewH * 0.6;
+    }
     this.detailScroll = clamp(this.detailScroll, 0, this._detailMax);
   },
 
@@ -756,13 +804,26 @@ export const codexScene = {
   },
 
   // --- the ELEMENTS page -----------------------------------------------------
+  /**
+   * This page has ALWAYS overflowed: at 1280x720 the element matrix ran to
+   * y≈749 against a 720px screen, so its bottom two rows and the caption under
+   * them were off the bottom with no clip, no scroll and no input able to reach
+   * them. It now scrolls like every other overflowing surface in this file.
+   */
   _renderElements(r, x, y, w, h) {
     const E = this.manager.data.elements;
     ui.panel(x, y, w, h, { radius: 14 });
 
+    const railH = 48;
+    const viewH = h - railH - 4;
+    if (input.wheel && ui.pointIn(x, y, w, viewH)) this.elementScroll += input.wheel * 52;
+    this.elementScroll = clamp(this.elementScroll, 0, this._elementMax);
+
     const px = x + 24;
-    const pw = w - 48;
-    let yy = y + 22;
+    const pw = w - 48 - 18;
+    r.clipRect(x + 2, y + 2, w - 4, viewH);
+    const top = y + 22 - this.elementScroll;
+    let yy = top;
 
     ui.title('SEVEN ELEMENTS, ONE SMALL NUMBER', px, yy + 8, { size: 20 });
     yy += 34;
@@ -824,9 +885,10 @@ export const codexScene = {
     yy += 6;
     const ids = this.elementIds;
     const n = ids.length;
-    const availH = (y + h) - yy - 20;
-    const cell = Math.max(28, Math.min(64, Math.min((pw - 96) / n, availH / (n + 1))));
-    const gridX = px + 96;
+    // Sized against the WIDTH only. It used to also divide by the remaining
+    // height, which is how a chart that does not fit ended up drawn anyway.
+    const cell = clamp((pw - 100) / n, 34, 64);
+    const gridX = px + 100;
 
     for (let c = 0; c < n; c++) {
       const el = E.ELEMENTS[ids[c]];
@@ -853,5 +915,25 @@ export const codexScene = {
     // colour alone (SECTION 13 accessibility).
     ui.text('The percentage is written in every cell — the colour is a convenience, never the message.',
       px, gy + n * cell + 16, { size: 11, color: PALETTE.textFaint });
+    r.unclip();
+
+    this._elementMax = Math.max(0, (gy + n * cell + 34) - top - viewH);
+    const canScroll = this._elementMax > 1;
+    this.elementScroll = ui.scrollbar('elBar', x + w - 16, y + 10, 8, viewH - 20,
+      this.elementScroll, viewH, viewH + this._elementMax);
+
+    const ry = y + h - railH;
+    ui.panel(x + 2, ry, w - 4, railH - 2, { radius: 10, color: 'rgba(6,8,16,0.94)' });
+    ui.text(canScroll ? 'wheel · drag the bar · or' : 'all of it fits',
+      x + 16, ry + railH / 2 - 1, { size: 11, color: PALETTE.textFaint });
+    const bw = 46, bh = 36;
+    const bx = x + w - 14 - bw * 2 - 8;
+    if (ui.button('elScrollUp', bx, ry + 5, bw, bh, '▲', { size: 14, disabled: !canScroll })) {
+      this.elementScroll -= viewH * 0.6;
+    }
+    if (ui.button('elScrollDown', bx + bw + 8, ry + 5, bw, bh, '▼', { size: 14, disabled: !canScroll })) {
+      this.elementScroll += viewH * 0.6;
+    }
+    this.elementScroll = clamp(this.elementScroll, 0, this._elementMax);
   },
 };

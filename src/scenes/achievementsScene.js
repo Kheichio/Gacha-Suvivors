@@ -10,6 +10,13 @@
 // so nothing here spoils it early. Note that none of the three real unlock gates
 // (DECISIONS.md §24) is hidden; you can always see what you are working toward.
 //
+// THE LIST is 50 slots deep and roughly 42 of them are off-screen at any window
+// size, so it carries a real draggable scrollbar rather than a painted 3px
+// indicator, and the wheel only turns it while the cursor is actually over it.
+// Rows are clickable — a click replays the achievement's line — and they now say
+// so, both in the strapline and on the focused row, because a 1200px click
+// target with no affordance is a trap either way.
+//
 // PROGRESS is read straight out of save.data.stats / roster / stages / gacha.
 // It is computed here rather than through Achievements.progress() for one
 // reason: the engine's `_value()` reads cond.stage and cond.tier, while the data
@@ -292,6 +299,25 @@ export const achievementsScene = {
     this.scroll = clamp(this.scroll, 0, Math.max(0, slots.length - 1));
   },
 
+  _slotHeight(slot) { return slot.type === 'head' ? HEAD_H : ROW_H; },
+
+  /**
+   * The scroll position at which the LAST slot sits flush with the bottom.
+   * `slots.length - 1` let the list scroll until one row sat alone on an
+   * otherwise empty panel, which a draggable scrollbar makes very easy to hit.
+   */
+  _maxScroll(listH) {
+    let s = this.slots.length;
+    let used = 0;
+    while (s > 0) {
+      const h = this._slotHeight(this.slots[s - 1]);
+      if (used + h > listH) break;
+      used += h;
+      s--;
+    }
+    return Math.max(0, Math.min(s, Math.max(0, this.slots.length - 1)));
+  },
+
   // --- render ----------------------------------------------------------------
   render(r, alpha) {
     ui.begin(r, 'achievements');
@@ -305,7 +331,8 @@ export const achievementsScene = {
 
     // ---- header -----------------------------------------------------------
     ui.title('ACHIEVEMENTS', M, 34, { size: 32 });
-    ui.text('Rewards pay out the instant you earn them. Nothing here needs collecting — this is the scoreboard.',
+    ui.text('Rewards pay out the instant you earn them. Nothing here needs collecting — this is the scoreboard. ' +
+      'Click a row to hear its line again.',
       M, 62, { size: 13, color: PALETTE.textFaint });
 
     const barW = Math.min(340, W * 0.28);
@@ -319,7 +346,10 @@ export const achievementsScene = {
     // ---- controls (focus 0, 1) -------------------------------------------
     const ctrlY = 84;
     if (ui.backButton(M, ctrlY)) { audio.play('uiBack'); this.manager.go('hub'); }
-    if (ui.button('filter', M + 100, ctrlY, 220, 34, FILTERS[this.filter].label, { size: 13 })) {
+    // M + 120, not M + 100: ui.backButton is 108 wide now and the two hit boxes
+    // overlapped, with BACK silently winning the shared 8px because it is
+    // declared first.
+    if (ui.button('filter', M + 120, ctrlY, 220, 40, FILTERS[this.filter].label, { size: 13 })) {
       this.filter = (this.filter + 1) % FILTERS.length;
       this.scroll = 0;
       this._rebuild();
@@ -327,33 +357,41 @@ export const achievementsScene = {
     const hiddenLine = this.hiddenLeft === 0
       ? 'Every hidden one has shown itself. There is nothing left up the sleeve.'
       : this.hiddenLeft + ' of these are hidden. They will not tell you what they are. That is the joke.';
-    if (W > 900) ui.text(hiddenLine, M + 332, ctrlY + 17, { size: 12, color: PALETTE.textFaint });
+    if (W > 900) ui.text(hiddenLine, M + 352, ctrlY + 20, { size: 12, color: PALETTE.textFaint });
 
     // ---- the list ---------------------------------------------------------
     const listY = ctrlY + 48;
     const listH = H - listY - M;
     const listW = W - M * 2;
 
-    // Wheel scrolls by one slot, wherever the cursor is on this screen.
-    if (input.wheel) this.scroll = clamp(this.scroll + input.wheel, 0, Math.max(0, this.slots.length - 1));
-    this.scroll = clamp(this.scroll, 0, Math.max(0, this.slots.length - 1));
+    const maxScroll = this._maxScroll(listH);
+    const rowW = listW - (maxScroll > 0 ? 14 : 0);
 
-    r.clipRect(M, listY, listW, listH);
+    // The wheel belongs to the LIST, not to the whole screen: a notch with the
+    // cursor parked on BACK or on the filter button used to page 50 slots.
+    if (input.wheel && ui.pointIn(M, listY, listW, listH)) {
+      this.scroll = clamp(this.scroll + input.wheel, 0, maxScroll);
+    }
+    this.scroll = clamp(this.scroll, 0, maxScroll);
+
+    // clipRect clips DRAWING only, so every row button carries the clip rect.
+    const clip = { x: M, y: listY, w: rowW, h: listH };
+    r.clipRect(M, listY, rowW, listH);
     let y = listY;
     let firstRowIdx = -1, lastRowIdx = -1;
     let i = this.scroll;
     for (; i < this.slots.length; i++) {
       const slot = this.slots[i];
-      const h = slot.type === 'head' ? HEAD_H : ROW_H;
+      const h = this._slotHeight(slot);
       if (y + h > listY + listH) break;
       if (slot.type === 'head') {
-        this._drawHeader(r, M, y, listW, slot);
+        this._drawHeader(r, M, y, rowW, slot);
       } else {
         const idx = ui.itemCount;
         if (firstRowIdx < 0) firstRowIdx = idx;
         lastRowIdx = idx;
-        if (ui.button('ach' + slot.a.id, M, y, listW, ROW_H - 6, '')) this._poke(slot.a);
-        this._drawRow(r, M, y, listW, ROW_H - 6, slot.a, ui.focus === idx);
+        if (ui.button('ach' + slot.a.id, M, y, rowW, ROW_H - 6, '', { clip })) this._poke(slot.a);
+        this._drawRow(r, M, y, rowW, ROW_H - 6, slot.a, ui.focus === idx);
       }
       y += h;
     }
@@ -364,15 +402,16 @@ export const achievementsScene = {
         M + 12, listY + 30, { size: 14, color: PALETTE.textFaint });
     }
 
-    // Scroll affordance.
-    const maxScroll = Math.max(0, this.slots.length - 1);
+    // A real, DRAGGABLE scrollbar. 42 of the 50 slots are off-screen at a
+    // typical window size and the old affordance was a 3px painted rectangle —
+    // there was no path to the bottom of this list without a wheel.
     if (maxScroll > 0) {
-      const t = this.scroll / maxScroll;
-      const visible = Math.max(1, i - this.scroll);
-      const bh = Math.max(30, listH * (visible / this.slots.length));
-      r.drawRect(M + listW - 3, listY + (listH - bh) * t, 3, bh, PALETTE.textFaint, 0.6);
+      const seen = this.slots.length - maxScroll;
+      this.scroll = Math.round(ui.scrollbar('achScroll', M + listW - 10, listY, 8, listH,
+        this.scroll, seen, this.slots.length));
+      this.scroll = clamp(this.scroll, 0, maxScroll);
       if (i < this.slots.length) {
-        ui.text('▾ ' + (this.slots.length - i) + ' MORE', M + listW - 20, listY + listH - 10,
+        ui.text('▾ ' + (this.slots.length - i) + ' MORE', M + rowW - 8, listY + listH - 10,
           { size: 11, color: PALETTE.textFaint, align: 'right', weight: 700 });
       }
     }
@@ -431,7 +470,9 @@ export const achievementsScene = {
     const textX = x + 58;
     const textW = w - 58 - statusW - 28;
 
-    // Left rail: gold when earned, dim when not.
+    // Left rail: gold when earned, dim when not. It is NOT the focus cue — it
+    // used to be overpainted in accent on the focused row, which meant hovering
+    // an earned row changed a 3px stripe from gold to gold-ish and nothing else.
     r.drawRect(x + 3, y + 8, 3, h - 16, unlocked ? PALETTE.gold : PALETTE.textFaint, unlocked ? 1 : 0.4);
 
     ui.text(secret ? '❓' : (a.icon || '🏆'), x + 30, y + h / 2 - 4, {
@@ -485,8 +526,18 @@ export const achievementsScene = {
       }
     }
 
+    // The real focus/hover treatment: a bracket frame, a fat accent rail, and a
+    // stated affordance. A row this wide has to say what happens when you hit
+    // it, and it is the only thing on the screen that has an answer.
     if (focused) {
-      r.drawRect(x + 3, y + 8, 3, h - 16, PALETTE.accent, 1);
+      ui.brackets(x + 1, y, w - 2, h, PALETTE.borderHot, 18, 3);
+      r.drawRect(x + 1, y + 4, 5, h - 8, PALETTE.accent, 1);
+      r.drawRect(x + 1, y, w - 2, 1.5, PALETTE.borderHot, 0.5);
+      r.drawRect(x + 1, y + h - 1.5, w - 2, 1.5, PALETTE.borderHot, 0.5);
+      // Under the icon, which is the only column with room on every row shape.
+      ui.text('▸ REPLAY', x + 30, y + h - 8, {
+        size: 9, color: PALETTE.accent, weight: 800, align: 'center',
+      });
     }
   },
 };

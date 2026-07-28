@@ -13,8 +13,13 @@
 // NAVIGATION IS THE TOOLKIT'S. Every interactive thing on this screen is a
 // ui.button, so keyboard, mouse and gamepad all work without a line of input
 // code here (SECTION 13 acceptance criterion #1). The one raw input read is the
-// mouse wheel, which only scrolls the sheet and has a focusable ▲/▼ equivalent
-// beside it for the other two devices.
+// mouse wheel, which only scrolls the sheet (and only while the pointer is over
+// it) and has a focusable ▲/▼ rail plus a draggable ui.scrollbar beside it.
+//
+// THE FILTERS ARE SEGMENTED, NOT CYCLING. Three cycling buttons meant reaching
+// the last element cost seven clicks and the other six states were invisible
+// until you had clicked past them. A pointer picks directly now; a stick still
+// walks the chips one at a time.
 //
 // Nothing is laid out against 1920x1080 — every number below is derived from
 // r.w / r.h, and the sheet re-flows (two text columns above 620px, one below).
@@ -161,6 +166,9 @@ export const rosterScene = {
     this.sheetScroll = 0;
     this._sheet = null;
     this._sheetKey = '';
+    // See the card loop in _drawGrid: the focus index as it stood when the last
+    // frame finished declaring cards.
+    this._focusMark = -1;
     this._view = [];
     this._refresh();
   },
@@ -209,6 +217,11 @@ export const rosterScene = {
     this._view = out;
   },
 
+  /**
+   * Point the sheet at somebody else. Re-selecting whoever is already open is a
+   * no-op, so the read position survives — sweeping the pointer across the grid
+   * used to reset the sheet you were halfway through reading, once per card.
+   */
   _select(id) {
     if (this.selected === id) return;
     this.selected = id;
@@ -263,42 +276,87 @@ export const rosterScene = {
     if (back) { audio.play('uiBack'); this.manager.go('hub'); }
   },
 
+  /**
+   * One row of the filter bar: a label, then one directly-clickable chip per
+   * state. `textOf(value, chipW)` may shorten itself when the chip is narrow;
+   * `tipOf(value)` supplies the tooltip that carries the meaning an icon alone
+   * cannot (SECTION 13 — never let a glyph be the only label).
+   */
+  _segment(r, id, x, y, w, h, labW, label, values, active, textOf, tipOf, choose) {
+    ui.text(label, x, y + h / 2, { size: 11, color: PALETTE.textFaint, weight: 800 });
+    const n = values.length;
+    const gap = 4;
+    const cw = Math.max(24, (w - labW - gap * (n - 1)) / n);
+    for (let i = 0; i < n; i++) {
+      const cx = x + labW + i * (cw + gap);
+      const on = i === active;
+      if (ui.button(id + i, cx, y, cw, h, '', {
+        radius: 8, tooltip: tipOf ? tipOf(values[i]) : null,
+      })) { choose(i); }
+      // CHOSEN is not FOCUSED. The toolkit paints focus; this paints the state,
+      // over the top, so the two are never confused for one another.
+      if (on) {
+        r.drawRoundRect(cx + 2, y + 2, cw - 4, h - 4, 6, PALETTE.accent, 0.18);
+        r.drawRect(cx + 6, y + h - 6, cw - 12, 3, PALETTE.accent, 0.95);
+      }
+      ui.text(fit(r, textOf(values[i], cw), cw - 8, 12, 800), cx + cw / 2, y + h / 2 - 1, {
+        size: 12, color: on ? PALETTE.accent : PALETTE.textDim, align: 'center', weight: 800,
+      });
+    }
+  },
+
   // --- left: the grid --------------------------------------------------------
   _drawGrid(r, px, py, pw, ph) {
     const ip = 12;
     const fx = px + ip;
     const fw = pw - ip * 2;
+    const D = this.manager.data;
 
-    // Filter / sort row. Three cycling buttons keeps this navigable on a stick.
-    const fh = 32;
-    const fbw = (fw - 16) / 3;
-    const rar = RARITY_FILTERS[this.rarityIdx];
-    const ele = this.elementIds[this.elementIdx];
-    const eleDef = this.manager.data.elements.ELEMENTS[ele];
+    // Three segmented rows. Every state is on screen and one click away — the
+    // old cycling buttons hid 14 of the 17 states behind repeated clicking.
+    const fh = ph >= 460 ? 34 : 28;
+    const rowGap = 6;
+    const labW = 66;
+    let fy = py + ip;
 
-    if (ui.button('f_rar', fx, py + ip, fbw, fh,
-      'RARITY: ' + (rar ? RARITY_NAME[rar] : 'ALL'),
-      { size: 13, tooltip: 'Cycle the rarity filter.' })) {
-      this.rarityIdx = (this.rarityIdx + 1) % RARITY_FILTERS.length;
-      this._refresh();
-    }
-    if (ui.button('f_ele', fx + fbw + 8, py + ip, fbw, fh,
-      'ELEMENT: ' + (eleDef ? eleDef.icon + ' ' + eleDef.name.toUpperCase() : 'ALL'),
-      { size: 13, tooltip: 'fire > steel > lightning > water > fire. Shadow and Light beat each other. Spirit is neutral. Worth ' + pctAbs(this.manager.data.elements.ELEMENT_BONUS) + ' either way.' })) {
-      this.elementIdx = (this.elementIdx + 1) % this.elementIds.length;
-      this._refresh();
-    }
-    if (ui.button('f_sort', fx + (fbw + 8) * 2, py + ip, fbw, fh,
-      'SORT: ' + SORT_MODES[this.sortIdx], { size: 13 })) {
-      this.sortIdx = (this.sortIdx + 1) % SORT_MODES.length;
-      this._refresh();
-    }
+    const elementTip = 'fire > steel > lightning > water > fire. Shadow and Light beat each other. ' +
+      'Spirit is neutral. Worth ' + pctAbs(D.elements.ELEMENT_BONUS) + ' either way.';
+
+    this._segment(r, 'f_rar', fx, fy, fw, fh, labW, 'RARITY', RARITY_FILTERS, this.rarityIdx,
+      (v) => (v ? RARITY_NAME[v] : 'ALL'),
+      (v) => (v ? 'Only ' + RARITY_NAME[v] + ' characters.' : 'Every rarity.'),
+      (i) => { this.rarityIdx = i; this._refresh(); });
+    fy += fh + rowGap;
+
+    this._segment(r, 'f_ele', fx, fy, fw, fh, labW, 'ELEMENT', this.elementIds, this.elementIdx,
+      (id, cw) => {
+        if (id === 'all') return 'ALL';
+        const el = D.elements.ELEMENTS[id];
+        const full = el.icon + ' ' + el.name.toUpperCase();
+        // Narrow chips fall back to the glyph; the tooltip and the count line
+        // below both still spell the element out in words.
+        return r.measureText(full, 12 * (ui.scale || 1), 800) <= cw - 8 ? full : el.icon;
+      },
+      (id) => (id === 'all' ? 'Every element. ' + elementTip
+                            : D.elements.ELEMENTS[id].name.toUpperCase() + '. ' + elementTip),
+      (i) => { this.elementIdx = i; this._refresh(); });
+    fy += fh + rowGap;
+
+    this._segment(r, 'f_sort', fx, fy, fw, fh, labW, 'SORT', SORT_MODES, this.sortIdx,
+      (v) => (v === 'OWNED FIRST' ? 'OWNED' : v), null,
+      (i) => { this.sortIdx = i; this._refresh(); });
+    fy += fh;
 
     const view = this._view;
-    const listY = py + ip + fh + 8;
-    ui.text(view.length === this.chars.length
-      ? 'All ' + this.chars.length + ' of them.'
-      : 'Showing ' + view.length + ' of ' + this.chars.length + '.',
+    const listY = fy + 8;
+    const ele = this.elementIds[this.elementIdx];
+    const eleDef = D.elements.ELEMENTS[ele];
+    const filterWords = (RARITY_FILTERS[this.rarityIdx] ? RARITY_NAME[RARITY_FILTERS[this.rarityIdx]] + '  ·  ' : '') +
+      (eleDef ? eleDef.icon + ' ' + eleDef.name.toUpperCase() + '  ·  ' : '') +
+      SORT_MODES[this.sortIdx];
+    ui.text(fit(r, (view.length === this.chars.length
+      ? 'All ' + this.chars.length + ' of them'
+      : 'Showing ' + view.length + ' of ' + this.chars.length) + '  ·  ' + filterWords, fw, 12, 600),
       fx, listY + 8, { size: 12, color: PALETTE.textFaint });
 
     const gy = listY + 20;
@@ -308,6 +366,7 @@ export const rosterScene = {
         ui.text('Nobody matches that. Loosen a filter.', fx, gy + 24,
           { size: 14, color: PALETTE.textDim });
       }
+      this._focusMark = ui.focus;
       return 2;
     }
 
@@ -326,7 +385,16 @@ export const rosterScene = {
 
     const equipped = this.manager.shared.characterId;
 
-    r.clipRect(px + 2, gy - 2, pw - 4, gh + 4);
+    // r.clipRect() clips DRAWING only — hit-testing goes straight through it, so
+    // every button below is handed the same rect via `clip` or a card scrolled
+    // half off the bottom stays fully clickable while being invisible.
+    const clip = { x: px + 2, y: gy - 2, w: pw - 4, h: gh + 4 };
+    // Hover can only move the focus DURING this loop, so a focus index that is
+    // already different when the loop STARTS was moved by ui.end()'s arrow/stick
+    // navigation last frame. That is how the keyboard previews and the pointer
+    // does not — see the `kbNav` branch below.
+    const kbNav = ui.focus !== this._focusMark;
+    r.clipRect(clip.x, clip.y, clip.w, clip.h);
     for (let i = 0; i < view.length; i++) {
       const c = view[i];
       const col = i % cols, row = (i / cols) | 0;
@@ -338,12 +406,15 @@ export const rosterScene = {
       const rc = RARITY_COLOR[c.rarity] || PALETTE.border;
       const idx = ui.itemCount;
 
-      if (ui.button('c_' + c.id, x, y, cellW, cellH, '', { radius: 12 })) {
+      if (ui.button('c_' + c.id, x, y, cellW, cellH, '', { radius: 12, clip })) {
         this._select(c.id);
       }
       // Focus follows the stick/arrows: highlighting a card previews it, which
-      // is the whole reason the sheet is on screen at the same time.
-      if (ui.focus === idx) this._select(c.id);
+      // is the whole reason the sheet is on screen at the same time. A MOUSE
+      // hover does not preview — hover also takes ui.focus, and sweeping the
+      // pointer across 19 cards on the way somewhere else reset the sheet's
+      // scroll position nineteen times.
+      else if (kbNav && ui.focus === idx) this._select(c.id);
 
       // rarity wash + base strip
       r.drawRoundRect(x + 2, y + 2, cellW - 4, cellH * 0.34, 10, rc, e.owned ? 0.16 : 0.04);
@@ -408,6 +479,7 @@ export const rosterScene = {
       }
     }
     r.unclip();
+    this._focusMark = ui.focus;
     return cols;
   },
 
@@ -464,13 +536,13 @@ export const rosterScene = {
     const bodyBot = fy - 10;
     const bodyH = Math.max(60, bodyBot - bodyTop);
 
-    // Scroll affordance: ▲ / ▼ buttons on the right rail (keyboard + gamepad),
-    // and the wheel over the panel (mouse). Both drive the same offset.
-    const railW = 30;
-    const contentW = cw - railW - 8;
+    // The scroll rail. It used to be two 30x30 buttons with a painted 2px track
+    // and a 4px thumb between them that was neither clickable nor draggable —
+    // a mouse without a wheel could not reach the bottom of any sheet.
+    const railW = 40;
+    const btnH = 36;
+    const contentW = cw - railW - 10;
     const sbX = hx + cw - railW;
-    const up = ui.button('sc_up', sbX, bodyTop, railW, 30, '▲', { size: 13, radius: 8 });
-    const dn = ui.button('sc_dn', sbX, bodyTop + bodyH - 30, railW, 30, '▼', { size: 13, radius: 8 });
 
     const key = c.id + '|' + Math.round(contentW) + '|' + (e.owned ? 1 : 0) + '|' +
                 (e.starLevel || 1) + '|' + (e.bond || 0) + '|' + (ui.scale || 1);
@@ -481,11 +553,15 @@ export const rosterScene = {
     const sheet = this._sheet;
     const twoCol = contentW >= 620;
     const total = twoCol ? Math.max(sheet.hA, sheet.hB) : sheet.hA + sheet.hB;
-    const maxScroll = Math.max(0, total - bodyH + 8);
+    const visible = Math.max(1, bodyH - 8);
+    const maxScroll = Math.max(0, total - visible);
 
-    const mx = input.mouseX / (r.dpr || 1), my = input.mouseY / (r.dpr || 1);
-    const overPanel = mx >= px && mx <= px + pw && my >= bodyTop && my <= bodyTop + bodyH;
-    if (input.wheel && overPanel) this.sheetScroll += input.wheel * 56;
+    const up = ui.button('sc_up', sbX, bodyTop, railW, btnH, '▲',
+      { size: 13, radius: 8, disabled: maxScroll <= 0 });
+    const dn = ui.button('sc_dn', sbX, bodyTop + bodyH - btnH, railW, btnH, '▼',
+      { size: 13, radius: 8, disabled: maxScroll <= 0 });
+
+    if (input.wheel && ui.pointIn(px, bodyTop, pw, bodyH)) this.sheetScroll += input.wheel * 56;
     if (up) this.sheetScroll -= bodyH * 0.6;
     if (dn) this.sheetScroll += bodyH * 0.6;
     this.sheetScroll = clamp(this.sheetScroll, 0, maxScroll);
@@ -501,13 +577,9 @@ export const rosterScene = {
     }
     r.unclip();
 
-    if (maxScroll > 0) {
-      const t = this.sheetScroll / maxScroll;
-      const trackY = bodyTop + 34, trackH = bodyH - 68;
-      const bh = Math.max(22, trackH * (bodyH / total));
-      r.drawRect(sbX + railW / 2 - 1, trackY, 2, trackH, PALETTE.border, 1);
-      r.drawRect(sbX + railW / 2 - 2, trackY + (trackH - bh) * t, 4, bh, PALETTE.accent, 0.8);
-    }
+    this.sheetScroll = ui.scrollbar('sheetBar', sbX + railW / 2 - 5, bodyTop + btnH + 6, 10,
+      Math.max(12, bodyH - btnH * 2 - 12), this.sheetScroll, visible, total);
+    this.sheetScroll = clamp(this.sheetScroll, 0, maxScroll);
   },
 
   _drawFooter(r, x, y, w, h, c, e) {
@@ -541,13 +613,17 @@ export const rosterScene = {
         x + 12, y + 38, { size: 12, color: PALETTE.accent, weight: 700 });
     }
 
-    const by = y + h - 44;
+    // 36px, not 34 — and the tooltip is pinned to the bottom of the panel, so it
+    // relies on the toolkit flipping it ABOVE the button when there is no room
+    // below. There never is: this button sits ~80px off the bottom of the screen.
+    const btnH = 36;
+    const by = y + h - btnH - 8;
     const bw = w - 24;
     const upW = Math.round(bw * 0.58);
     const upLabel = maxed ? 'S5 — MAXED'
       : !e.owned ? 'NOT OWNED'
       : 'RAISE TO S' + next + '  ·  ' + comma(cost) + ' 💌';
-    if (ui.button('star_up', x + 12, by, upW, 34, upLabel, {
+    if (ui.button('star_up', x + 12, by, upW, btnH, upLabel, {
       size: 14,
       disabled: !e.owned || maxed || !affordable,
       tooltip: maxed ? null : 'Star levels are permanent and never reset.',
@@ -564,7 +640,7 @@ export const rosterScene = {
     }
 
     const equipped = this.manager.shared.characterId === c.id;
-    if (ui.button('equip', x + 12 + upW + 8, by, bw - upW - 8, 34,
+    if (ui.button('equip', x + 12 + upW + 8, by, bw - upW - 8, btnH,
       equipped ? 'ON STAGE' : 'EQUIP', {
         size: 14,
         disabled: !e.owned || equipped,

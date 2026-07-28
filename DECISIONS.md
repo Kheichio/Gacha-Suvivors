@@ -570,3 +570,99 @@ These need a human and cannot be self-certified:
 6. **Final balance** — the harness finds outliers; the scripted bot never dodges a
    telegraph, so it dies to every boss and slanders every character. Use it for
    outliers, then hand-play what it flags.
+
+
+---
+
+## §37 — WEAPONS: the auto-attack becomes a build slot (post-launch, 2026-07-28)
+
+**The problem.** Every character's auto-attack was a constant: one shape, one
+damage number, one interval, from the first second of a run to the last. The 22
+generic upgrades only ever nudged a stat, so a twenty-minute run's offensive
+progression was "the same swing, 60% larger". Nothing about the screen at minute
+eighteen looked different from minute two, which is the single thing this genre
+is actually built on.
+
+**Ruling.** Three weapons, and the auto-attack is one of them.
+
+1. `src/data/weapons.js` declares eight pickable weapons, each with a
+   hand-authored eight-level path where **every level changes something
+   visible** — a wider arc, another projectile, a shorter interval — plus a
+   max-level evolution that turns it from periodic into permanent.
+2. The character's own auto-attack is **slot 0**, permanently. It starts at 70%
+   damage / 85% rate / 85% area and climbs to 285% / 178% / 158%, then evolves
+   into a continuous attack with a standing aura. It is still fired by
+   `Run.update`'s auto path, not by the weapon system, which is what keeps every
+   relic hook, the minion mirror and THE FINAL FORM's move-stealing working
+   without a single change.
+3. **Three slots, hard.** Without a cap the answer to every weapon offer is
+   "yes" and every run converges on the same nine weapons.
+
+**Why weapon levels are NOT stored in `player.upgrades`.** Nine other systems
+walk that map — a character passive sums every value in it, the build-slot
+counter, the HUD grid, the results screen, the "Maxed Out" achievement, the
+codex. None of them would throw on an unknown id; they would each quietly report
+something false. Weapons own their own list and the systems that should know are
+told explicitly.
+
+**Why weapon evolutions are NOT pushed into `player.evolutions`.** The results
+screen prints `/8` as a literal and two achievements hard-code the same 8.
+Moving that denominator silently is exactly the class of bug this document
+exists to prevent.
+
+**The level-1 nerf is calibrated, not guessed.** The first pass used 55% damage
+x 72% rate. `node sim.js --char=alto --stage=1 --seed=42` went from 20.7 DPS /
+level 6 / 491 kills to 12.9 / level 4 / 228 — the opening was so thin that the
+player never earned the XP to reach the levels that fix it. A death spiral is
+not a difficulty curve. 70% x 85% is a nerf you feel and can climb out of.
+
+---
+
+## §38 — Enemies read too small, and the fix is two numbers, not one
+
+**The problem.** `def.visual.size` simultaneously set the hitbox radius, the
+atlas raster size and the draw scale. So "make the enemies bigger" was
+unavoidably also "make the game harder", and there was no way to separate the
+readability complaint from the difficulty change.
+
+**Ruling.** `feel.enemySizeMult` (1.14) scales the hitbox; `feel.enemyDrawScale`
+(1.55) scales only what you see. Enemies read ~1.7x larger while their hitboxes
+grow ~14%, which also means the sprite is slightly more generous than the
+hitbox — the correct way round for a game about not being touched.
+
+While fixing it: every broadphase hit query used a margin of 40px against an
+exact test of `radius + e.radius`. Elites (x1.35), the `colossal` affix (x2) and
+every boss already exceeded that, so **large enemies were silently un-hittable
+by projectiles, area damage, cone damage and line damage** with no error
+anywhere. The margin is now `CONFIG.HIT_QUERY_PAD`, sized off the largest radius
+the game can produce.
+---
+
+## §39 — The balance harness was measuring noise (2026-07-28)
+
+**The problem.** `node sim.js --char=alto --stage=1 --seed=42` returned 277.6s.
+The same character, same stage, same seed, inside `node sim.js --all` returned
+166s. Calling `simulate()` four times in one process for identical input
+returned 277.6s, 250.9s, 306.6s and 228.8s.
+
+Two pieces of module-level state outlived the run that set them, and both changed
+how the next run PLAYED — not how it looked:
+
+1. **The camera.** `zoom`, `targetZoom` and the punch timers persisted, and
+   `enemy.js` derives its culling and off-screen radii from
+   `camera.scale = baseZoom * zoom`. A run that ended mid-punch handed the next
+   run a different view of the arena on tick zero.
+2. **`nextUid`.** A module counter, and three enemy behaviours read `e.uid` as
+   a SEED — the swarmer's wobble phase (`sin(aiT * 3.2 + e.uid)`) and the
+   orbiter's and ambusher's rotation direction (`e.uid & 1`). Run 2's horde
+   moved differently from run 1's on the same seed.
+
+Neither threw, neither failed a test, and `tests/abilityRuntime.js`'s existing
+"a seeded run is reproducible" passed throughout — because it replays two runs
+back to back with scripted input, which happens not to disturb either.
+
+**Ruling.** `Camera.reset()` is called at the top of `Run._init`, and the uid
+counters moved from module scope onto each system instance. A new test asserts
+that an INTERVENING run — a different character, stage, tier and seed — cannot
+change a seeded replay. Every number in BALANCE.md predating this is void, and
+the file says so at the top.

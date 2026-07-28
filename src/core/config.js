@@ -65,6 +65,17 @@ export const CONFIG = {
   SPLIT_BUDGET_PER_RUN: 400,
 
   SPATIAL_CELL: 64,
+  /**
+   * Broadphase margin for "does this hit that" queries.
+   *
+   * Every hit test is `query(x, y, radius)` followed by an exact test against
+   * `radius + e.radius` — so an enemy whose own radius exceeds the query margin
+   * is never even returned by the broadphase and silently stops being hittable.
+   * The margin used to be 40, which elites (x1.35), the `colossal` affix (x2)
+   * and every boss already exceeded; enemies got bigger in this pass, so it is
+   * now sized off the largest radius the game can actually produce.
+   */
+  HIT_QUERY_PAD: 140,
   /** Enemies further than this many screens away get recycled to the far side. */
   CULL_SCREENS: 1.5,
 

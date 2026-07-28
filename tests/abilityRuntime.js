@@ -699,4 +699,45 @@ describe('abilities / live execution at star 5 (S3 + S5 branches active)', () =>
     assert.close(sa.damageDealt, sb.damageDealt, 0.01, 'same seed produced different damage');
     assert.equal(sa.level, sb.level, 'same seed produced different levels');
   });
+
+  it('a seed still reproduces after a DIFFERENT run has been played', () => {
+    // The test above replays back to back from a clean-ish process, which is
+    // exactly the case module-level state survives. Two things did:
+    //
+    //   - the camera kept its zoom and punch timers, and enemy.js derives its
+    //     cull distance from camera.scale, so run 2 could see further than run 1
+    //   - `nextUid` was a module counter, and three behaviours read e.uid as a
+    //     SEED (swarmer wobble phase, orbiter and ambusher rotation direction),
+    //     so run 2's horde moved differently from run 1's
+    //
+    // Neither threw. Both silently made `node sim.js --all` measure a different
+    // game for every character after the first: the same character on the same
+    // seed came out anywhere from 185s to 307s, and every number in BALANCE.md
+    // inherited that noise.
+    freshSave(3);
+    const a = makeRun('kagura', 24680);
+    step(a, 1800);
+    const sa = a.summary();
+    a.dispose();
+
+    // Churn: a different character, a different seed, a different stage — the
+    // shape of a sweep. Then replay the first run and demand it match.
+    freshSave(3);
+    const noise = new Run(data, {
+      characterId: 'sovereign_alicia', stageId: data.stages.STAGES[2].id,
+      tierIndex: 1, seed: 111,
+    });
+    step(noise, 1800);
+    noise.dispose();
+
+    freshSave(3);
+    const b = makeRun('kagura', 24680);
+    step(b, 1800);
+    const sb = b.summary();
+    b.dispose();
+
+    assert.equal(sa.kills, sb.kills, 'an intervening run changed the replay of a seeded run');
+    assert.close(sa.damageDealt, sb.damageDealt, 0.01, 'an intervening run changed the damage dealt');
+    assert.equal(sa.level, sb.level, 'an intervening run changed the level reached');
+  });
 });

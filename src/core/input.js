@@ -72,8 +72,21 @@ class Input {
     this.mouseX = 0; this.mouseY = 0;       // canvas pixels
     this.mouseWorldX = 0; this.mouseWorldY = 0;
     this.mouseDown = false;
+    /**
+     * LEFT-BUTTON press edge. This used to be set for ANY button, which meant a
+     * right-click both activated whatever the cursor was over AND — because
+     * button 2 also maps to ACT.SPECIAL, which the UI treats as CONFIRM —
+     * activated the keyboard-focused widget at the same time. One right-click,
+     * two menu actions, neither of them asked for.
+     */
     this.mouseClicked = false;
+    /** LEFT-BUTTON release edge. Menus activate on this, not on the press. */
+    this.mouseReleased = false;
+    /** False once the pointer leaves the canvas, so nothing stays hovered. */
+    this.mouseInside = true;
     this.wheel = 0;
+    /** Wheel travel in notches this frame, unclamped. `wheel` is the clamped one. */
+    this.wheelRaw = 0;
 
     this.lastDevice = IS_TOUCH ? 'touch' : 'keyboard';
     this.padIndex = -1;
@@ -118,19 +131,34 @@ class Input {
       const r = canvas.getBoundingClientRect();
       this.mouseX = (e.clientX - r.left) * (canvas.width / r.width);
       this.mouseY = (e.clientY - r.top) * (canvas.height / r.height);
+      this.mouseInside = true;
       this.lastDevice = 'mouse';
     });
+    // Without this the cursor's LAST position keeps hovering (and keeps
+    // focusing) a widget forever after the pointer leaves the window.
+    canvas.addEventListener('mouseleave', () => {
+      this.mouseInside = false;
+      this.mouseDown = false;
+      this.mouseX = -10000; this.mouseY = -10000;
+    });
+    canvas.addEventListener('mouseenter', () => { this.mouseInside = true; });
     canvas.addEventListener('mousedown', (e) => {
-      this.mouseDown = true; this.mouseClicked = true;
       this.lastDevice = 'mouse';
+      if (e.button === 0) { this.mouseDown = true; this.mouseClicked = true; }
       if (e.button === 2) { if (!this.down[ACT.SPECIAL]) { this._pressed[ACT.SPECIAL] = true; this._latch(ACT.SPECIAL); } this.down[ACT.SPECIAL] = true; }
     });
     window.addEventListener('mouseup', (e) => {
-      this.mouseDown = false;
+      if (e.button === 0) { this.mouseDown = false; this.mouseReleased = true; }
       if (e.button === 2) { this.down[ACT.SPECIAL] = false; this._released[ACT.SPECIAL] = true; }
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-    canvas.addEventListener('wheel', (e) => { this.wheel += Math.sign(e.deltaY); e.preventDefault(); }, { passive: false });
+    canvas.addEventListener('wheel', (e) => {
+      // One notch per EVENT discards magnitude, and a trackpad flick sends 3-5
+      // events — which is how a single gesture used to jump the codex to its
+      // last page. Accumulate raw, then clamp per frame in endFrame().
+      this.wheelRaw += Math.sign(e.deltaY);
+      e.preventDefault();
+    }, { passive: false });
 
     // --- touch --------------------------------------------------------------
     const touchPos = (t) => {
@@ -158,7 +186,9 @@ class Input {
           this.down[ACT.ESCAPE] = true;
         } else {
           this.touch.taps.push(p);
-          this.mouseX = p.x; this.mouseY = p.y; this.mouseClicked = true;
+          this.mouseX = p.x; this.mouseY = p.y;
+          this.mouseClicked = true; this.mouseDown = true; this._uiTap = true;
+          this.mouseInside = true;
         }
       }
       e.preventDefault();
@@ -184,6 +214,9 @@ class Input {
         if (this.touch.buttons.special) { this.down[ACT.SPECIAL] = false; this._released[ACT.SPECIAL] = true; }
         if (this.touch.buttons.escape) { this.down[ACT.ESCAPE] = false; this._released[ACT.ESCAPE] = true; }
         this.touch.buttons.special = false; this.touch.buttons.escape = false;
+        // A tap on the UI is a full press-and-release, so menus that activate on
+        // release still work under a finger.
+        if (this._uiTap) { this._uiTap = false; this.mouseDown = false; this.mouseReleased = true; }
       }
       e.preventDefault();
     };
@@ -220,6 +253,11 @@ class Input {
   /** Called once per frame BEFORE the sim steps. */
   poll() {
     this._pollGamepad();
+
+    // Clamp the frame's wheel travel. Every consumer multiplies this by its own
+    // row height / page size, so an unclamped trackpad flick used to skip whole
+    // pages of content in one gesture.
+    this.wheel = clamp(this.wheelRaw, -3, 3);
 
     let mx = 0, my = 0;
     if (this.down[ACT.LEFT]) mx -= 1;
@@ -353,7 +391,9 @@ class Input {
     for (const k in this._pressed) this._pressed[k] = false;
     for (const k in this._released) this._released[k] = false;
     this.mouseClicked = false;
+    this.mouseReleased = false;
     this.wheel = 0;
+    this.wheelRaw = 0;
     this.touch.taps.length = 0;
   }
 }

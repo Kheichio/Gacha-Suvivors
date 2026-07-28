@@ -47,6 +47,17 @@ class Sprite {
     this.flash = [];
     this.rotSteps = 1;
     this.animFrames = 1;
+    /**
+     * The draw scale at which this sprite renders at its DECLARED size.
+     *
+     * Pixel sprites are rastered at a whole-number upscale of their little
+     * grid, and `Math.round` makes that a lottery: at `size` 16 a 26-row grid
+     * lands on 2x and a 34-row grid on 1x, so growing the art grid by 57% used
+     * to make the sprite on screen 35% SMALLER. Two characters with the same
+     * declared size could differ by a factor of two for no reason a designer
+     * could see. Multiplying a gameplay scale by this cancels the rounding out.
+     */
+    this.unit = 1;
   }
   /** Canvas for a given rotation (radians) and animation frame. */
   frameAt(rot, animIndex) {
@@ -294,6 +305,11 @@ class SpriteAtlas {
     sp.rotSteps = 1;
     sp.animFrames = built.frames.length;
     sp.pixel = true;
+    // The correction from the rounded raster back to `size * 2.6` — see the
+    // Sprite constructor. Drawers multiply their gameplay scale by this, and the
+    // integer upscale stops leaking into how big things look.
+    sp.unit = (size * 2.6) / H;
+    sp.grid = built.h;
 
     for (let i = 0; i < built.frames.length; i++) {
       sp.frames.push(upscale(built.frames[i], W, H));
@@ -309,7 +325,17 @@ class SpriteAtlas {
   register(v) {
     // A visual carrying a `pixel` descriptor becomes a real sprite rather than a
     // shape. This is the hook that turns the game from geometry into art.
-    if (v && v.pixel) return this.registerPixel(v.pixel, v.size || 14);
+    if (v && v.pixel) {
+      const sp = this.registerPixel(v.pixel, v.size || 14);
+      // ALSO file it under its visualKey. registerPixel keys on
+      // 'px|id|size', so `ensure()` — which only ever computes a visualKey —
+      // could never hit for a character, enemy or boss: every single enemy
+      // spawn allocated a joined key string, missed, and bumped `lazyMisses`,
+      // which the perf harness asserts is zero.
+      const vk = visualKey(v);
+      if (!this.map.has(vk)) this.map.set(vk, sp);
+      return sp;
+    }
 
     const key = visualKey(v);
     const hit = this.map.get(key);

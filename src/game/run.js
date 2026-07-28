@@ -31,6 +31,7 @@ import { WaveDirector } from './waveDirector.js';
 import { AdaptiveDirector } from './adaptiveDirector.js';
 import { BossController } from './boss.js';
 import { RelicHooks } from './relicHooks.js';
+import { WeaponSystem } from './weapons.js';
 import { abilities } from './abilities/index.js';
 import {
   dealDamage, damagePlayer, healPlayer, areaDamage, executeEnemy, SRC,
@@ -96,6 +97,9 @@ export class Run {
     this.adaptive = new AdaptiveDirector(this);
     this.boss = new BossController(this);
     this.relicHooks = new RelicHooks(this);
+    // Built BEFORE the player, because Player.autoDamageMultiplier() reads its
+    // multipliers on the very first recompute().
+    this.weapons = new WeaponSystem(this);
 
     // --- player --------------------------------------------------------------
     const charDef = data.characters.CHARACTERS_BY_ID[config.characterId];
@@ -160,9 +164,12 @@ export class Run {
 
   _init() {
     const stage = this.stage;
+    // Neutralise the camera BEFORE anything reads it: culling distances derive
+    // from its zoom, so leftover zoom from a previous run changes what this run
+    // can see on tick zero. See Camera.reset().
+    camera.reset();
     camera.setBounds(this.bounds.minX, this.bounds.minY, this.bounds.maxX, this.bounds.maxY);
     camera.snapTo(this.player.x, this.player.y);
-    camera.setZoomTarget(1);
 
     // Difficulty tiers can blanket-affix every mob (Kamige). DECISIONS.md §25
     // excludes the two cascading affixes from that roll.
@@ -190,6 +197,7 @@ export class Run {
       used: false, sprite: atlas.ensure({ shape: 'triangle', color: '#ff5f7e', accent: '#3a0a18', size: 22, emoji: '⛩' }),
     };
 
+    this.weapons.init();
     this.relicHooks.rebuild();
     abilities.onRunStart(this);
     events.emit(EV.RUN_START, this);
@@ -333,9 +341,13 @@ export class Run {
     }
 
     // --- auto attack ----------------------------------------------------------
+    // This is still the ONE driver for the signature weapon, deliberately: every
+    // relic hook, the minion mirror and THE FINAL FORM all hang off this path,
+    // and the weapon system only contributes a rate multiplier to it.
     if (!this.player.dead && !this.player.flags.autoAttackDisabled) {
       const interval = this.autoDef.interval /
-        (this.player.stats.attackSpeedMult * (this.player.flags.attackSpeedBonus || 1));
+        (this.player.stats.attackSpeedMult * (this.player.flags.attackSpeedBonus || 1) *
+         this.weapons.mods.rate);
       this.player.autoTimer.set(Math.max(0.05, interval));
       const shots = this.player.autoTimer.tick(dt);
       for (let i = 0; i < shots; i++) {
@@ -350,6 +362,7 @@ export class Run {
     }
 
     // --- systems ---------------------------------------------------------------
+    this.weapons.update(dt);
     this.enemies.update(dt);
     this.boss.update(dt);
     this.projectiles.update(dt);
@@ -640,13 +653,77 @@ export class Run {
     return { used, max: { offensive: B.offensive, utility: B.utility } };
   }
 
+  /**
+   * The level-up offer.
+   *
+   * FIVE KINDS of card can appear, and the order they are considered in is the
+   * order of how much they change the run:
+   *
+   *   weaponEvo   a maxed weapon's always-on form. Always shown when available —
+   *               it is the single biggest moment in a build and burying it
+   *               behind a weighted roll would mean players never see it.
+   *   evolution   the classic upgrade+relic recipe. Same reasoning.
+   *   newWeapon   a weapon you do not own, while a slot is free.
+   *   weapon      a level on a weapon you do own.
+   *   upgrade     a generic stat card.
+   *
+   * Weapons are deliberately weighted ABOVE stat cards: a weapon level visibly
+   * changes what is on screen, and a run where the arsenal never grows is the
+   * run this whole system exists to stop happening.
+   */
   rollUpgradeChoices() {
     const p = this.player;
     const n = p.flags.upgradeChoices || this.data.upgrades.LEVELUP.choices;
     const B = this.data.upgrades.BUILD_SLOTS;
     const slots = this.buildSlots();
+    const out = [];
 
+    // 1. A maxed weapon waiting to evolve takes the first card, every time.
+    const evolvable = this.weapons.evolvable();
+    for (const w of evolvable) {
+      if (out.length >= n) break;
+      out.push({ kind: 'weaponEvo', w, evo: this.weapons.evolutionOf(w) });
+    }
+
+    // 2. A completed upgrade+relic recipe takes the next.
+    const evo = this._availableEvolution();
+    if (evo && out.length < n) out.push({ kind: 'evolution', evo });
+
+    // 3. AN EMPTY WEAPON SLOT ALWAYS RESERVES A CARD.
+    //
+    // This is not generosity, it is the thing that makes the signature nerf
+    // survivable. The balance harness was blunt about it: with the nerf in and
+    // weapons merely competing in the pool, a ★3 starter died at 111s having
+    // reached level 3 — the opening was thin, so the levels came slowly, so the
+    // weapons that fix the opening never arrived. Reserving one card guarantees
+    // the arsenal is filling from the very first level-up, which is where every
+    // game in this genre puts it anyway.
     const pool = [];
+    const weights = [];
+    const luck = 1 + p.stats.luck * 0.02;
+
+    const fresh = [], freshW = [];
+    if (!this.weapons.full) {
+      for (const def of this.data.weapons.WEAPONS) {
+        if (this.weapons.has(def.id)) continue;
+        if (this.banished.indexOf(def.id) >= 0) continue;
+        fresh.push({ kind: 'newWeapon', def });
+        freshW.push((def.weight || 100) * luck);
+      }
+      if (fresh.length && out.length < n) {
+        const i = runRng.weightedIndex(freshW);
+        if (i >= 0) { out.push(fresh[i]); fresh.splice(i, 1); freshW.splice(i, 1); }
+      }
+    }
+
+    // 4-6. Everything else competes in one weighted pool.
+    for (const w of this.weapons.slots) {
+      if (this.weapons.isMaxed(w) || w.evolved) continue;
+      pool.push({ kind: 'weapon', w, level: w.level + 1 });
+      // A weapon you already carry is the most reliably useful card there is.
+      weights.push(150 * luck);
+    }
+    for (let i = 0; i < fresh.length; i++) { pool.push(fresh[i]); weights.push(freshW[i] * 1.35); }
     for (const up of this.data.upgrades.UPGRADES) {
       if (this.banished.indexOf(up.id) >= 0) continue;
       if (p.isMaxed(up.id)) continue;
@@ -657,17 +734,14 @@ export class Run {
         const bucket = B.bucketOf(up);
         if (slots.used[bucket] >= slots.max[bucket]) continue;
       }
-      pool.push(up);
+      pool.push({ kind: 'upgrade', up, level: (p.upgrades[up.id] || 0) + 1 });
+      weights.push((up.weight || 100) * luck);
     }
-    // An evolution offer displaces a card when its recipe is complete.
-    const evo = this._availableEvolution();
-    const out = [];
-    if (evo) out.push({ kind: 'evolution', evo });
-    const weights = pool.map((u) => (u.weight || 100) * (1 + p.stats.luck * 0.02));
+
     while (out.length < n && pool.length > 0) {
       const i = runRng.weightedIndex(weights);
       if (i < 0) break;
-      out.push({ kind: 'upgrade', up: pool[i], level: (p.upgrades[pool[i].id] || 0) + 1 });
+      out.push(pool[i]);
       pool.splice(i, 1); weights.splice(i, 1);
     }
     // If literally everything is maxed, offer gold instead of a dead screen.
@@ -691,11 +765,50 @@ export class Run {
     if (!c) return;
     if (c.kind === 'upgrade') this.player.addUpgrade(c.up.id);
     else if (c.kind === 'evolution') this.grantEvolution(c.evo.id);
+    else if (c.kind === 'newWeapon') this.grantWeapon(c.def.id);
+    else if (c.kind === 'weapon') this.levelWeapon(c.w.id);
+    else if (c.kind === 'weaponEvo') this.evolveWeapon(c.w.id);
     else if (c.kind === 'gold') this.grantGold(c.amount);
     this.levelUpChoices = null;
     this.state = RUN_STATE.PLAYING;
     audio.play('uiConfirm');
     this.relicHooks.fire('onLevelUp');
+  }
+
+  // --- weapons -----------------------------------------------------------------
+  grantWeapon(id) {
+    const w = this.weapons.add(id);
+    if (!w) return false;
+    floaters.spawn(this.player.x, this.player.y - 64, this.weapons.nameOf(w), '#6ad8ff', 26, 2.0);
+    audio.play('relic');
+    return true;
+  }
+
+  levelWeapon(id) {
+    if (!this.weapons.levelUp(id)) return false;
+    const w = this.weapons.get(id);
+    floaters.spawn(this.player.x, this.player.y - 52,
+                   this.weapons.nameOf(w) + '  Lv' + w.level, '#8ad8ff', 21, 1.4);
+    return true;
+  }
+
+  /**
+   * A weapon's always-on form. Deliberately NOT pushed into `player.evolutions`:
+   * that array is counted against a hard-coded total of 8 by the results screen
+   * and by two achievements, and quietly moving that denominator would break
+   * both without an error anywhere.
+   */
+  evolveWeapon(id) {
+    if (!this.weapons.evolve(id)) return false;
+    const w = this.weapons.get(id);
+    audio.play('evolve');
+    flash.fire('#ffd76a', 0.5, 2.2);
+    shake.big();
+    camera.punch(feel.punchZoom * 1.6, 0.6);
+    floaters.spawn(this.player.x, this.player.y - 76, this.weapons.evolutionOf(w).name,
+                   '#ffd76a', 34, 2.6);
+    particles.ring(this.player.x, this.player.y, 30, '#ffd76a', 560);
+    return true;
   }
 
   rerollUpgrades() {
@@ -709,9 +822,13 @@ export class Run {
   banishUpgrade(index) {
     if (this.banishesLeft <= 0) return false;
     const c = this.levelUpChoices && this.levelUpChoices[index];
-    if (!c || c.kind !== 'upgrade') return false;
+    // A weapon you have not taken yet can be banished exactly like a stat card;
+    // one you already carry cannot, because banishing it would strand it at the
+    // level it is at with no way to ever improve it again.
+    const id = c && (c.kind === 'upgrade' ? c.up.id : c.kind === 'newWeapon' ? c.def.id : null);
+    if (!id) return false;
     this.banishesLeft--;
-    this.banished.push(c.up.id);
+    this.banished.push(id);
     this.levelUpChoices = this.rollUpgradeChoices();
     return true;
   }
@@ -759,13 +876,25 @@ export class Run {
       if (relicId) { this.offerRelic(relicId); return; }
     }
 
+    // A chest takes the first thing it is offered that it can actually grant.
+    // It used to insist on `kind === 'upgrade'`, which would have made weapons
+    // the one reward a chest could never contain.
     const granted = [];
     for (let i = 0; i < count; i++) {
       const choices = this.rollUpgradeChoices();
-      const pick = choices.find((x) => x.kind === 'upgrade') || choices[0];
+      const pick = choices.find((x) => x.kind === 'upgrade' || x.kind === 'weapon' ||
+                                       x.kind === 'newWeapon') || choices[0];
       if (!pick) break;
       if (pick.kind === 'upgrade') { this.player.addUpgrade(pick.up.id); granted.push(pick.up); }
-      else if (pick.kind === 'evolution') { this.grantEvolution(pick.evo.id); }
+      else if (pick.kind === 'newWeapon') {
+        if (this.grantWeapon(pick.def.id)) granted.push(chestRow(pick.def.icon, pick.def.name, 'NEW WEAPON'));
+      } else if (pick.kind === 'weapon') {
+        const w = pick.w;
+        if (this.levelWeapon(w.id)) {
+          granted.push(chestRow(this.weapons.iconOf(w), this.weapons.nameOf(w),
+                                'Lv ' + w.level + ' / ' + this.weapons.maxLevel(w)));
+        }
+      } else if (pick.kind === 'evolution') { this.grantEvolution(pick.evo.id); }
     }
     this.chestResult = { kind: 'chest', granted, gold: c.gold };
     this.state = RUN_STATE.CHEST;
@@ -977,6 +1106,7 @@ export class Run {
       elites: this.stats.elites,
       bosses: this.stats.bosses,
       relics: this.player.relics.slice(),
+      weapons: this.weapons.summary(),
       evolutions: this.player.evolutions.slice(),
       upgrades: Object.assign({}, this.player.upgrades),
       levelUps: this.stats.levelUps,
@@ -985,6 +1115,18 @@ export class Run {
       dpsSamples: this.stats.dpsSamples.slice(),
     };
   }
+}
+
+/**
+ * A chest-reveal row that is not a stat upgrade.
+ *
+ * The reveal renderer reads `icon`, `name`, `tier` and formats `perLevel` with
+ * `fmt` — so a weapon row supplies exactly those fields with `fmt` already
+ * resolved to the line it should print. Cheaper and far less fragile than
+ * teaching the reveal screen a second row type.
+ */
+function chestRow(icon, name, line) {
+  return { icon, name, tier: 'rare', perLevel: 0, unit: 'flat', fmt: line };
 }
 
 /** Death slow-mo, expressed through the run's own time scale (deterministic). */

@@ -145,7 +145,13 @@ class AbilityDriver {
     if (!impl || !impl.fire) return false;
     const ctx = this._ctx(run, def.id);
     ctx.shotIndex = p.autoShotIndex;
-    impl.fire(run, p, ctx, EMPTY_OPTS);
+    // AUTO SCOPE: helpers.js reads this to fold the signature weapon's level
+    // into area / projectile count / pierce. Set for exactly the duration of the
+    // synchronous fire() and cleared in a finally, so a throw inside one
+    // character's auto cannot leave every special in the game permanently
+    // inflated.
+    p.autoScope = true;
+    try { impl.fire(run, p, ctx, EMPTY_OPTS); } finally { p.autoScope = false; }
     return true;
   }
 
@@ -162,7 +168,9 @@ class AbilityDriver {
     MIRROR_OPTS.origin = origin;
     MIRROR_OPTS.damageOverride = damage;
     MIRROR_OPTS.noRelicHooks = true;
-    impl.fire(run, p, ctx, MIRROR_OPTS);
+    // A clone mirroring your auto-attack mirrors the weapon you levelled, too.
+    p.autoScope = true;
+    try { impl.fire(run, p, ctx, MIRROR_OPTS); } finally { p.autoScope = false; }
     MIRROR_OPTS.origin = null;
     MIRROR_OPTS.damageOverride = 0;
     return true;

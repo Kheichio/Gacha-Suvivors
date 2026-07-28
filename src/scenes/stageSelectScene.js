@@ -10,7 +10,14 @@
 //                  the passive, and both authored build paths.
 //
 // FOCUS IS THE PREVIEW. Moving the stick over a stage shows that stage; you
-// never have to "open" anything to read it. Activating commits.
+// never have to "open" anything to read it. COMMITTING IS EXPLICIT: a single
+// click selects, and only the CHOOSE CHARACTER button — or a double-click on the
+// row already selected — walks on to step two. A single click used to navigate,
+// which made the button redundant and every stray click a surprise.
+//
+// Both detail panels SCROLL. They were clipped with no scroll handler, no
+// scrollbar and no arrows, so at 1280x720 the stage card simply cut "YOUR BEST
+// TIME" and "CLEARS" off the bottom with no input able to reveal them.
 //
 // Two rulings are visible on this screen:
 //   DECISIONS.md §32 — Endless bests are LOCAL. The label is "Personal Bests".
@@ -22,6 +29,7 @@
 // frame; input.pressed() there would fire a navigation five times over.
 
 import { ui, PALETTE, RARITY_COLOR, RARITY_NAME, wrapText, formatCount } from '../ui/widgets.js';
+import { input } from '../core/input.js';
 import { save } from '../core/save.js';
 import { audio } from '../core/audio.js';
 import { displayName } from '../core/config.js';
@@ -74,6 +82,11 @@ export const stageSelectScene = {
     this._restoreFocus = -1;
     this._stageFocus = 0;
     this._preview = null;
+    this.detScroll = 0; this._detMax = 0;
+    this.charScroll = 0; this._charMax = 0; this._charScrollFor = null;
+    // Double-click bookkeeping for the stage rows (see _stageRow).
+    this._rowClickIdx = -1;
+    this._rowClickT = -1e9;
 
     const wantStage = p.stageId || shared.stageId;
     this.sel = 0;
@@ -231,7 +244,7 @@ export const stageSelectScene = {
 
     const st = this._stage();
     ui.title('STAGE SELECT', pad, 34, { size: 28 });
-    ui.text('focus a stage to read it · every number below is the real one',
+    ui.text('click a stage to read it · double-click or CHOOSE CHARACTER to commit',
       pad, 58, { size: 12, color: PALETTE.textFaint });
 
     // --- the seven stages ----------------------------------------------------
@@ -270,6 +283,13 @@ export const stageSelectScene = {
     if (ui.backButton(pad, by + 3)) { audio.play('uiBack'); this._go('hub'); }
   },
 
+  /** Point the detail card at a different stage. Different stage, fresh scroll. */
+  _pick(i) {
+    if (this.sel === i) return;
+    this.sel = i;
+    this.detScroll = 0;
+  },
+
   _stageRow(r, i, x, y, w, h) {
     const st = this.stages[i];
     const e = this._entry(st.id);
@@ -277,13 +297,22 @@ export const stageSelectScene = {
     const idx = ui.itemCount;
     const hit = ui.button('st' + st.id, x, y, w, h, null, { radius: 10, disabled: !unlocked });
     const focused = ui.focus === idx;
-    if (focused && this.sel !== i) this.sel = i;
-    // Activating a stage IS "I want this one" — walk straight on to the roster.
-    if (hit && this.owned.length) {
-      this.sel = i;
-      this._stageFocus = idx;
-      this.mode = 'char';
-      this._preview = null;
+    if (focused && this.sel !== i) this._pick(i);
+    // A click SELECTS. Only a SECOND click on the row already selected — the
+    // double-click every desktop list already teaches — walks on to step two.
+    // A single click used to navigate, which made the CHOOSE CHARACTER button
+    // below it redundant and turned a misplaced click into a scene change.
+    if (hit) {
+      const dbl = this.sel === i && this._rowClickIdx === i && (ui.time - this._rowClickT) < 0.45;
+      this._pick(i);
+      this._rowClickIdx = i;
+      this._rowClickT = ui.time;
+      if (dbl && this.owned.length && unlocked) {
+        this._stageFocus = idx;
+        this.mode = 'char';
+        this._preview = null;
+        audio.play('uiConfirm');
+      }
     }
 
     const twoLine = h >= 50;
@@ -330,10 +359,18 @@ export const stageSelectScene = {
     ui.panel(x, y, w, h, { radius: 14, color: 'rgba(8,10,20,0.86)' });
 
     const blockH = 168;
-    const innerW = w - 32;
-    let cy = y + 24;
+    const railH = 42;
+    // The content view. This was a bare clipRect with no scroll of any kind, so
+    // the last ~20px of copy (YOUR BEST TIME, CLEARS) had no way to be reached.
+    const viewH = Math.max(40, h - blockH - 6 - railH);
+    const innerW = w - 32 - 14;
 
-    r.clipRect(x + 2, y + 2, w - 4, Math.max(0, h - blockH - 6));
+    if (input.wheel && ui.pointIn(x, y, w, viewH)) this.detScroll += input.wheel * 48;
+    this.detScroll = clamp(this.detScroll, 0, this._detMax);
+
+    r.clipRect(x + 2, y + 2, w - 4, viewH);
+    const top = y + 24 - this.detScroll;
+    let cy = top;
 
     ui.text('STAGE ' + (this.sel + 1) + ' OF ' + this.stages.length + '  ·  ' +
       (STARS[st.difficultyStars] || '') + '  ·  ' + (st.duration / 60) + ' MIN',
@@ -347,7 +384,7 @@ export const stageSelectScene = {
       cy += 15;
     }
     cy += 8;
-    r.drawLine(x + 16, cy, x + w - 16, cy, PALETTE.border, 1, 1);
+    r.drawLine(x + 16, cy, x + 16 + innerW, cy, PALETTE.border, 1, 1);
     cy += 14;
 
     // Hazard — the name AND what it does, in plain language.
@@ -411,6 +448,28 @@ export const stageSelectScene = {
       cy += 18;
     }
     r.unclip();
+
+    // --- the scroll rail -----------------------------------------------------
+    this._detMax = Math.max(0, (cy - top) + 16 - viewH);
+    const canScroll = this._detMax > 1;
+    this.detScroll = ui.scrollbar('stDetBar', x + w - 16, y + 8, 8, viewH - 16,
+      this.detScroll, viewH, viewH + this._detMax);
+
+    const ry = y + h - blockH - 6 - railH;
+    const bw = 46, bh = 36;
+    const bx = x + w - 12 - bw * 2 - 8;
+    // A backing plate, so the scrolled text passes BEHIND the controls instead
+    // of running into them.
+    ui.panel(x + 2, ry, w - 4, railH - 2, { radius: 10, color: 'rgba(4,6,14,0.94)' });
+    ui.text(canScroll ? 'wheel · drag the bar · or' : 'all of it fits', x + 16, ry + railH / 2,
+      { size: 11, color: PALETTE.textFaint });
+    if (ui.button('stDetUp', bx, ry + 3, bw, bh, '▲', { size: 14, disabled: !canScroll })) {
+      this.detScroll -= viewH * 0.6;
+    }
+    if (ui.button('stDetDn', bx + bw + 8, ry + 3, bw, bh, '▼', { size: 14, disabled: !canScroll })) {
+      this.detScroll += viewH * 0.6;
+    }
+    this.detScroll = clamp(this.detScroll, 0, this._detMax);
 
     // --- tiers + overtime, pinned to the bottom of the card ------------------
     this._tierBlock(r, x, y + h - blockH, w, blockH);
@@ -515,7 +574,8 @@ export const stageSelectScene = {
     const cardW = clamp(gridW / 4 - gap, 116, 168);
     const cardH = clamp(cardW * 0.86, 104, 146);
     const cols = Math.max(1, Math.floor((gridW + gap) / (cardW + gap)));
-    const rows = Math.max(1, Math.floor((bodyH - 34 + gap) / (cardH + gap)));
+    // 44, not 34: the paging buttons below are a real 36px target now.
+    const rows = Math.max(1, Math.floor((bodyH - 44 + gap) / (cardH + gap)));
     const pageSize = cols * rows;
     const pages = Math.max(1, Math.ceil(this.owned.length / pageSize));
     if (this.charPage >= pages) this.charPage = pages - 1;
@@ -539,10 +599,10 @@ export const stageSelectScene = {
     // --- paging -------------------------------------------------------------
     if (pages > 1) {
       const py = bodyY + rows * (cardH + gap) - gap + 8;
-      if (ui.button('pagePrev', pad, py, 92, 26, '‹ PREV', { size: 12, disabled: this.charPage <= 0 })) this.charPage--;
-      if (ui.button('pageNext', pad + 100, py, 92, 26, 'NEXT ›', { size: 12, disabled: this.charPage >= pages - 1 })) this.charPage++;
+      if (ui.button('pagePrev', pad, py, 100, 36, '‹ PREV', { size: 13, disabled: this.charPage <= 0 })) this.charPage--;
+      if (ui.button('pageNext', pad + 108, py, 100, 36, 'NEXT ›', { size: 13, disabled: this.charPage >= pages - 1 })) this.charPage++;
       ui.text('PAGE ' + (this.charPage + 1) + '/' + pages + '  ·  ' + this.owned.length + ' owned',
-        pad + 204, py + 13, { size: 11, color: PALETTE.textFaint });
+        pad + 220, py + 18, { size: 11, color: PALETTE.textFaint });
     }
 
     // --- detail -------------------------------------------------------------
@@ -620,54 +680,94 @@ export const stageSelectScene = {
     }
   },
 
+  /**
+   * Four ability blocks plus both build paths, in a panel that was clipped with
+   * no scroll of any kind — on anything shorter than about 900px the PASSIVE and
+   * the build paths were simply not on the screen. It scrolls now.
+   */
   _charDetail(r, c, x, y, w, h) {
     ui.panel(x, y, w, h, { radius: 14, color: 'rgba(8,10,20,0.88)' });
-    if (!c) return;
-    const d = this.manager.data;
-    const e = this._roster(c.id);
-    const col = RARITY_COLOR[c.rarity] || PALETTE.text;
-    const innerW = w - 32;
-    r.clipRect(x + 2, y + 2, w - 4, h - 4);
 
-    let cy = y + 24;
-    ui.text(RARITY_NAME[c.rarity] + '  ·  STAR LEVEL ' + e.starLevel + '/5  ·  ' + c.archetype.toUpperCase(),
-      x + 16, cy, { size: 11, color: col, weight: 800 });
-    cy += 24;
-    ui.title(fit(r, displayName(c), innerW, 20), x + 16, cy, { size: 20, color: col });
-    cy += 22;
-    ui.text(fit(r, c.epithet, innerW, 13), x + 16, cy, { size: 13, color: PALETTE.textDim });
-    cy += 22;
+    const railH = 42;
+    const viewH = Math.max(40, h - railH);
+    const id = c ? c.id : null;
+    // A different character is a different document: start it at the top.
+    if (this._charScrollFor !== id) { this._charScrollFor = id; this.charScroll = 0; }
 
-    const el = d.elements.ELEMENTS[c.element];
-    const s = c.stats;
-    ui.text((el ? el.icon + ' ' + displayName(el).toUpperCase() : c.element) +
-      '  ·  ' + s.hp + ' HP  ·  ' + s.moveSpeed + ' SPD  ·  ' +
-      Math.round(s.critChance * 100) + '% CRIT  ·  ×' + s.damageMult + ' DMG',
-      x + 16, cy, { size: 11, color: el ? el.color : PALETTE.textDim, weight: 700 });
-    cy += 16;
-    r.drawLine(x + 16, cy, x + w - 16, cy, PALETTE.border, 1, 1);
-    cy += 14;
+    if (input.wheel && ui.pointIn(x, y, w, viewH)) this.charScroll += input.wheel * 48;
+    this.charScroll = clamp(this.charScroll, 0, this._charMax);
 
-    cy = this._ability(r, c, 'AUTO', c.autoAttack,
-      c.autoAttack.damage + ' dmg every ' + c.autoAttack.interval + 's', x, cy, innerW, PALETTE.accent2);
-    cy = this._ability(r, c, 'SPECIAL', c.special,
-      c.special.cooldown + 's cooldown', x, cy, innerW, PALETTE.accent);
-    cy = this._ability(r, c, 'ESCAPE', c.escape,
-      c.escape.cooldown + 's cd · ' + (c.escape.iframes || 0) + 's i-frames', x, cy, innerW, PALETTE.good);
-    cy = this._ability(r, c, 'PASSIVE', c.passive, '', x, cy, innerW, PALETTE.pink);
+    const innerW = w - 32 - 14;
+    const top = y + 24 - this.charScroll;
+    let cy = top;
 
-    ui.text('BUILD PATHS', x + 16, cy, { size: 11, color: PALETTE.textFaint, weight: 800 });
-    cy += 16;
-    const paths = c.buildPaths || [];
-    for (let i = 0; i < paths.length; i++) {
-      const lines = this._wrap(r, 'bp' + c.id + i, paths[i], innerW - 12, 11);
-      for (let j = 0; j < lines.length; j++) {
-        ui.text((j === 0 ? '▸ ' : '   ') + lines[j], x + 16, cy, { size: 11, color: PALETTE.textDim });
-        cy += 14;
+    if (c) {
+      const d = this.manager.data;
+      const e = this._roster(c.id);
+      const col = RARITY_COLOR[c.rarity] || PALETTE.text;
+      r.clipRect(x + 2, y + 2, w - 4, viewH);
+
+      ui.text(RARITY_NAME[c.rarity] + '  ·  STAR LEVEL ' + e.starLevel + '/5  ·  ' + c.archetype.toUpperCase(),
+        x + 16, cy, { size: 11, color: col, weight: 800 });
+      cy += 24;
+      ui.title(fit(r, displayName(c), innerW, 20), x + 16, cy, { size: 20, color: col });
+      cy += 22;
+      ui.text(fit(r, c.epithet, innerW, 13), x + 16, cy, { size: 13, color: PALETTE.textDim });
+      cy += 22;
+
+      const el = d.elements.ELEMENTS[c.element];
+      const s = c.stats;
+      ui.text((el ? el.icon + ' ' + displayName(el).toUpperCase() : c.element) +
+        '  ·  ' + s.hp + ' HP  ·  ' + s.moveSpeed + ' SPD  ·  ' +
+        Math.round(s.critChance * 100) + '% CRIT  ·  ×' + s.damageMult + ' DMG',
+        x + 16, cy, { size: 11, color: el ? el.color : PALETTE.textDim, weight: 700 });
+      cy += 16;
+      r.drawLine(x + 16, cy, x + 16 + innerW, cy, PALETTE.border, 1, 1);
+      cy += 14;
+
+      cy = this._ability(r, c, 'AUTO', c.autoAttack,
+        c.autoAttack.damage + ' dmg every ' + c.autoAttack.interval + 's', x, cy, innerW, PALETTE.accent2);
+      cy = this._ability(r, c, 'SPECIAL', c.special,
+        c.special.cooldown + 's cooldown', x, cy, innerW, PALETTE.accent);
+      cy = this._ability(r, c, 'ESCAPE', c.escape,
+        c.escape.cooldown + 's cd · ' + (c.escape.iframes || 0) + 's i-frames', x, cy, innerW, PALETTE.good);
+      cy = this._ability(r, c, 'PASSIVE', c.passive, '', x, cy, innerW, PALETTE.pink);
+
+      ui.text('BUILD PATHS', x + 16, cy, { size: 11, color: PALETTE.textFaint, weight: 800 });
+      cy += 16;
+      const paths = c.buildPaths || [];
+      for (let i = 0; i < paths.length; i++) {
+        const lines = this._wrap(r, 'bp' + c.id + i, paths[i], innerW - 12, 11);
+        for (let j = 0; j < lines.length; j++) {
+          ui.text((j === 0 ? '▸ ' : '   ') + lines[j], x + 16, cy, { size: 11, color: PALETTE.textDim });
+          cy += 14;
+        }
+        cy += 4;
       }
-      cy += 4;
+      r.unclip();
     }
-    r.unclip();
+
+    // --- the scroll rail -----------------------------------------------------
+    // Declared unconditionally, so the focus index layout does not shift when a
+    // short sheet stops being scrollable.
+    this._charMax = Math.max(0, (cy - top) + 16 - viewH);
+    const canScroll = this._charMax > 1;
+    this.charScroll = ui.scrollbar('chDetBar', x + w - 16, y + 8, 8, viewH - 16,
+      this.charScroll, viewH, viewH + this._charMax);
+
+    const ry = y + h - railH;
+    const bw = 46, bh = 36;
+    const bx = x + w - 12 - bw * 2 - 8;
+    ui.panel(x + 2, ry, w - 4, railH - 2, { radius: 10, color: 'rgba(4,6,14,0.94)' });
+    ui.text(canScroll ? 'wheel · drag the bar · or' : 'all of it fits', x + 16, ry + railH / 2,
+      { size: 11, color: PALETTE.textFaint });
+    if (ui.button('chDetUp', bx, ry + 3, bw, bh, '▲', { size: 14, disabled: !canScroll })) {
+      this.charScroll -= viewH * 0.6;
+    }
+    if (ui.button('chDetDn', bx + bw + 8, ry + 3, bw, bh, '▼', { size: 14, disabled: !canScroll })) {
+      this.charScroll += viewH * 0.6;
+    }
+    this.charScroll = clamp(this.charScroll, 0, this._charMax);
   },
 
   _ability(r, c, tag, ab, meta, x, cy, innerW, color) {

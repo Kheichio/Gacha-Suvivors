@@ -81,17 +81,40 @@ export function abilityDamage(run, p, base, opts) {
   return base * p.abilityDamageMultiplier() * (o.power || 1);
 }
 
+/**
+ * THE SIGNATURE-WEAPON MODIFIERS, or null.
+ *
+ * `p.autoScope` is set by the ability driver for exactly the duration of one
+ * synchronous auto-attack `fire()` call and cleared immediately after. Reading
+ * it here is what lets the signature weapon's level scale an auto-attack's
+ * SIZE, projectile COUNT and PIERCE without touching all nineteen ability
+ * implementations — and, just as importantly, without those same numbers
+ * leaking into specials, escapes and passives, which call these helpers too.
+ */
+function sig(p) {
+  return (p.autoScope && p.run.weapons) ? p.run.weapons.mods : null;
+}
+
 /** Areas scale with the player's areaMult. Every radius in every ability uses this. */
-export function area(p, base) { return base * p.stats.areaMult; }
+export function area(p, base) {
+  const s = sig(p);
+  return base * p.stats.areaMult * (s ? s.area : 1);
+}
 
 /** Projectile speed and range scale together (the Long Haul upgrade). */
 export function projSpeed(p, base) { return base * p.stats.projectileSpeedMult; }
 
 /** How many extra projectiles the Extra Shot upgrade added. */
-export function extraShots(p) { return p.stats.projectileCount | 0; }
+export function extraShots(p) {
+  const s = sig(p);
+  return (p.stats.projectileCount | 0) + (s ? s.count : 0);
+}
 
 /** Pierce from upgrades, on top of an ability's own base pierce. */
-export function pierce(p, base) { return (base || 0) + (p.stats.pierce | 0); }
+export function pierce(p, base) {
+  const s = sig(p);
+  return (base || 0) + (p.stats.pierce | 0) + (s ? s.pierce : 0);
+}
 
 /**
  * Fire a spread of projectiles. The single most-used helper — it applies Extra
