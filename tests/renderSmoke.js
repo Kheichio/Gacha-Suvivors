@@ -525,6 +525,45 @@ describe('render / the screen is not black', () => {
     assert.equal(failures.length, 0, 'meta screens that failed:\n      ' + failures.join('\n      '));
   });
 
+  it('every hub destination is fully on screen, at every size and UI scale', () => {
+    // Reported from play: "the settings button is now outside of the screen."
+    // The old layout stacked one fixed-height row per destination into a
+    // fixed-height column, so adding a ninth node pushed the last one off the
+    // bottom edge — silently, because nothing anywhere checks that a widget is
+    // where a player can reach it. A grid absorbs a new node by shrinking its
+    // cells, and this asserts that it actually does.
+    const hub = sceneManager.scenes.hub;
+    assert.ok(hub && hub._ensureLayout, 'the hub has no layout to check');
+    const SIZES = [[1280, 720], [1366, 768], [1600, 900], [1920, 1080],
+                   [1024, 640], [900, 600], [800, 600], [2560, 1440]];
+    const failures = [];
+    for (const [vw, vh] of SIZES) {
+      for (const scale of [0.8, 1.0, 1.2, 1.4]) {
+        w.ui.scale = scale;
+        hub.L = null;
+        const L = hub._ensureLayout({ w: vw, h: vh });
+        const rects = [['hero', L.heroX, L.heroY, L.heroW, L.heroH],
+                       ['settings', L.gridX, L.settingsY, L.gridW, L.settingsH]];
+        for (let i = 0; i < 6; i++) {
+          const col = i % L.cols, row = (i / L.cols) | 0;
+          rects.push(['card' + i, L.gridX + col * (L.cardW + L.gap),
+                      L.gridY + row * (L.cardH + L.gap), L.cardW, L.cardH]);
+        }
+        for (const [name, x, y, cw, ch] of rects) {
+          const tag = `${vw}x${vh}@${scale} ${name}`;
+          if (!isFinite(x + y + cw + ch)) { failures.push(tag + ': NaN geometry'); continue; }
+          if (x < 0 || x + cw > vw + 0.5) failures.push(tag + ': off the side');
+          if (y + ch > vh - L.footerH - 6) failures.push(tag + ': off the bottom');
+          if (y < L.headerH - 10) failures.push(tag + ': under the header');
+          if (cw < 40 || ch < 28) failures.push(tag + `: unclickable ${Math.round(cw)}x${Math.round(ch)}`);
+        }
+      }
+    }
+    w.ui.scale = 1;
+    hub.L = null;
+    assert.equal(failures.length, 0, failures.slice(0, 8).join('\n      '));
+  });
+
   it('the results screen renders a finished run', () => {
     const scene = sceneManager.scenes.results;
     assert.ok(scene, 'results scene is not registered');

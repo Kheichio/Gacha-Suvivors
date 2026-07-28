@@ -802,3 +802,40 @@ of bar creeping forward is the same information as a distance.
 `revivesUsed` was a per-SOURCE boolean rather than a count of charges spent, so
 the second level did nothing at all while its own card promised "+2 revives
 total" and the HUD drew two pips.
+---
+
+## §44 — The home screen is a menu, not a diorama (2026-07-28)
+
+**Reported from play, verbatim:** *"the settings button is now outside of the
+screen. REMOVE THE POINTLESS THING WITH WALKING CHARACTERS IN THE MIDDLE OF THE
+SCREEN AS IT DOES NOTHING OTHER THAN WASTE SPACE. AND REMOVE THE CHARACTER
+DISPLAY ON THE RIGHT AS IT TOO IS POINTLESS."*
+
+All three are correct, and the first two share a cause.
+
+**The off-screen button was structural, not a typo.** The layout stacked ONE
+FIXED-HEIGHT ROW PER DESTINATION into a fixed-height column. That works until
+the count changes: adding the QUESTS node took it from seven rows to eight and
+pushed SETTINGS past the bottom edge. Nothing anywhere asserted that a widget
+was somewhere a player could reach, so it shipped. It is a grid now — a grid
+absorbs a new node by shrinking its cells — and `tests/renderSmoke.js` asserts
+every destination rect is fully on screen across eight resolutions and four UI
+scales. Verified to fail when the settings bar is nudged 60px down.
+
+**The cast and the starring panel are deleted, not shrunk.** Between them they
+held the centre and the right third of the screen. The walking cast was not
+interactive in any way that mattered and the starring panel restated what the
+ROSTER card already says. A home screen's entire job is to get you somewhere;
+every pixel not helping you choose is working against it. 985 lines became 521,
+and the deleted code was the studio set, the actor simulation, the speech
+bubbles and the character sheet.
+
+**What replaces them is composition, not props:** a deep gradient with one large
+accent bloom, a fine grid, drifting motes, a header rule and a footer rule. The
+PLAY hero is deliberately the largest object on screen and takes focus index 0,
+so the screen opens pointing at the button that starts a run — presenting the
+primary action as one tile among eight was the layout's other mistake.
+
+The focused card's tip now prints on a reserved line above the footer, read
+AFTER every card is declared. The old one lived in the header, which draws
+first, and was therefore always showing the previous frame's selection.
