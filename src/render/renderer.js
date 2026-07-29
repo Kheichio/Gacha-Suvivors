@@ -279,7 +279,13 @@ export class Renderer {
       c.lineJoin = 'round';
       c.strokeText(str, x, y);
     }
-    this.setFill(o.color || '#e8ecf5');
+    // `o.fill` is a CanvasGradient or CanvasPattern the CALLER built and cached.
+    // The draw-state cache compares by identity, which works for objects exactly
+    // as well as it does for colour strings — so handing the same gradient in on
+    // every frame costs one comparison and no context write. Nothing in here may
+    // BUILD one: gradients are allocations, and the callers that want them (the
+    // wordmark, the hub's hero plate) rebuild theirs only on a resize.
+    this.setFill(o.fill || o.color || '#e8ecf5');
     c.fillText(str, x, y);
     this.stats.texts++;
   }
@@ -359,8 +365,43 @@ export class Renderer {
 }
 
 const EMPTY = {};
-export const UI_FONT = '"Segoe UI Variable Display","Segoe UI",Inter,system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif';
-export const MONO_FONT = 'ui-monospace,"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace';
+
+// TYPOGRAPHY. THREE FACES, ZERO DOWNLOADS.
+//
+// SECTION 1 is absolute about this: no build step, no dependencies, and the
+// "no network requests" test greps every source file and index.html for a
+// remote font. That rules out the obvious answer (a webfont) and it also rules
+// out the clever one (a base64 @font-face), because a display face embedded as
+// a data: URI is 40-90KB of unreadable payload sitting in a repository that
+// otherwise has none — a dependency in everything but name, and one nobody can
+// diff. So the game buys its typography from fonts the machine already has.
+//
+// The whole complaint about the old screen was that it "reads as a settings
+// dialog", and the reason is that it had ONE face at ONE weight everywhere.
+// Two faces fixes most of that on its own, so:
+//
+//   DISPLAY_FONT — a CONDENSED grotesque for titles, wordmarks and card labels.
+//     Bahnschrift is the anchor: it ships with Windows 10 and 11, it is a real
+//     DIN, and condensed-heavy-uppercase is the register this genre's menus are
+//     actually written in. macOS answers with DIN Alternate / Avenir Next
+//     Condensed, Android and most Linux desktops with Roboto Condensed, and the
+//     tail (Franklin Gothic Medium, Arial Narrow) is present essentially
+//     everywhere else. Every entry is condensed or semi-condensed, so the face
+//     may change from machine to machine but the VOICE does not.
+//
+//   UI_FONT — a humanist UI grotesque for body copy. Note "Segoe UI Variable
+//     TEXT", not Display: Windows 11 ships optical sizes and the Display cut is
+//     tightly spaced for headlines, which is precisely wrong for the 12px
+//     subtitles that carry most of this game's information.
+//
+//   MONO_FONT — tabular figures for counters, keycaps and stat tables.
+//
+// A face swap can only ever make text NARROWER here (every display fallback is
+// condensed relative to the UI stack, and fitSize/ellipsize measure in the UI
+// stack), so a title that fitted its box before still fits it.
+export const DISPLAY_FONT = 'Bahnschrift,"DIN Alternate","Avenir Next Condensed","Roboto Condensed","Segoe UI Variable Display","Franklin Gothic Medium","Arial Narrow",system-ui,sans-serif';
+export const UI_FONT = '"Segoe UI Variable Text","Segoe UI",Inter,"SF Pro Text",system-ui,-apple-system,"Helvetica Neue",Arial,"Noto Sans",sans-serif';
+export const MONO_FONT = 'ui-monospace,"Cascadia Mono","JetBrains Mono","IBM Plex Mono",Consolas,"SF Mono",Menlo,monospace';
 
 /** Set by main.js once the canvas exists. */
 export let renderer = null;

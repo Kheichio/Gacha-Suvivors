@@ -33,26 +33,57 @@
  *
  * Feature vocabulary the humanoid plan understands:
  *   hair       short spiky flame wild bowl bangs bob wave long twin drills
- *              ponytail sidetail braid topknot buzz ahoge plume ducktail
- *              undercut hood none
- *   hair extra hairColor, hairTip (gradient to a second colour), hairTie
- *   ears       fox cat elf ribbon fin horns greatHorns  (+ earColor)
+ *              lowTwin ponytail sidetail braid topknot buzz ahoge plume
+ *              ducktail undercut hood none
+ *   hair extra hairColor, hairTip (gradient to a second colour), hairTie,
+ *              hairStreak (ONE dyed lock in the fringe — hairTip recolours the
+ *              whole mass and is not the same request), sideBraid (a short
+ *              braid at one temple, whatever the main style is)
+ *   ears       fox cat elf ribbon fin horns greatHorns (+ earColor, earInner)
  *   headgear   crown, hat:'tricorn'|'topHat' (+hatColor, hatPlume), headband
- *              (+headbandPlate), halo, hairpin:'star'
+ *              (+headbandPlate), headdress (+headdressRibbon), halo,
+ *              hairpin:'star'
  *   face       eyes, eyeGlow, eyeSigil, visor, mask, eyepatch:'left'|'right',
  *              scar:'left'|'right', whiskers, blush:false
- *   garment    coat (+coatTrim, coatPattern:'check'|'stripe', coatPattern2),
- *              highCollar, skirt, shorts, sash, belt, scarf, tie, harness,
+ *   garment    coat (+coatTrim, coatPattern:'check'|'stripe', coatPattern2,
+ *              coatRagged), pinafore (+pinaforeTrim), hoodDown, highCollar,
+ *              skirt, shorts, sash, belt, scarf, tie, neckBow, harness,
  *              pauldrons (colour) + pauldron:'left'|'right' (one side only),
- *              gauntlets, gloves, armWraps, detachedSleeves, boots,
+ *              gauntlets, gloves, cuffs, armWraps, detachedSleeves, boots,
  *              bootHeight:'knee'|'thigh', barefoot, sleeve, legColor,
  *              underLayer, chest (crest)
  *   extras     cape, wings (feather|mech|energy|dragon), armWings, hipWings,
  *              tails 1-9 or tail:'scaled', aura, sparks, hologram,
  *              backpack (+backpackColor, strapColor), young
  *   weapon     greatsword sword cutlass katana daisho dual dualRev scythe
- *              trident spear staff gun book mic fan chakram hammer bow claws
- *              orb whip cards mirror none
+ *              trident spear staff gun book mic fan chakram hammer axe bow
+ *              claws orb whip cards mirror none
+ *
+ * FOUR OF THOSE ARE NEW AND EXIST BECAUSE THE MAID WAS BEING DRAWN OUT OF THE
+ * WRONG PARTS. `headband` was standing in for the frilled headdress, `coat` for
+ * the pinafore and `scarf` for the neck ribbon: three garments wearing each
+ * other's names, and at 30x42 they read as a headband, a coat and a scarf,
+ * because that is what they were. So:
+ *   headdress  a pale band with a SCALLOPED upper edge and short ribbon tails,
+ *              sitting ON TOP of the hair. A headband crosses the BROW, is dark
+ *              and carries a plate; the two are opposites and neither may be
+ *              written for the other.
+ *   pinafore   a bib on two shoulder straps plus an apron over the skirt with a
+ *              frilled hem and the bow of its waist tie showing past the hips.
+ *              Not a coat: no lapels, no open front, and it stops well short of
+ *              the boot.
+ *   neckBow    a ribbon tied in a BOW at the throat. Three garments live in the
+ *              same six pixels — `scarf` is wrapped cloth with one long trailing
+ *              end, `tie` is a knot with a blade down the shirt, `neckBow` has
+ *              two loops and two stubs — and they are not interchangeable.
+ *   cuffs      a band at the wrist that is a pixel proud of the arm and sits
+ *              below the sleeve's hem, so it reads as a separate cuff rather
+ *              than as the last row of a sleeve.
+ * The rest of the additions are the same story on other characters: hoodDown
+ * for the two hoodies that were being written as coats, coatRagged for the one
+ * kimono the brief calls torn, hairStreak, sideBraid, earInner, lowTwin and the
+ * axe, each of which is one concrete line of somebody's refNotes that the
+ * vocabulary simply could not say.
  */
 export const CHARACTER_SPRITES = {
   // ★3 ----------------------------------------------------------------------
@@ -89,6 +120,11 @@ export const CHARACTER_SPRITES = {
     outfit: '#1b2a5e', accent: '#6ad8ff', eyes: '#4aa8ff',
     eyepatch: 'left', eyepatchColor: '#161d3a',   // the fringe, not a patch
     hairpin: 'star', hairpinColor: '#ffe14a',
+    // The brief says the costume is NAVY AND WHITE and the previous pass was
+    // navy and cyan: every light on her was the accent, so the second half of a
+    // two-colour costume was simply missing. The white now shows where a stage
+    // outfit actually shows it — at the collar and on the gloves.
+    underLayer: '#f4f1ea', gloves: '#f4f1ea',
     cape: '#121c44', skirt: '#2a3a78', sash: '#6ad8ff', chest: '#ffe14a',
     boots: '#121c44', bootHeight: 'knee',
     aura: '#ffe14a', weapon: 'mic', weaponColor: '#e8ecf5',
@@ -142,13 +178,15 @@ export const CHARACTER_SPRITES = {
     weapon: 'mirror', weaponColor: '#e8c98a',
   },
   // A stream overlay given a body: ribbon aerials shaped like headset ears, a
-  // white-and-pink hooded dress, THIGH-HIGH boots, pink eyes, a status halo that
-  // is actually visible, and pixel motes shedding off her.
+  // white-and-pink HOODED dress, THIGH-HIGH boots, pink eyes, a status halo that
+  // is actually visible, and pixel motes shedding off her. The hood is worn
+  // down, which the vocabulary could not say at all until now — the previous
+  // pass wrote `coat` and quietly dropped the one word the brief leads with.
   unit_09: {
     body: 'humanoid', hair: 'ahoge', hairColor: '#8a6a4a', skin: '#fbdcc4',
     outfit: '#f7f2f4', accent: '#ff7ab8', eyes: '#ff7ab8',
     ears: 'ribbon', halo: '#ff7ab8', chest: '#ff7ab8', aura: '#ff7ab8',
-    coat: '#f2e6ec', coatTrim: '#ff7ab8',
+    coat: '#f2e6ec', coatTrim: '#ff7ab8', hoodDown: '#ff7ab8',
     gloves: '#f7f2f4', boots: '#ff7ab8', bootHeight: 'thigh', weapon: 'none',
   },
 
@@ -166,35 +204,40 @@ export const CHARACTER_SPRITES = {
     backpack: 'box', backpackColor: '#7a5330', strapColor: '#3a2a1c',
     weapon: 'katana', weaponColor: '#8ad8ff',
   },
-  // The ronin. Sun-darkened, scarred, roughly tied hair, a torn kimono, NO
+  // The ronin. Sun-darkened, scarred, roughly tied hair, a TORN kimono, NO
   // armour and BARE FEET, and the long-and-short pair drawn at once so the
   // length difference — which is the entire school — is impossible to miss.
-  // Heavy blacks with one red accent, per the ink-wash direction.
+  // Heavy blacks with one red accent, per the ink-wash direction. The hem is
+  // ragged: he is the only person on the roster wearing rags and a garment that
+  // ends in a ruled line has been laundered.
   niten: {
     body: 'humanoid', hair: 'topknot', hairColor: '#2a241e', skin: '#c9955f',
     outfit: '#22201c', accent: '#8a1f1f', eyes: '#1a1a1a',
-    coat: '#332f28', coatTrim: '#8a1f1f', sash: '#8a1f1f', belt: false,
+    coat: '#332f28', coatTrim: '#8a1f1f', coatRagged: true,
+    sash: '#8a1f1f', belt: false,
     barefoot: true, scar: 'left', blush: false,
     weapon: 'daisho', weaponColor: '#e0e6ee',
   },
   // Deep-sea, and VERY SMALL — a bigger head on a narrower frame, which is the
   // whole reason the humanoid plan learned about proportion. Dorsal fin on the
-  // crown, pale twin-tails, a hoodie over the suit, a tail, and a gold trident.
+  // crown, pale twin-tails, a HOODIE over the suit with the hood down behind the
+  // neck, a tail, and a gold trident.
   shiro_same: {
     body: 'humanoid', young: true,
     hair: 'twin', hairColor: '#dff4ff', hairTie: '#5fd6ff', skin: '#fbe0cc',
     outfit: '#5fd6ff', accent: '#0b3d5c', eyes: '#4a7f9c',
-    coat: '#2f8fc4', coatTrim: '#dff4ff', ears: 'fin',
+    coat: '#2f8fc4', coatTrim: '#dff4ff', hoodDown: '#2f8fc4', ears: 'fin',
     tails: 1, tailColor: '#4ab6e0', gloves: '#dff4ff', boots: '#0b3d5c',
     weapon: 'trident', weaponColor: '#ffe9a3',
   },
   // Electromaster. Short brown bob, cream winter uniform, the BROWN skirt with
-  // SHORTS visible under it, a red collar ribbon, the flicked token as her
-  // crest, and arcs coming off the bangs rather than a generic aura.
+  // SHORTS visible under it, a red collar RIBBON — a bow, which is a different
+  // garment from the scarf that used to stand in for it — the flicked token as
+  // her crest, and arcs coming off the bangs rather than a generic aura.
   reika: {
     body: 'humanoid', hair: 'bob', hairColor: '#7a5a3a', skin: '#fbdcc0',
     outfit: '#e8e4dc', accent: '#8a6a4a', eyes: '#c8a05a',
-    scarf: '#c8503a', skirt: '#6a4a2e', shorts: '#2e2a26',
+    neckBow: '#c8503a', skirt: '#6a4a2e', shorts: '#2e2a26',
     sparks: '#7ad9ff', chest: '#ffe14a', aura: '#7ad9ff',
     boots: '#2e3648', bootHeight: 'knee', weapon: 'none',
   },
@@ -253,6 +296,11 @@ export const CHARACTER_SPRITES = {
   yukine: {
     body: 'humanoid', hair: 'sidetail', hairColor: '#f2f6ff', hairTie: '#3fb6c8',
     skin: '#fbe0cc', outfit: '#eaf4ff', accent: '#3fb6c8', eyes: '#9ad84a',
+    // Two things the brief names outright and the previous pass could not draw:
+    // ONE blue-green streak in otherwise white hair, and PALE BLUE inner fur in
+    // the ears. The ear lining used to be a hard-coded pink, which is right for
+    // the other fox on the roster and wrong for this one.
+    hairStreak: '#3fb6c8', earInner: '#bfe4f5',
     ears: 'fox', earColor: '#f2f6ff',
     coat: '#dbe9f7', coatTrim: '#3fb6c8', highCollar: '#dbe9f7',
     tie: '#2a6fa8', skirt: '#2a3550', shorts: '#1c2438',
@@ -260,28 +308,39 @@ export const CHARACTER_SPRITES = {
     gloves: '#f2f6ff', boots: '#2a3550', bootHeight: 'thigh',
     aura: '#8fe6ff', weapon: 'cards', weaponColor: '#f4f1ea',
   },
-  // The apprentice. A blunt lilac BOWL cut with a broad white capelet over a
-  // plain grey-brown travelling dress — the tidiest silhouette on the roster,
-  // and a small frame because she is the youngest person in the party. Bare
-  // orb-cast rather than a blade: her hands are the weapon and they never shake.
+  // The apprentice. A blunt lilac cut with ONE SMALL BRAID at the side, violet
+  // eyes, a broad white capelet collar over a plain grey-brown travelling dress,
+  // and FLAT SHOES — the tidiest silhouette on the roster, and a small frame
+  // because she is the youngest person in the party. Bare orb-cast rather than a
+  // blade: her hands are the weapon and they never shake. The scarf the previous
+  // pass gave her was standing in for the capelet's broad collar, which is a
+  // stand collar and not a scarf, and it came with a trailing end she does not
+  // have; the braid was simply missing.
   wren: {
     body: 'humanoid', young: true,
     hair: 'bowl', hairColor: '#b08fd6', skin: '#f7d8bc',
     outfit: '#6a6252', accent: '#f4f1ea', eyes: '#8f6ad6',
-    cape: '#f4f1ea', scarf: '#f4f1ea', skirt: '#5a5244',
+    sideBraid: '#9a78c4', hairTie: '#e8e4dc',
+    cape: '#f4f1ea', highCollar: '#f4f1ea', skirt: '#5a5244',
     gloves: '#e8e4dc', boots: '#3a3428',
     sparks: '#c3a8ff', blush: false, weapon: 'orb', weaponColor: '#c3a8ff',
   },
-  // The warrior. Shaggy RED hair, a heavy fur-collared coat over mail, wrapped
-  // forearms, one shoulder plate each side, and the enormous two-handed haft he
-  // never puts down. The biggest silhouette in the cast and the only red head.
+  // The warrior. Shaggy RED hair, blue eyes, a heavy blue-grey fur-collared coat
+  // over MAIL (showing at the neck), wrapped forearms, one shoulder plate each
+  // side, and the enormous two-handed AXE he never puts down. It is an axe in
+  // the brief and in his relic, and the hammer the previous pass gave him is a
+  // different weapon with a different silhouette. The biggest read in the cast
+  // and the only red head.
   brant: {
     body: 'humanoid', hair: 'wild', hairColor: '#c8452c', skin: '#f0c9a8',
     outfit: '#3f4a5c', accent: '#c8452c', eyes: '#5fb6e0',
     coat: '#2e3a4c', coatTrim: '#8a7a52', scarf: '#8a7a52',
+    underLayer: '#9aa4b2',
     pauldrons: '#8a9aa8', harness: '#5a4a38', armWraps: '#c8c2ba',
     gauntlets: '#8a9aa8', boots: '#2a2218', bootHeight: 'knee',
-    blush: false, weapon: 'hammer', weaponColor: '#b8c2ce',
+    // Brighter than the shoulder plates on purpose: the axe head passes right
+    // over one, and at a near-match the two greys share an outline and fuse.
+    blush: false, weapon: 'axe', weaponColor: '#d2dced',
   },
 
   // ★6 ----------------------------------------------------------------------
@@ -322,25 +381,39 @@ export const CHARACTER_SPRITES = {
     gauntlets: '#3f6ad8', boots: '#3f6ad8', bootHeight: 'knee',
     aura: '#ffd84a', weapon: 'none',
   },
-  // The maid. Blue-violet DRILL twin-tails with white ribbons — the only drills
-  // in the cast — under a white frilled headdress, a red neck ribbon, a white
-  // pinafore and detached cuffs over a navy dress, and the thrown disc that is
-  // the closest this vocabulary gets to a serving tray leaving her hands.
+  // THE MAID, and every line of her brief is a garment.
+  //
+  // Blue-violet hair in two long DRILL twin-tails tied with WHITE RIBBONS — the
+  // only drills in the cast and half her silhouette — purple-blue eyes, and a
+  // full maid uniform: dark navy dress, WHITE PINAFORE and detached CUFFS, a
+  // WHITE FRILLED HEADDRESS, a RED NECK RIBBON. Every one of those five is now a
+  // feature that means what it says. The previous pass faked three of them out
+  // of the wrong parts — `headband` for the headdress, `coat` for the pinafore,
+  // `scarf` for the neck ribbon — and what came out was a person in a headband,
+  // a coat and a scarf, because that is what was written.
+  //
+  // The disc is thrown, not held: she is never posed, she is mid-accident, and a
+  // ring at head height with a motion arc behind it is the closest this
+  // vocabulary gets to a tray already out of her hands.
   aoi: {
-    body: 'humanoid', hair: 'drills', hairColor: '#5b7ce0', hairTie: '#f4f1ea',
-    skin: '#fbe0cc', outfit: '#1e2440', accent: '#f4f1ea', eyes: '#8fb6ff',
-    headband: '#f4f1ea', scarf: '#c8203a',
-    coat: '#f4f1ea', coatTrim: '#4a6ad8', detachedSleeves: '#f4f1ea',
+    body: 'humanoid', hair: 'drills', hairColor: '#6b6ad6', hairTie: '#f4f1ea',
+    skin: '#fbe0cc', outfit: '#1e2440', accent: '#f4f1ea', eyes: '#9b7cf0',
+    headdress: '#f4f1ea', headdressRibbon: '#f4f1ea', neckBow: '#c8203a',
+    pinafore: '#f4f1ea', pinaforeTrim: '#c9cfe4',
+    detachedSleeves: '#f4f1ea', cuffs: '#f4f1ea',
     skirt: '#1e2440', gloves: '#f4f1ea', boots: '#2a3050', bootHeight: 'knee',
     aura: '#8fb6ff', weapon: 'chakram', weaponColor: '#e8ecf5',
   },
-  // The elf. Small frame, long POINTED EARS, a white-silver BRAID with a gold
-  // tie, a white-and-gold robe under a short dark shoulder cape, and a plain
-  // wooden staff. Nothing about her is ornamental: the brief is that she looks
-  // fourteen, is over a thousand, and owns one good coat.
+  // The elf. Small frame, long POINTED EARS, waist-length white-silver hair worn
+  // in TWO LOW TAILS with gold ties, a white-and-gold robe under a short dark
+  // shoulder cape, and a plain wooden staff. The single braid the previous pass
+  // gave her is not what the paragraph says and the paragraph wins; low tails
+  // are also a different read from the two high bunches already on the roster,
+  // which is what keeps her out of the twin-tail pile. Nothing about her is
+  // ornamental: she looks fourteen, is over a thousand, and owns one good coat.
   mirel: {
     body: 'humanoid', young: true,
-    hair: 'braid', hairColor: '#f2f6ff', hairTie: '#c8a24a', skin: '#fbe0cc',
+    hair: 'lowTwin', hairColor: '#f2f6ff', hairTie: '#c8a24a', skin: '#fbe0cc',
     outfit: '#f7f4ec', accent: '#c8a24a', eyes: '#6ad89a',
     ears: 'elf', earColor: '#fbe0cc',
     cape: '#2a2436', coat: '#f2ece0', coatTrim: '#c8a24a', highCollar: '#f2ece0',
@@ -388,14 +461,19 @@ export function portraitFor(def) {
     // portrait from drawing a trident through its own shoulder. `chest` stays —
     // the bust re-sites the crest onto the collarbone — and so do the collar,
     // the coat and the one-sided shoulder pad, which are all visible in frame.
+    // `cuffs` go with the arms they sit on: there are no wrists in a bust.
     weapon: 'none', tails: 0, tail: null, cape: null, skirt: null, shorts: null,
     sash: null, gauntlets: null, boots: null, bootHeight: undefined,
     belt: undefined, harness: null, armWings: null, hipWings: null,
     backpack: null, hologram: null, barefoot: false, detachedSleeves: null,
-    armWraps: null,
+    armWraps: null, cuffs: null,
     // `wings` deliberately SURVIVES: the bust shows the leading edge of one at
     // each shoulder, which is in frame and is half the read on the one
-    // character who has them.
+    // character who has them. So, deliberately, do `headdress`, `neckBow`,
+    // `pinafore` and `hoodDown` — a headdress, a ribbon at the throat, the bib
+    // of an apron and the roll of a hood down behind the neck are all ABOVE OR
+    // AT the crop line, and a maid whose uniform is cropped out of her own
+    // portrait is a stranger in a navy dress.
   });
 }
 

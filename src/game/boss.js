@@ -312,6 +312,68 @@ export class BossController {
 const SCRATCH = { i: 0, x: 0, y: 0, a: 0, n: 0 };
 const EMPTY = {};
 
+// --- boss projectile visuals --------------------------------------------------
+//
+// Three attack kinds fire a projectile, and each used to build its descriptor as
+// an OBJECT LITERAL INSIDE fire() — so a 24-projectile ring allocated 24 of them
+// per cast, and, far worse, the atlas had never seen the resulting key. The boot
+// pre-raster harvests `data.allVisuals()`, and a descriptor that exists only
+// inside a function body is invisible to it: the first time a boss opened with
+// one of these the atlas baked 32 rotation steps and a white flash twin
+// MID-FIGHT. tests/renderSmoke.js exists to catch precisely that and never did,
+// because it drives ten seconds of a run and a boss lands at the halfway mark.
+//
+// So the descriptor is built once per ATTACK DEFINITION and cached on it. The
+// same builder runs at boot across every boss's whole attack table (see
+// bossProjectileVisuals, which render/prewarm.js calls), so the runtime lookup
+// does not merely produce an EQUAL descriptor — it produces the SAME OBJECT the
+// pre-raster already registered, and the two keys cannot drift apart later.
+
+const ATTACK_VISUAL = {
+  radialBurst: (d) => ({
+    shape: 'diamond', color: d.color || '#ff6f91', accent: '#3a0a18',
+    size: (d.params && d.params.radius) || 9, rotates: true, glow: true,
+  }),
+  homingProjectile: (d) => ({
+    shape: 'square', color: d.color || '#ff2d95', accent: '#2a0a1e',
+    size: 11, rotates: true,
+  }),
+  projectileSpread: (d) => ({
+    shape: 'shard', color: d.color || '#c58cff', accent: '#2a1040',
+    size: 8, rotates: true,
+  }),
+};
+
+/** The cached descriptor for one attack definition, built on first ask. */
+function attackVisual(def) {
+  let v = def._visual;
+  if (v === undefined) {
+    const make = ATTACK_VISUAL[def.kind];
+    v = def._visual = make ? make(def) : null;
+  }
+  return v;
+}
+
+/**
+ * Every projectile descriptor the boss table can produce, for the boot pass.
+ *
+ * Walks each boss's ENTIRE attack table rather than only the attacks its opening
+ * phase lists — a phase-three attack is the one whose hitch hurts most, and it
+ * is also the one a short smoke test will never reach.
+ */
+export function bossProjectileVisuals(bossList) {
+  const out = [];
+  for (const b of bossList || []) {
+    const table = b.attacks;
+    if (!table) continue;
+    for (const key in table) {
+      const v = attackVisual(table[key]);
+      if (v) out.push(v);
+    }
+  }
+  return out;
+}
+
 // --- attack kinds -------------------------------------------------------------
 // Each is { telegraph?, windup?, fire?, active?, end? }. Everything lethal
 // telegraphs. Nothing allocates.
@@ -375,7 +437,7 @@ const ATTACKS = {
         run.enemyProjectiles.fire(e.x, e.y, off + (i / n) * TAU, {
           speed: P.speed || 260, damage: c.def.damage, life: P.life || 4,
           radius: P.radius || 9, owner: e,
-          visual: { shape: 'diamond', color: c.def.color || '#ff6f91', accent: '#3a0a18', size: P.radius || 9, rotates: true, glow: true },
+          visual: attackVisual(c.def),
         });
       }
       audio.play('explode');
@@ -397,7 +459,7 @@ const ATTACKS = {
           motion: MOTION.HOMING, target: run.player,
           speed: P.speed || 190, turnRate: P.turnRate || 1.6,
           damage: c.def.damage, life: P.life || 6, radius: 11, owner: e,
-          visual: { shape: 'square', color: c.def.color || '#ff2d95', accent: '#2a0a1e', size: 11, rotates: true },
+          visual: attackVisual(c.def),
         });
       }
       audio.play('shoot');
@@ -642,7 +704,7 @@ const ATTACKS = {
       for (let i = 0; i < n; i++) {
         run.enemyProjectiles.fire(e.x, e.y, base + (i / (n - 1) - 0.5) * (P.spread || 1.0), {
           speed: P.speed || 300, damage: c.def.damage, life: 4, radius: 8, owner: e,
-          visual: { shape: 'shard', color: c.def.color || '#c58cff', accent: '#2a1040', size: 8, rotates: true },
+          visual: attackVisual(c.def),
         });
       }
       audio.play('shoot');

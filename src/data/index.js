@@ -159,6 +159,12 @@ export function allVisuals() {
   for (const e of evolutions.EVOLUTIONS) push(e.visual);
   for (const p of upgrades.PICKUPS) push(p.visual);
   for (const g of upgrades.XP_GEMS) push(g.visual);
+  // Obstacle sets. These are joined in here rather than hand-listed in
+  // prewarm.js's EFFECT_VISUALS for the same reason the particle palette is
+  // harvested rather than written out: a hand-kept copy of a data table goes
+  // stale the moment content is added to it, and the cost of missing one is a
+  // sprite rasterising on the frame a player first walks past a crate.
+  for (const k in stages.OBSTACLE_SETS) push(stages.OBSTACLE_SETS[k].visual);
   return out;
 }
 
@@ -179,6 +185,63 @@ export function validate() {
     for (const m of s.mobTable || []) has(enemies.ENEMIES_BY_ID, m.id, `stage ${s.id}.mobTable`);
     for (const h of s.hazards || []) { if (!stages.HAZARDS[h]) problems.push(`stage ${s.id}: unknown hazard "${h}"`); }
     if (s.modifier && !stages.MODIFIERS[s.modifier]) problems.push(`stage ${s.id}: unknown modifier "${s.modifier}"`);
+    // The three registry keys added with the backdrop/obstacle/event pass. All
+    // three are REQUIRED, not optional: a stage that silently falls back to the
+    // default look is exactly the "every stage is the same grid in four hex
+    // codes" failure this pass exists to end, and a missing key would produce it
+    // with no error anywhere.
+    if (!s.backdrop) problems.push(`stage ${s.id} declares no backdrop`);
+    else if (!stages.BACKDROPS[s.backdrop]) problems.push(`stage ${s.id}: unknown backdrop "${s.backdrop}"`);
+    if (!s.obstacles) problems.push(`stage ${s.id} declares no obstacle set`);
+    else if (!stages.OBSTACLE_SETS[s.obstacles]) {
+      problems.push(`stage ${s.id}: unknown obstacle set "${s.obstacles}"`);
+    }
+    if (!s.events || !s.events.length) problems.push(`stage ${s.id} has no mini events`);
+    for (const e of s.events || []) {
+      const def = stages.STAGE_EVENTS[e];
+      if (!def) { problems.push(`stage ${s.id}: unknown event "${e}"`); continue; }
+      if (stages.STAGE_EVENT_KINDS.indexOf(def.kind) < 0) {
+        problems.push(`event ${e}: unknown kind "${def.kind}"`);
+      }
+    }
+  }
+
+  // A backdrop with a missing colour role draws that element in `undefined`,
+  // which Canvas silently ignores — an invisible layer with no error.
+  for (const k in stages.BACKDROPS) {
+    const b = stages.BACKDROPS[k];
+    for (const role of ['far', 'farEdge', 'farLit', 'mid', 'midEdge', 'tile', 'seam', 'detail', 'glow']) {
+      if (!b[role]) problems.push(`backdrop ${k} is missing the "${role}" colour`);
+    }
+  }
+
+  // An obstacle set with no `forms` scatters nothing, and one whose circular
+  // pieces have no `visual` cannot be pre-rastered — it would bake mid-run.
+  for (const k in stages.OBSTACLE_SETS) {
+    const o = stages.OBSTACLE_SETS[k];
+    if (!o.count) continue;
+    if (!o.forms || !o.forms.length) problems.push(`obstacle set ${k} places ${o.count} pieces of nothing`);
+    if (!o.box) problems.push(`obstacle set ${k} has no box colours`);
+    let wantsCircle = false;
+    for (const f of o.forms || []) {
+      if (f.form === 'circle') wantsCircle = true;
+      else if (f.form !== 'box') problems.push(`obstacle set ${k}: unknown form "${f.form}"`);
+    }
+    if (wantsCircle && !o.visual) problems.push(`obstacle set ${k} rolls circles but declares no visual`);
+  }
+
+  // An event that pays nothing is a detour with no reason to take it.
+  for (const id in stages.STAGE_EVENTS) {
+    const e = stages.STAGE_EVENTS[id];
+    const r = e.reward;
+    if (!r || !(r.xpLevels || r.gold || r.chest || r.goldChest || r.healPct)) {
+      problems.push(`event ${id} pays nothing`);
+    }
+    if (!e.objective) problems.push(`event ${id} never says what to do`);
+    const p = e.params || {};
+    if (!(p.need > 0)) problems.push(`event ${id} has no win condition (need)`);
+    if (!(p.limit > 0)) problems.push(`event ${id} has no time limit`);
+    if (!(p.radius > 0)) problems.push(`event ${id} has no marked area`);
   }
   for (const e of evolutions.EVOLUTIONS) {
     has(upgrades.UPGRADES_BY_ID, e.requires.upgrade, `evolution ${e.id}.requires.upgrade`);

@@ -28,6 +28,15 @@
 // different every frame is exactly the case pre-rastering cannot serve. Vector
 // primitives cost a few dozen path ops per effect and are free to animate.
 //
+// The two SPRITE kinds at the bottom (`sweepSprite`, `fallSprite`) do not break
+// that rule: the caller hands over an ALREADY-REGISTERED atlas Sprite and this
+// file only blits it. They exist because two things in the game are not energy
+// and cannot be drawn as energy — a scythe swinging through 180 degrees, and a
+// lighting truss falling out of the ceiling. Both are objects, both are the same
+// object every frame, and both are exactly what pre-rastering IS for. They are
+// blitted in a second, SOURCE-OVER pass after the additive one, because an
+// object lit additively over a dark stage is a white smear.
+//
 // DETERMINISM: the only randomness is one `fxRng` draw per spawn, stored as a
 // per-instance phase. `fxRng` is the throwaway cosmetic stream — consuming the
 // run stream here would desynchronise seeded replays and the balance harness.
@@ -48,6 +57,8 @@ const MAX_EFFECTS = 160;
 export const FX_TIER = { NORMAL: 0, EVOLVED: 1 };
 
 const K_SLASH = 0, K_SHOCK = 1, K_BEAM = 2, K_BURST = 3, K_IMPACT = 4, K_AFTER = 5;
+/** The two sprite kinds. Drawn in the second, source-over pass. */
+const K_SWEEP = 6, K_FALL = 7;
 
 const WHITE = '#ffffff';
 /** The evolved tier's signature rim colour. One constant, used by every kind. */
@@ -98,10 +109,12 @@ function makeEffect() {
     age: 0, pAge: 0, life: 0.3,
     alpha: 1, count: 10, phase: 0, extra: 0,
     color: WHITE, color2: WHITE,
+    /** An atlas Sprite, for the two sprite kinds. Null for every other kind. */
+    sprite: null,
   };
 }
 
-function resetEffect(e) { e.color = WHITE; e.color2 = WHITE; }
+function resetEffect(e) { e.color = WHITE; e.color2 = WHITE; e.sprite = null; }
 
 const finite = (v) => typeof v === 'number' && v - v === 0;
 
@@ -128,6 +141,7 @@ export class EffectSystem {
     e.a0 = 0; e.arc = 1; e.spin = 1;
     e.r0 = 0; e.r1 = 0; e.w0 = 2;
     e.count = 10; e.extra = 0;
+    e.sprite = null;
     e.age = 0; e.pAge = 0;
     e.life = o.life > 0 ? o.life : defaultLife;
     e.alpha = o.alpha > 0 ? o.alpha : 1;
@@ -225,6 +239,57 @@ export class EffectSystem {
     return e;
   }
 
+  /**
+   * A HELD PROP SWUNG THROUGH AN ARC.
+   *
+   * `slash` draws the ENERGY of a swing. This draws the THING doing the swinging,
+   * and the two are meant to be fired together: the sprite is the object, the
+   * slash is what the object did to the air. The prop is blitted at the leading
+   * edge with a short chain of fading ghosts behind it, each one aligned along
+   * its own radius so the haft always points back at the pivot — which is what
+   * makes a scythe read as a scythe rather than as a blade sliding sideways.
+   *
+   * @param sprite an atlas Sprite, already registered. Its +X must be the
+   *               direction pointing AWAY from the wielder (see SHAPES.scythe).
+   * @param opts   .sweep (+1/-1) .scale .ghosts .life .alpha
+   */
+  sweepSprite(x, y, angle, arc, radius, sprite, opts) {
+    const o = opts || EMPTY;
+    if (!sprite || !finite(angle) || !(radius > 0)) return null;
+    const e = this._begin(K_SWEEP, x, y, o.color || WHITE, o, 0.26);
+    if (!e) return null;
+    e.sprite = sprite;
+    e.a0 = angle;
+    e.arc = finite(arc) && Math.abs(arc) > 0.03 ? Math.abs(arc) : Math.PI;
+    e.r0 = radius;
+    e.spin = o.sweep < 0 ? -1 : 1;
+    e.w0 = o.scale > 0 ? o.scale : 1;
+    e.count = o.ghosts >= 0 ? (o.ghosts | 0) : 4;
+    return e;
+  }
+
+  /**
+   * A PROP DROPPING ONTO A POINT from off the top of the screen.
+   *
+   * Accelerating, spinning, with a shadow on the ground that tightens as it
+   * arrives — the shadow is the important half, because it is the only part the
+   * player can read while looking at their own feet.
+   *
+   * @param opts .from (px above the target it starts) .scale .angle .spin .life
+   */
+  fallSprite(x, y, sprite, opts) {
+    const o = opts || EMPTY;
+    if (!sprite || !finite(x) || !finite(y)) return null;
+    const e = this._begin(K_FALL, x, y, o.color || WHITE, o, 0.4);
+    if (!e) return null;
+    e.sprite = sprite;
+    e.r0 = o.from > 0 ? o.from : 260;
+    e.w0 = o.scale > 0 ? o.scale : 1;
+    e.a0 = finite(o.angle) ? o.angle : 0;
+    e.spin = finite(o.spin) ? o.spin : 0;
+    return e;
+  }
+
   update(dt) {
     const items = this.pool.items;
     for (let i = 0; i < this.pool.count; i++) {
@@ -264,6 +329,20 @@ export class EffectSystem {
       }
     }
     r.setComposite('source-over');
+    r.setAlpha(1);
+
+    // SECOND PASS: the sprite kinds, source-over. A solid object blitted
+    // additively over a dark stage is a white smear, so a scythe and a falling
+    // truss have to be composited normally — and doing it in one block flips the
+    // composite twice per frame rather than twice per effect.
+    for (let i = 0; i < n; i++) {
+      const e = items[i];
+      if (!e.sprite) continue;
+      const age = e.pAge + (e.age - e.pAge) * alpha;
+      const t = age <= 0 ? 0 : (age >= e.life ? 1 : age / e.life);
+      if (e.kind === K_SWEEP) drawSweep(r, e, t);
+      else if (e.kind === K_FALL) drawFall(r, e, t);
+    }
     r.setAlpha(1);
   }
 
@@ -496,6 +575,57 @@ function drawAfter(r, e, t) {
   // EVOLVED: the ghosts PERSIST as gold outlines with a spark at the tail.
   hoop(r, e.x, e.y, R * (1 + t * 0.9), GOLD, 1.4, A * 0.5);
   disc(r, e.x - c * tail, e.y - s * tail, R * 0.22 * (1 - t), GOLD, A * 0.7);
+}
+
+// --- the sprite kinds --------------------------------------------------------
+// Both blit through `drawSpriteRotated`, which reads frame 0 and rotates on the
+// context. That is the RIGHT path for a prop: the atlas gives a `rotates: false`
+// visual exactly one frame instead of 32, and a prop turning through 180 degrees
+// in a quarter of a second needs a continuous angle anyway, not a snapped step.
+
+/**
+ * THE SWING, as an object.
+ *
+ * Shares `drawSlash`'s wind-up so the prop and the energy arc cock back together
+ * — they are one motion drawn twice, and a prop that starts moving a frame before
+ * its own slash does reads as two separate things happening at once.
+ */
+function drawSweep(r, e, t) {
+  const fade = 1 - t * t;
+  if (fade <= 0.02) return;
+  const u = t < WINDUP ? -0.18 * (1 - t / WINDUP)
+                       : easeOutCubic((t - WINDUP) / (1 - WINDUP));
+  const start = e.a0 - e.spin * e.arc * 0.5;
+  const head = start + e.spin * e.arc * u;
+  const n = e.count;
+  // Back to front, so the leading edge lands on top of its own ghosts.
+  for (let i = n; i >= 0; i--) {
+    const a = head - e.spin * e.arc * 0.11 * i;
+    const al = e.alpha * fade * (i === 0 ? 1 : 0.34 * (1 - i / (n + 1)));
+    if (al <= 0.012) continue;
+    r.drawSpriteRotated(e.sprite,
+                        e.x + Math.cos(a) * e.r0, e.y + Math.sin(a) * e.r0,
+                        a, e.w0 * (1 - i * 0.05), al > 1 ? 1 : al, false);
+  }
+}
+
+/**
+ * THE DROP.
+ *
+ * `t * t` rather than `t`, because a truss that descends at a constant rate
+ * looks like it is being lowered on a winch. The shadow is drawn first and
+ * tightens all the way in: it is the only part of this the player can read
+ * without looking up.
+ */
+function drawFall(r, e, t) {
+  const k = t * t;
+  const drop = e.r0 * (1 - k);
+  const A = e.alpha * (t < 0.86 ? 1 : Math.max(0, 1 - (t - 0.86) / 0.14));
+  if (A <= 0.012) return;
+  const sh = 0.45 + 0.55 * k;
+  r.drawCircle(e.x, e.y, e.sprite.w * e.w0 * 0.42 * sh, '#000000', 0.20 + 0.28 * k);
+  r.drawSpriteRotated(e.sprite, e.x, e.y - drop,
+                      e.a0 + e.spin * t, e.w0, A, false);
 }
 
 export const effects = new EffectSystem();

@@ -1,21 +1,33 @@
 // THE SHRINE — hub node 4 (SECTION 12 lines 1573-1586).
 //
-// Ten permanent upgrades bought with GOLD. Every card prints the exact effect at
-// the level you own AND at the level you are being asked to buy, side by side
-// ("+6% damage → +8% damage"), plus the exact price. No adjectives anywhere.
+// Twenty-two permanent upgrades bought with GOLD. Every card prints the exact
+// effect at the level you own AND at the level you are being asked to buy, side
+// by side ("+6% damage → +8% damage"), plus the exact price. No adjectives
+// anywhere.
 //
-// CURSE is the row the spec singles out: "+10% enemy count AND +8% all rewards
-// (5 levels — opt-in difficulty; this is the best value upgrade for good players
-// and a trap for bad ones. Label it honestly.)" Both halves are stated in the
-// same sentence, in that order, and the trap is spelled out on the card in the
-// caution colour. It is also genuinely locked until save.unlocks.curse, which
-// only the `kill_10000_enemies` achievement flips (DECISIONS.md §24) — the card
-// shows the requirement and the live kill count while it waits.
+// NOTHING ON THIS SCREEN IS PER-ROW. The cards, the prices, the pips, the
+// preview totals, the refund and both gates are all driven off SHRINE_UPGRADES,
+// so the twelve rows added after the spec's ten needed no branch here — only a
+// wider PREVIEW_ROWS table and a lock lookup keyed by flag rather than hardcoded
+// to Curse's. If a row ever needs code in this file, the row is wrong.
+//
+// THE TWO RISK ROWS. Curse is the one the spec singles out: "+10% enemy count
+// AND +8% all rewards (5 levels — opt-in difficulty; this is the best value
+// upgrade for good players and a trap for bad ones. Label it honestly.)" Glass
+// Edge trades max HP for damage and is the same kind of offer about a different
+// question. Both state both halves in the same sentence, in that order, both are
+// drawn in the caution colour, and both spell the cost out on the card. The
+// screen finds them by `u.warning` — a row that costs you something is a row
+// that says so, and the renderer needs no other definition of "risk".
+//
+// Both are genuinely locked until save.unlocks.curse, which only the
+// `kill_10000_enemies` achievement flips (DECISIONS.md §24) — the card shows the
+// requirement and the live kill count while it waits.
 //
 // THE REFUND IS FREE, FULL AND ALWAYS ON SCREEN (line 1586: "Let players
 // experiment"). It hands back every gold ever spent here and zeroes every level,
-// behind one confirmation. That button is the entire reason Curse can be an
-// honest offer instead of a trap.
+// behind one confirmation. That button is the entire reason Curse and Glass Edge
+// can be honest offers instead of traps.
 //
 // Cost of the next level, for an upgrade you own `lv` levels of:
 //     round(baseCost * costGrowth^lv)
@@ -60,43 +72,82 @@ function investedIn(u, level) {
 }
 
 /**
- * The one row with two stats uses `effects`; everything else declares
- * stat/perLevel/mode directly. Normalising here means nothing downstream ever
- * branches on which shape an upgrade has.
+ * The two rows with two stats use `effects`; everything else declares
+ * stat/perLevel/mode/unit directly. Normalising here means nothing downstream
+ * ever branches on which shape an upgrade has.
  */
 function effectsOf(u) {
-  return u.effects || [{ stat: u.stat, perLevel: u.perLevel, mode: u.mode }];
+  return u.effects || [{ stat: u.stat, perLevel: u.perLevel, mode: u.mode, unit: u.unit }];
+}
+
+/**
+ * How a per-level amount READS, which is not always how it is APPLIED.
+ *
+ * `mode` alone was enough while every 'flat' row on this screen moved a whole
+ * number of rerolls or revives. It stopped being enough the moment a row moved
+ * crit chance: that is a probability, it is added onto the raw stat exactly like
+ * a flat row, and a player reads it as "+1%" rather than "+0.01". shrine.js
+ * carries an explicit `unit` for those, defaulting to the old behaviour so the
+ * spec's ten rows print byte-for-byte what they always printed.
+ */
+function isPercent(p) {
+  return p.unit ? p.unit === 'percent' : p.mode === 'add';
 }
 
 /**
  * The card's running-total phrase at a given level, built from the upgrade's own
  * `fmt` string. {v} is the first effect, {v2} the second — percentages already
- * multiplied out, exactly as shrine.js documents.
+ * multiplied out, exactly as shrine.js documents. The value prints its own sign,
+ * which is why Haste's and Glass Edge's fmt strings carry no leading '+'.
  */
 function fmtAt(u, level) {
   const parts = effectsOf(u);
-  const disp = (p) => {
-    const raw = p.perLevel * level;
-    return trim1(p.mode === 'add' ? raw * 100 : raw);
-  };
+  const disp = (p) => trim1(isPercent(p) ? p.perLevel * level * 100 : p.perLevel * level);
   let s = String(u.fmt).replace('{v}', disp(parts[0]));
   if (parts[1]) s = s.replace('{v2}', disp(parts[1]));
   return s;
 }
 
-// The aggregate-preview table. Stat keys are the ones the run actually reads —
-// player.js for the stat bucket, run.js for Curse's two — so a row here is a
-// promise the engine keeps.
+// The aggregate-preview table, HAND-KEPT: every stat any shrine row can move,
+// once each, in the order a player thinks about them — offence, then defence,
+// then economy, then the level-up conveniences, then the two rows that bite.
+//
+// Stat keys are the ones the run actually reads — player.js for the stat bucket,
+// run.js for the `scope: 'run'` handful — so a row here is a promise the engine
+// keeps. Two shrine rows can feed the SAME line and that is the point: Vitality
+// and Glass Edge both land in `maxHpMult`, so "Max HP" prints the net of them,
+// which is the only number the character you are about to play will agree with.
+//
+//   kind  'pct'  -> the accumulated value x100 with a % sign
+//         'flat' -> the accumulated value as-is
+//   base    a LEVELUP key, rendered as "1 → 4" instead of "+3"
+//   frac    print one decimal instead of rounding to an integer. Armour moves in
+//           halves and regen in fifths; comma() would have rendered the first
+//           level of either as "+0" and the second as "+1".
+//   suffix  unit appended to the value
+//   note    parenthetical, shown only once the row is non-zero
+//   tone    'bad'/'good' colour override for the rows that are not neutral
 const PREVIEW_ROWS = [
   { stat: 'damageMult', label: 'Damage', kind: 'pct' },
+  { stat: 'critChance', label: 'Crit chance', kind: 'pct' },
+  { stat: 'critMult', label: 'Crit damage', kind: 'pct' },
+  { stat: 'attackSpeedMult', label: 'Attack speed', kind: 'pct' },
+  { stat: 'areaMult', label: 'Attack size', kind: 'pct' },
+  { stat: 'projectileCount', label: 'Projectiles', kind: 'flat' },
+  { stat: 'pierce', label: 'Pierce', kind: 'flat' },
   { stat: 'maxHpMult', label: 'Max HP', kind: 'pct' },
+  { stat: 'armor', label: 'Armour', kind: 'flat', frac: true },
+  { stat: 'regen', label: 'HP regen', kind: 'flat', frac: true, suffix: ' HP/s' },
+  { stat: 'dodge', label: 'Dodge', kind: 'pct', note: 'cap 60%' },
   { stat: 'moveSpeedMult', label: 'Move speed', kind: 'pct' },
+  { stat: 'cooldownMult', label: 'Ability cooldowns', kind: 'pct', tone: 'good' },
+  { stat: 'pickupRadiusMult', label: 'Pickup radius', kind: 'pct' },
   { stat: 'goldMult', label: 'Gold gain', kind: 'pct' },
   { stat: 'xpMult', label: 'XP gain', kind: 'pct' },
+  { stat: 'luck', label: 'Starting luck', kind: 'flat' },
   { stat: 'freeRerolls', label: 'Level-up rerolls', kind: 'flat', base: 'freeRerolls' },
   { stat: 'banishes', label: 'Level-up banishes', kind: 'flat', base: 'banishes' },
   { stat: 'revives', label: 'Starting revives', kind: 'flat', note: 'cap 3' },
-  { stat: 'luck', label: 'Starting luck', kind: 'flat' },
   { stat: 'countMult', label: 'Enemy count', kind: 'pct', tone: 'bad' },
   { stat: 'rewardMult', label: 'All rewards', kind: 'pct', tone: 'good' },
 ];
@@ -114,16 +165,22 @@ export const shrineScene = {
     for (const u of this.ups) all += investedIn(u, u.maxLevel);
     this.maxCost = all;
 
-    // The achievement that opens Curse, found by what it GRANTS rather than by
-    // id, so renaming the achievement cannot silently break this screen.
-    this.gateAch = null;
+    // The achievement behind each unlock flag, found by what it GRANTS rather
+    // than by id, so renaming an achievement cannot silently break this screen.
+    // This used to be a single hardcoded search for `unlock === 'curse'`, which
+    // was correct for exactly as long as Curse was the only gated row; keyed by
+    // the flag instead, a second gated row needs nothing here at all.
+    this.gateAch = Object.create(null);
     for (const a of D.achievements.ACHIEVEMENTS) {
-      if (a.reward && a.reward.unlock === 'curse') { this.gateAch = a; break; }
+      if (a.reward && a.reward.unlock) this.gateAch[a.reward.unlock] = a;
     }
 
     this.confirm = false;
     this._wrapKey = '';
     this._wrap = Object.create(null);
+    /** Scratch for the fitted preview list — see _fitRows(). */
+    this._rows = [];
+    this._hiddenRows = 0;
   },
 
   exit() { this.confirm = false; },
@@ -149,8 +206,8 @@ export const shrineScene = {
   },
 
   /**
-   * Wrapped copy, cached per card width and UI scale. Ten cards x two paragraphs
-   * of text-shaping every frame would be the only expensive thing on this screen,
+   * Wrapped copy, cached per card width and UI scale. Twenty-two cards' worth of
+   * text-shaping every frame would be the only expensive thing on this screen,
    * so it happens once per resize instead.
    */
   _wrapped(r, id, text, w, size) {
@@ -175,11 +232,15 @@ export const shrineScene = {
     return out;
   },
 
+  /** The achievement that opens this row, or null if it is not gated. */
+  _gateAch(u) {
+    return (u.lockedBy && this.gateAch[u.lockedBy]) || null;
+  },
+
   /** The gate sentence, for the toast and for the card. */
-  _gateText() {
-    return (this.gateAch && this.gateAch.desc)
-      ? this.gateAch.desc.split('.')[0]
-      : 'Kill 10,000 enemies in total';
+  _gateText(u) {
+    const a = this._gateAch(u);
+    return (a && a.desc) ? a.desc.split('.')[0] : 'Kill 10,000 enemies in total';
   },
 
   _buy(u) {
@@ -189,7 +250,7 @@ export const shrineScene = {
     // "you are N gold short" line below could not be reached by clicking at all,
     // and clicking the card you most wanted did precisely nothing.
     if (this._locked(u)) {
-      this.manager.toast('Locked. ' + this._gateText() + '.', PALETTE.bad, '🔒');
+      this.manager.toast('Locked. ' + this._gateText(u) + '.', PALETTE.bad, '🔒');
       audio.play('uiBack');
       return;
     }
@@ -224,8 +285,8 @@ export const shrineScene = {
     save.data.shrineSpent = 0;
     save.save();
     audio.play('chest');
-    this.manager.toast('Refunded ' + comma(amount) + ' gold. Ten levels of nothing. Try something else.',
-      PALETTE.good, '🪙');
+    this.manager.toast('Refunded ' + comma(amount) + ' gold. All ' + this.ups.length +
+      ' rows back to zero. Try something else.', PALETTE.good, '🪙');
   },
 
   /** ui.button, unless a modal is up — then it is a dead, greyed facsimile. */
@@ -294,7 +355,7 @@ export const shrineScene = {
     if (back || ui.backPressed()) { audio.play('uiBack'); this.manager.go('hub'); }
   },
 
-  // --- the ten cards ---------------------------------------------------------
+  // --- the cards -------------------------------------------------------------
   _drawCards(r, px, py, pw, ph) {
     const ip = 12;
     const gx = px + ip;
@@ -308,15 +369,37 @@ export const shrineScene = {
     // also fit the available HEIGHT — rosterScene does the same for its 19 cards.
     // Without the second half, a 1000x720 window laid 830px of cards into a
     // 612px panel and let the last four fall off the bottom, where clipRect hid
-    // them while leaving them fully clickable.
+    // them while leaving them fully clickable. This loop is not negotiable and
+    // is unchanged.
     let cols = gw >= 660 ? 2 : 1;
     while (cols < 4 &&
            Math.ceil(this.ups.length / cols) * (minCardH + cardGap) - cardGap > gh) cols++;
+
+    // Then a SECOND pass, for legibility rather than for overflow.
+    //
+    // The loop above stops the moment the cards fit, and "fits" is a low bar:
+    // twenty-two rows in three columns at 1600x900 is eight rows of 88px cards,
+    // and 88px leaves exactly ONE line under the pips — one line to be shared
+    // between the description and the warning SECTION 12 requires on the two risk
+    // rows. A fourth column is two rows fewer and 33px taller each. So the grid
+    // keeps buying columns while the cards are still short, and stops the moment
+    // the next column would make one too narrow to read a name and a price on.
+    // Height is the goal; WIDTH is the hard stop, which is why a small window
+    // simply keeps its four squashed columns instead of shredding them into six.
+    while (cols < 5) {
+      const rowsNow = Math.ceil(this.ups.length / cols);
+      const hNow = (gh - cardGap * (rowsNow - 1)) / rowsNow;
+      const wNext = (gw - cardGap * cols) / (cols + 1);
+      if (hNow >= 120 || wNext < 220) break;
+      cols++;
+    }
+
     const rows = Math.ceil(this.ups.length / cols);
     const cardW = (gw - cardGap * (cols - 1)) / cols;
     const fitH = (gh - cardGap * (rows - 1)) / rows;
-    // Even at four columns a very short window can still overflow. Squashed
-    // cards are survivable; invisible clickable ones are not.
+    // Even at the four columns the overflow loop can reach, a very short window
+    // still overflows. Squashed cards are survivable; invisible clickable ones
+    // are not.
     const cardH = fitH < minCardH ? Math.max(34, fitH) : Math.min(fitH, 168);
     const gold = save.data.currencies.gold || 0;
 
@@ -335,7 +418,10 @@ export const shrineScene = {
       const locked = this._locked(u);
       const cost = maxed ? 0 : costOf(u, lv);
       const afford = !maxed && !locked && gold >= cost;
-      const isCurse = !!u.warning;
+      // A row with a `warning` is a row that costs you something. That is the
+      // only definition of "risk" this renderer needs, and it is why Glass Edge
+      // arrived already wearing the caution colour.
+      const isRisk = !!u.warning;
 
       let price = locked ? 'LOCKED' : maxed ? 'MAX' : comma(cost) + ' 🪙';
       if (!locked && !maxed && !afford) price += '  (' + comma(cost - gold) + ' short)';
@@ -352,8 +438,8 @@ export const shrineScene = {
         r.drawRoundRect(x, y, cardW, cardH, 12, '#05060d', locked ? 0.36 : 0.24);
       }
 
-      // Accent wash: gold normally, caution red for the row that bites back.
-      const accent = isCurse ? PALETTE.bad : maxed ? PALETTE.good : PALETTE.accent;
+      // Accent wash: gold normally, caution red for the rows that bite back.
+      const accent = isRisk ? PALETTE.bad : maxed ? PALETTE.good : PALETTE.accent;
       r.drawRoundRect(x + 2, y + 2, cardW - 4, 26, 10, accent, locked ? 0.04 : 0.10);
 
       // --- row 1: name + level ------------------------------------------------
@@ -392,14 +478,19 @@ export const shrineScene = {
       // --- row 3: pips, or the lock gate (a locked row is always level 0) -----
       let bodyTop = y + 58;
       if (locked) {
+        // The progress bar is drawn only for a gate this screen can actually
+        // MEASURE. `totalKills` is the only kind today and both gated rows use
+        // it, but a future gate on something else must still get its sentence
+        // rather than a bar filled from a counter that has nothing to do with it.
+        const ach = this._gateAch(u);
+        const cond = ach && ach.condition;
+        const target = (cond && cond.kind === 'totalKills' && cond.value) || 0;
         const kills = save.data.stats.kills || 0;
-        const target = (this.gateAch && this.gateAch.condition &&
-                        this.gateAch.condition.value) || 10000;
-        const req = this._gateText();
-        ui.text(fit(r, '🔒 ' + req + ' — ' + comma(Math.min(kills, target)) + '/' + comma(target),
-          cardW - 28, 12, 700), x + 14, y + 54,
+        let req = '🔒 ' + this._gateText(u);
+        if (target > 0) req += ' — ' + comma(Math.min(kills, target)) + '/' + comma(target);
+        ui.text(fit(r, req, cardW - 28, 12, 700), x + 14, y + 54,
           { size: 12, color: PALETTE.bad, weight: 700 });
-        ui.bar(x + 14, y + 63, cardW - 28, 5, kills / target, PALETTE.bad);
+        if (target > 0) ui.bar(x + 14, y + 63, cardW - 28, 5, kills / target, PALETTE.bad);
         bodyTop = y + 78;
       } else {
         const pipW = (cardW - 28) / u.maxLevel;
@@ -409,30 +500,97 @@ export const shrineScene = {
         }
       }
 
-      // --- row 4: what it does, and (Curse only) what it costs you ------------
+      // --- row 4: what it does, and (risk rows) what it costs you -------------
+      //
+      // The warning is not the second thing on the card, it is the OTHER HALF of
+      // the sentence, and SECTION 12 orders these rows labelled honestly. This
+      // used to print the description until it ran out of room and only then
+      // start on the warning, which was fine while ten cards had 147px of body
+      // each and stopped being fine the moment twenty-two shared the same panel.
+      // The column pass above buys most of that height back, but a 1280x720
+      // window is still a two-line budget and a long description takes both — so
+      // the card would promise "+50% damage" with no room left to mention the max
+      // HP it takes. That is not a shortened card, it is a different and untrue
+      // one.
+      //
+      // So the warning's lines are reserved out of the budget FIRST and the
+      // description is what gets cut. The numbers themselves are safe either way
+      // — row 2 above prints both halves of `fmt` regardless of card height — so
+      // what the reservation protects is the only part that lives nowhere else:
+      // the advice.
       const bodyBot = y + cardH - 6;
       const lineH = Math.round(14 * S);
       const textW = Math.max(80, cardW - 28);
-      let ly = bodyTop;
       const lines = this._wrapped(r, u.id, u.desc, textW, 11);
-      for (let l = 0; l < lines.length && ly + lineH - 2 <= bodyBot; l++) {
+      const warn = u.warning ? this._wrapped(r, u.id + ':warn', u.warning, textW, 11) : null;
+      // Lines of ANYTHING that fit under the pips on a card this tall. Same
+      // arithmetic the draw loops guard with, solved for the count.
+      const budget = Math.max(0, Math.floor((bodyBot - bodyTop + 2) / lineH));
+      const warnLines = (warn && budget > 0)
+        ? Math.min(warn.length, Math.max(1, budget - 1)) : 0;
+      const descLines = budget - warnLines;
+
+      let ly = bodyTop;
+      for (let l = 0; l < lines.length && l < descLines; l++) {
         ui.text(lines[l], x + 14, ly + 6, { size: 11, color: PALETTE.textFaint });
         ly += lineH;
       }
-      // Curse is the one row that carries a warning, and SECTION 12 orders it
-      // labelled honestly — so it prints in the caution colour, on the card,
-      // under the sentence that states the payoff. Both halves, always.
-      if (u.warning) {
-        const wl = this._wrapped(r, u.id + ':warn', u.warning, textW, 11);
-        ly += 3;
-        for (let l = 0; l < wl.length && ly + lineH - 2 <= bodyBot; l++) {
-          ui.text(wl[l], x + 14, ly + 6, { size: 11, color: PALETTE.bad, weight: 600 });
+      if (warnLines > 0) {
+        // The 3px breather only when there is genuinely room for it; on a card
+        // this tight it is the difference between the last line and no last line.
+        if (ly + 3 + warnLines * lineH - 2 <= bodyBot) ly += 3;
+        for (let l = 0; l < warnLines; l++) {
+          ui.text(warn[l], x + 14, ly + 6, { size: 11, color: PALETTE.bad, weight: 600 });
           ly += lineH - 1;
         }
       }
     }
     r.unclip();
     return cols;
+  },
+
+  /**
+   * The preview rows that will actually FIT, in PREVIEW_ROWS order.
+   *
+   * The loop below used to walk the whole table and `break` when it ran out of
+   * vertical room. That was fine for eleven rows and is a quiet lie at
+   * twenty-two: on a short window it truncated the player's own totals from the
+   * BOTTOM, and the bottom is where the two risk rows live — the exact two lines
+   * a player checks before starting a run.
+   *
+   * So the rows sitting at +0 are what get dropped first, because a row reading
+   * "+0%" is the shrine saying nothing, and the ones that do get dropped are
+   * dropped in favour of rows that have something to report. If even that is not
+   * enough, the last slot goes to a count of what is missing: a table that
+   * truncates itself without admitting it is a wrong table.
+   *
+   * Fills and returns `this._rows`, and sets `this._hiddenRows`. Reusing one
+   * array keeps this off the allocator on a screen that already rebuilds its
+   * aggregate every frame.
+   */
+  _fitRows(agg, capacity) {
+    const out = this._rows;
+    out.length = 0;
+    this._hiddenRows = 0;
+    if (capacity >= PREVIEW_ROWS.length) {
+      for (const row of PREVIEW_ROWS) out.push(row);
+      return out;
+    }
+    let live = 0;
+    for (const row of PREVIEW_ROWS) if (agg[row.stat]) live++;
+    // What is left over once every row with something to say has a slot. When
+    // this is zero or negative there is no room for the quiet ones at all.
+    let spare = capacity - live;
+    for (const row of PREVIEW_ROWS) {
+      if (agg[row.stat]) out.push(row);
+      else if (spare > 0) { spare--; out.push(row); }
+    }
+    if (out.length > capacity) {
+      const keep = Math.max(0, capacity - 1);
+      this._hiddenRows = out.length - keep;
+      out.length = keep;
+    }
+    return out;
   },
 
   // --- the live preview + the refund -----------------------------------------
@@ -451,37 +609,57 @@ export const shrineScene = {
     const listTop = py + ip + 34;
     const listBottom = py + ph - ip - refundH;
     const rowH = clamp((listBottom - listTop - 40) / PREVIEW_ROWS.length, 15, 24);
+    // Rows are drawn at listTop + rowH * (i + 0.5) and the last legible one ends
+    // at listBottom - 8, so this is the same arithmetic the draw loop uses,
+    // solved for the count instead of for the position.
+    const capacity = Math.max(1, Math.floor((listBottom - 8 - listTop) / rowH + 0.5));
+    const rows = this._fitRows(agg, capacity);
 
     let y = listTop + rowH / 2;
-    for (const row of PREVIEW_ROWS) {
+    for (const row of rows) {
       if (y > listBottom - 8) break;
       const v = agg[row.stat] || 0;
-      let value, color;
+      let value;
       if (row.kind === 'pct') {
         value = (v > 0 ? '+' : '') + trim1(v * 100) + '%';
-        color = v === 0 ? PALETTE.textFaint
-          : row.tone === 'bad' ? PALETTE.bad
-          : row.tone === 'good' ? PALETTE.good : PALETTE.text;
       } else {
         const base = row.base ? (LEVELUP[row.base] || 0) : 0;
-        value = base ? comma(base) + ' → ' + comma(base + v) : (v > 0 ? '+' : '') + comma(v);
-        if (row.note && v > 0) value += ' (' + row.note + ')';
-        color = v === 0 ? PALETTE.textFaint : PALETTE.text;
+        // Armour moves in halves and regen in fifths. comma() rounds, so it
+        // reported the first level of either as "+0" and the second as "+1".
+        const n = row.frac ? trim1(v) : comma(v);
+        value = base ? comma(base) + ' → ' + comma(base + v) : (v > 0 ? '+' : '') + n;
       }
+      if (row.suffix) value += row.suffix;
+      if (row.note && v !== 0) value += ' (' + row.note + ')';
+      const color = v === 0 ? PALETTE.textFaint
+        : row.tone === 'bad' ? PALETTE.bad
+        : row.tone === 'good' ? PALETTE.good : PALETTE.text;
       ui.statRow(row.label, value, x, y, w, { color });
       y += rowH;
     }
+    if (this._hiddenRows > 0 && y <= listBottom - 8) {
+      ui.text(fit(r, '…and ' + this._hiddenRows + ' more, with no room to print them.', w, 11, 600),
+        x, y, { size: 11, color: PALETTE.textFaint });
+      y += rowH;
+    }
 
-    // The Curse verdict, in the one place the player is looking at totals.
-    const curseLv = save.data.shrine.curse || 0;
-    if (curseLv > 0) {
-      const enemies = trim1((agg.countMult || 0) * 100);
-      const rewards = trim1((agg.rewardMult || 0) * 100);
-      ui.text('CURSE ' + curseLv + ': +' + enemies + '% of them, +' + rewards + '% of everything they drop.',
-        x, y + 6, { size: 11, color: PALETTE.bad, weight: 700 });
-    } else {
+    // The verdict on whatever bites back, in the one place the player is looking
+    // at totals. Driven off `u.warning` rather than off Curse's id, so Glass Edge
+    // reports itself, and so does anything added after it. Only drawn if there is
+    // genuinely room left — the refund block's divider starts at listBottom.
+    let vy = y + 6;
+    for (const u of this.ups) {
+      if (!u.warning) continue;
+      const lv = this._level(u);
+      if (lv <= 0) continue;
+      if (vy > listBottom - 4) break;
+      ui.text(fit(r, displayName(u).toUpperCase() + ' ' + lv + ' — ' + fmtAt(u, lv), w, 11, 700),
+        x, vy, { size: 11, color: PALETTE.bad, weight: 700 });
+      vy += 14;
+    }
+    if (vy === y + 6 && vy <= listBottom - 4) {
       ui.text('Element matchups, stage modifiers and difficulty tiers stack on top of these.',
-        x, y + 6, { size: 10, color: PALETTE.textFaint });
+        x, vy, { size: 10, color: PALETTE.textFaint });
     }
 
     // --- refund block ---------------------------------------------------------
@@ -524,7 +702,7 @@ export const shrineScene = {
 
     const lines = [
       comma(amount) + ' gold comes straight back to your wallet.',
-      'All ten upgrades drop to level 0. You can rebuy any of them immediately.',
+      'All ' + this.ups.length + ' upgrades drop to level 0. You can rebuy any of them immediately.',
       'This costs nothing. It has never cost anything. That is the point.',
     ];
     let ty = my + 78;

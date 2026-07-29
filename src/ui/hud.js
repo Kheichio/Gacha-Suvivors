@@ -29,6 +29,7 @@ import { atlas } from '../render/spriteAtlas.js';
 import { MONO_FONT } from '../render/renderer.js';
 import { clamp, formatTime, formatNumber, TAU, lerp, easeOutCubic } from '../core/math.js';
 import { RUN_STATE } from '../game/run.js';
+import { abilities } from '../game/abilities/index.js';
 
 class Hud {
   constructor() {
@@ -37,9 +38,21 @@ class Hud {
     this.introT = 0;
     this._relicSprites = Object.create(null);
     this.killStreakT = 0;
+    /**
+     * buffId -> the longest remaining time this HUD has ever seen on it.
+     * The fallback denominator for a buff record that predates `b.dur`; see
+     * _buffTotal(). One property write the first time a buff id appears and
+     * nothing afterwards, so it never allocates inside a frame.
+     */
+    this._buffPeak = Object.create(null);
   }
 
-  reset() { this.hpGhost = 1; this.bossBarT = 0; this.introT = 0; this._portraitSprite = null; }
+  reset() {
+    this.hpGhost = 1; this.bossBarT = 0; this.introT = 0; this._portraitSprite = null;
+    // Durations do not carry between runs: a 30s stage buff whose peak was
+    // learned last run must not be the denominator for a 6s one this run.
+    this._buffPeak = Object.create(null);
+  }
 
   /**
    * The HD portrait, resolved once per run.
@@ -51,7 +64,18 @@ class Hud {
   _portrait(p) {
     if (this._portraitSprite && this._portraitFor === p.id) return this._portraitSprite;
     this._portraitFor = p.id;
-    this._portraitSprite = p.def.portrait ? atlas.ensure(p.def.portrait) : p.sprite;
+    // NOT atlas.ensure(). ensure() keys on visualKey(), which for a portrait
+    // comes out as shape|colour|size and nothing else — so two characters whose
+    // `visual.color` happens to match hash to the SAME key, the second bust
+    // baked is thrown away, and one of them wears the other's face in the HUD
+    // for the whole run. Two of the twenty-four collide today. registerPixel()
+    // keys on the descriptor's own id, which is the entire reason portraitFor()
+    // gives the bust an id distinct from the character's, and it still returns
+    // the sprite the boot pre-raster already built rather than baking a new one.
+    this._portraitSprite = !p.def.portrait ? p.sprite
+      : p.def.portrait.pixel
+        ? atlas.registerPixel(p.def.portrait.pixel, p.def.portrait.size || 14)
+        : atlas.ensure(p.def.portrait);
     return this._portraitSprite;
   }
 
@@ -283,6 +307,106 @@ class Hud {
       ui.text(p.escape.remaining.toFixed(1), x2, y + 1, {
         size: 15 * s, color: '#ffffff', align: 'center', weight: 800, mono: true, outline: true });
     }
+
+    // --- WHAT IS RUNNING RIGHT NOW ------------------------------------------
+    //
+    // A radial answers "when can I use it again". It cannot answer "how long
+    // until the thing I am currently standing inside stops", and for most of the
+    // roster that second question is the one that decides whether you walk into
+    // the pack or away from it. On a cooldown sweep an eight-second damage
+    // window and its last half-second look identical — because to a cooldown
+    // sweep they ARE identical, both are simply "not ready yet".
+    //
+    // So the running abilities stack upward from just above the two names, in
+    // the same glance as the radials, each carrying its radial's own glyph and
+    // colour so it maps to a button without being read. Nothing is drawn when
+    // nothing is running, which is most of the time, and nothing here knows
+    // which character is playing: the driver is asked what occupies the SPECIAL
+    // slot and what occupies the ESCAPE slot, and answers about whatever it is.
+    let cy = y - rad - 22 * s;
+    // TOUCH: the left thumb and its hint ring sit exactly where the stack would,
+    // and a bar underneath a thumb is a bar nobody can read. Lift the stack
+    // clear of the ring rather than shrinking it into illegibility.
+    if (IS_TOUCH) cy = Math.min(cy, H * 0.78 - 74);
+    cy = this._durationChip(r, run, 'special', '✦', '#ff5fa2', 26, cy, s);
+    this._durationChip(r, run, 'escape', '➤', '#6ad8ff', 26, cy, s);
+  }
+
+  /**
+   * ONE RUNNING ABILITY, AS A BAR. Returns the bottom edge for the next chip —
+   * unchanged when nothing was drawn, so a lone active ability sits closest to
+   * the radials instead of leaving a hole where the other one would have been.
+   */
+  _durationChip(r, run, key, icon, color, x, bottom, s) {
+    const st = abilities.activeState(run, key);
+    if (!st.active) return bottom;
+    // Sub-second effects are over before the eye has found the bar: the 0.45s of
+    // a cast animation, the 0.05s an ability spends handing control back. A chip
+    // that blinks on and off on every single press teaches the player to stop
+    // looking at the one corner they should be watching, so those do not get
+    // one. CHIP_MIN_TIME sits under the shortest window that is a STATE you play
+    // inside — a 0.7s i-frame dash, a 1.2s phase-out — and over the longest one
+    // that is only an animation.
+    if (st.timed && st.total < CHIP_MIN_TIME) return bottom;
+
+    const def = run.player.def[key];
+    const w = 148 * s, h = 26 * s;
+    const top = bottom - h;
+    const warn = st.timed && st.frac <= CHIP_WARN_FRAC;
+    // THE WARNING RIDES ON THREE CHANNELS, NOT ONE. The rule this file follows
+    // is that no critical information may be carried by colour alone, and "your
+    // invulnerability ends in half a second" is about as critical as this HUD
+    // gets. So: the fill turns amber, the frame pulses, and a glyph appears in
+    // front of the number. Any one of the three read on its own is enough.
+    const beat = warn ? 0.5 + 0.5 * Math.sin(run.time * 9) : 0;
+    const tint = warn ? '#ffd94a' : color;
+
+    CHIP_PANEL.borderColor = warn ? '#ffd94a' : PALETTE.border;
+    CHIP_PANEL.borderWidth = warn ? 2 + beat : 1.5;
+    ui.panel(x, top, w, h, CHIP_PANEL);
+
+    const ty = top + 9 * s;
+    CHIP_ICON.size = 12 * s;
+    CHIP_ICON.color = tint;
+    ui.text(icon, x + 11 * s, ty, CHIP_ICON);
+    CHIP_NAME.size = 10 * s;
+    // The time field is a reserved width rather than a measured one: measuring
+    // costs a text metric every frame for a string that is never wider than
+    // "⚠ 12.3s", and the name is ellipsized into whatever is left.
+    ui.text(ellipsize(r, displayName(def).split(' [')[0], w - 79 * s, 10 * s, 800),
+            x + 21 * s, ty, CHIP_NAME);
+    CHIP_TIME.size = 12 * s;
+    CHIP_TIME.color = warn ? '#ffd94a' : '#ffffff';
+    ui.text(st.timed ? (warn ? '⚠ ' : '') + st.remaining.toFixed(1) + 's' : 'ACTIVE',
+            x + w - 9 * s, ty, CHIP_TIME);
+
+    const bx = x + 9 * s, bw = w - 18 * s, by = top + h - 9 * s, bh = 5 * s;
+    r.drawRect(bx - 1, by - 1, bw + 2, bh + 2, '#05070e', 1);
+    r.drawRect(bx, by, bw, bh, 'rgba(4,6,14,0.85)', 1);
+
+    if (st.timed) {
+      const fw = Math.max(2, bw * st.frac);
+      r.drawRect(bx, by, fw, bh, tint, 1);
+      r.drawRect(bx, by, fw, Math.max(1, bh * 0.34), 'rgba(255,255,255,0.30)', 1);
+      // The last quarter of the TRACK is notched, always — so "about to run out"
+      // is a place on the bar you can watch the fill travel toward, instead of a
+      // colour that changes at the same instant as the problem it warns about.
+      const hx = bx + bw * (1 - CHIP_WARN_FRAC), hs = bw * CHIP_WARN_FRAC / 4;
+      for (let i = 0; i < 4; i++) {
+        r.drawRect(hx + i * hs, by, Math.max(1, 1.5 * s), bh, 'rgba(255,255,255,0.30)', 1);
+      }
+      if (warn) r.drawRect(bx, by, fw, bh, '#ffffff', beat * 0.45);
+    } else {
+      // No clock exists, so no clock is drawn. A block sliding back and forth
+      // says "running, with no announced end", which is the truth; a full bar
+      // would be a countdown that never counts, and a player who watched one sit
+      // still for ninety seconds would rightly call the HUD broken.
+      const mw = bw * 0.26;
+      const mx = bx + (bw - mw) * (0.5 + 0.5 * Math.sin(run.time * 1.6));
+      r.drawRect(mx, by, mw, bh, color, 0.9);
+    }
+
+    return top - 5 * s;
   }
 
   /**
@@ -503,13 +627,26 @@ class Hud {
       x -= size + 6;
     }
 
-    // active buff timers
+    // ACTIVE BUFF TIMERS.
+    //
+    // These divided every buff's remaining time by a hardcoded 60 seconds.
+    // Almost nothing in the game grants a sixty-second buff, so a four-second
+    // one drew as a 7%-full sliver that crept to 6% and then vanished — a bar
+    // whose only honest reading was "something is on", which is exactly what the
+    // label beside it already said. A bar is a ratio and a ratio needs the
+    // number it started from, so the buff record carries it (`dur`, stamped in
+    // addBuff) and this reads it.
     let by = y - 24 * s;
     for (const b of p.buffs) {
       if (b.t > 9000) continue;         // permanent buffs are not timers
       const w = 90 * s;
-      ui.bar(W - 18 - w, by, w, 8 * s, clamp(b.t / 60, 0, 1), '#ffd76a', { bg: 'rgba(4,6,14,0.7)' });
-      ui.text(b.id + ' ' + b.t.toFixed(0) + 's', W - 18 - w - 6, by + 4 * s,
+      const total = this._buffTotal(b);
+      ui.bar(W - 18 - w, by, w, 8 * s, total > 0 ? clamp(b.t / total, 0, 1) : 0,
+             '#ffd76a', { bg: 'rgba(4,6,14,0.7)' });
+      // One decimal under ten seconds: rounding to whole seconds printed "0s"
+      // for the entire last second of every buff in the game.
+      ui.text(b.id + ' ' + (b.t >= 10 ? b.t.toFixed(0) : b.t.toFixed(1)) + 's',
+              W - 18 - w - 6, by + 4 * s,
               { size: 10 * s, color: PALETTE.textDim, align: 'right', mono: true });
       by -= 13 * s;
     }
@@ -519,6 +656,27 @@ class Hud {
       ui.text('EVOLVED: ' + p.evolutions.length, W - 18, H - 60 * s,
               { size: 11 * s, color: PALETTE.accent, align: 'right', weight: 800 });
     }
+  }
+
+  /**
+   * The denominator for a buff's timer bar.
+   *
+   * `b.dur` is the duration the buff was granted with, recorded by addBuff().
+   * A buff record from anywhere that has not been taught to carry it still has
+   * to draw something honest, so the fallback is the longest remaining time this
+   * HUD has ever seen on that id — and because the HUD draws every frame while a
+   * buff is at its fullest on the first frame it exists, that is the granted
+   * duration to within one frame. It degrades to a bar that starts full and
+   * empties correctly; it never degrades to a bar that lies about its scale.
+   *
+   * A refreshed buff extends rather than stacks, and both numbers rise together,
+   * so a refresh refills the bar instead of overflowing past the end of it.
+   */
+  _buffTotal(b) {
+    if (b.dur > 0) return b.dur > b.t ? b.dur : b.t;
+    const seen = this._buffPeak[b.id];
+    if (!(seen >= b.t)) { this._buffPeak[b.id] = b.t; return b.t; }
+    return seen;
   }
 
   // --- boss bar --------------------------------------------------------------
@@ -711,5 +869,34 @@ class Hud {
     ui.text('➤', W - rad * 3.4, H - rad * 1.2, { size: rad * 0.7, align: 'center', color: '#6ad8ff' });
   }
 }
+
+// THE DURATION CHIPS' OPTION BAGS, HOISTED.
+//
+// The older widgets in this file build their opts inline, which is harmless for
+// a plate that is drawn once and then reasoned about never again. These are
+// different: they are polled and redrawn every rendered frame for as long as an
+// ability is running, and the rule the rest of the project holds to is that a
+// per-frame path allocates nothing. Every field that varies — with the UI scale,
+// with which slot the chip belongs to, with the warning state — is written on
+// every use, so nothing can leak in from the chip drawn before it.
+const CHIP_PANEL = {
+  radius: 5, color: 'rgba(10,13,24,0.92)', borderColor: '', borderWidth: 1.5, bevel: false,
+};
+const CHIP_ICON = { size: 12, color: '#ffffff', align: 'center', baseline: 'middle' };
+const CHIP_NAME = { size: 10, color: PALETTE.text, weight: 800, baseline: 'middle' };
+const CHIP_TIME = {
+  size: 12, color: '#ffffff', weight: 800, mono: true,
+  align: 'right', baseline: 'middle', outline: true,
+};
+
+/** Under this, an ability is a cast animation rather than a state you play inside. */
+const CHIP_MIN_TIME = 0.6;
+/**
+ * The warning zone, as a FRACTION rather than a fixed number of seconds. A
+ * quarter of a 1.2s dash is 0.3s, which is about one human reaction; a quarter
+ * of a 12s window is three seconds, which is long enough to get somewhere. One
+ * number reads correctly for both only because it is proportional.
+ */
+const CHIP_WARN_FRAC = 0.25;
 
 export const hud = new Hud();

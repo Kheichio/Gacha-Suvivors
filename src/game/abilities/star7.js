@@ -32,11 +32,16 @@ const THIRD = H.TAU / 3;
 // ===========================================================================
 //                              PALETTES
 // ===========================================================================
-// AOI — porcelain white over maid navy, with tea gold for the accidents.
+// AOI — porcelain white over maid navy, with tea gold for the accidents, plus
+// the two greys the lighting rig is painted. The rig is deliberately the only
+// thing in her palette that is not crockery or tea: when a girder-grey object
+// is on screen, it is structural, it is not hers, and it is coming down.
 const C_PORCELAIN = '#eaf2ff';
 const C_MAID = '#1e2440';
 const C_TEA = '#c9a227';
 const C_AOI = '#7fb6ff';
+const C_RIG = '#8a93a8';
+const C_RIG_DARK = '#12161f';
 // MIREL — plain white magic, old gold, and one green for the flowers.
 const C_PLAIN = '#f2f6ff';
 const C_GOLD = '#c8a24a';
@@ -86,14 +91,98 @@ function polishArmour(e) { H.applyShred(e.st, 3, 6); S.n++; }
 //                    AOI — water, rarity 6, "The Catastrophe Maid"
 // ===========================================================================
 
+// EVERYTHING SHE DOES IS AN ACCIDENT WITH A RADIUS, AND IT HAS TO LOOK LIKE ONE
+// ----------------------------------------------------------------------------
+// Her numbers were finished long before she looked like anything. Three white
+// circles left in a fan, a shockwave appeared where the ceiling was supposed to
+// be, and a slide that ends in a bow was a ring on the floor — the fumbled tray
+// and the lighting truss were the same expanding hoop in two different colours.
+// None of it read as porcelain, as a DROP, or as a mistake, which for a
+// character whose entire premise is that she breaks things is the whole joke
+// missing.
+//
+// So everything below that is an OBJECT is now drawn as one. `effects.
+// sweepSprite` and `effects.fallSprite` blit an already-rastered atlas prop
+// source-over in a second pass, which is the one thing the energy primitives
+// cannot do: a saucer is a saucer, a truss is a truss, and both are made of
+// matter that falls. The energy effects stay exactly where they were — they are
+// what the object DID to the room — and the prop is what did it.
+//
+// Every descriptor here is a literal copy of an entry in EFFECT_VISUALS in
+// src/render/prewarm.js. `rotates` and `flash` are both part of the atlas key,
+// so a descriptor that differs by one field rasterises a SECOND copy the first
+// time she throws — mid-run, at the exact moment the player casts something —
+// and tests/renderSmoke.js fails the build naming the key it had to bake.
+// Registering them here, at module level, is what puts them in the atlas before
+// the boot pass ever looks.
+
 // --- Flying Saucers ---------------------------------------------------------
-const V_SAUCER = { shape: 'circle', color: C_PORCELAIN, accent: C_MAID, size: 10, rotates: true };
+const V_SAUCER = { shape: 'saucer', color: C_PORCELAIN, accent: C_MAID, size: 11, rotates: true };
+const V_TRAY = { shape: 'saucer', color: C_TEA, accent: C_MAID, size: 18, flash: false };
+const SP_SAUCER = H.atlas.register(V_SAUCER);
+const SP_TRAY = H.atlas.register(V_TRAY);
+
 const SAUCER_COUNT = 3;
+/** The fan she throws into. `spread` spreads over exactly this. */
+const SAUCER_FAN = 0.5;
 const SAUCER = {
   damage: 0, speed: 470, life: 1.4, radius: 10, pierce: 2,
   motion: H.MOTION.BOOMERANG, element: 'water',
-  visual: V_SAUCER, trailColor: C_PORCELAIN, tag: 'saucer',
+  visual: V_SAUCER, trailColor: C_PORCELAIN, tag: 'saucer', onExpire: null,
 };
+
+/**
+ * THE RELEASE — one sweep per saucer, pivoting on her hands.
+ *
+ * A projectile's drawn rotation is its velocity angle and nothing else: it
+ * cannot wobble, because the only thing it knows is where it is going. The
+ * wobble therefore has to live in the THROW. Each saucer gets a sweep of its
+ * own along the angle it was thrown at, and because `sweepSprite` aligns every
+ * ghost along its OWN radius, the two ghosts behind the head sit at visibly
+ * different angles — a plate that left a hand badly, tumbling, rather than a
+ * plate on rails. The sweep alternates hands every throw and alternates again
+ * between the saucers within one throw, so no two of the three leave the same
+ * way and no two consecutive throws are the same throw twice. All of it is
+ * index-driven and none of it touches an RNG, because a cosmetic that consumed
+ * the run stream would desynchronise a seeded replay for a wobble.
+ *
+ * The radius is short and the life is a sixth of a second: by the time it fades
+ * the real saucers are 80px out and these are the blur they left behind.
+ */
+const RELEASE_RADIUS = 46;
+const RELEASE_ARC = 0.5;
+/** At most four release flourishes, however many Extra Shot has stacked on. */
+const RELEASE_MAX = 4;
+const SAUCER_RELEASE = { tier: 0, life: 0.17, alpha: 0.9, sweep: 1, scale: 1, ghosts: 2 };
+/** The tray itself stays in her hands — on every throw but the fourth. */
+const TRAY_RADIUS = 30;
+const TRAY_ARC = 1.2;
+const TRAY_SWING = { tier: 0, life: 0.22, alpha: 0.62, sweep: 1, scale: 1, ghosts: 3 };
+const THROW_SPRAY = { speed: 150, life: 0.22, size: 0.34, additive: true };
+/** Which way the throw goes. Flipped per throw; deterministic. */
+let saucerSwing = 1;
+
+/**
+ * THE CATCH.
+ *
+ * A boomerang that simply stops existing has no RETURN in it — the saucer went
+ * out, came back, and then the frame it arrived was the frame it was gone, so
+ * the second pass read as a projectile that happened to fly through twice. It
+ * has an ending now: `onExpire` fires where the flight actually finished, which
+ * for a boomerang is her hands, and the little clatter there is what tells the
+ * player these things come back to somebody.
+ *
+ * A saucer that pierced its way out of existence never reaches this — the pool
+ * releases it without expiring it — which is exactly right. That one broke.
+ */
+const CATCH_FX = { tier: 0, life: 0.2, size: 13 };
+const CATCH_PUFF = { speed: 70, life: 0.26, size: 0.3, drag: 7, additive: true };
+function catchSaucer(proj) {
+  H.effects.impact(proj.x, proj.y, C_PORCELAIN, CATCH_FX);
+  H.particles.burst(proj.x, proj.y, 3, C_PORCELAIN, CATCH_PUFF);
+}
+SAUCER.onExpire = catchSaucer;
+
 /** Every 4th throw is the whole tray, at her own feet, at her own expense. */
 const FUMBLE_EVERY = 4;
 const FUMBLE_DAMAGE = 45;
@@ -114,6 +203,18 @@ const FUMBLE_NOVA = {
   src: H.SRC.AUTO, element: 'water', color: C_PORCELAIN,
   falloff: 0.2, particles: 14, knockback: 180, shake: false,
 };
+/**
+ * The tray, arriving AFTER the blast rather than before it.
+ *
+ * That ordering is the whole gag and it is not a compromise: the plates leave
+ * her hands first and shatter on the floor, and the tray — which she let go of
+ * a moment later, still trying to catch them — lands on top of the mess a third
+ * of a second behind. Dropping the prop before the nova would read as the tray
+ * causing the explosion, which is both wrong and much less funny.
+ */
+const TRAY_DROP = { tier: 0, life: 0.34, from: 130, scale: 1.15, angle: 0.5, spin: 4.2 };
+/** Porcelain, going everywhere. `shard` is one of the five pre-baked shapes. */
+const SHARD_BURST = { speed: 240, life: 0.5, size: 0.42, drag: 3.4, shape: 'shard' };
 
 /**
  * The tray goes. It is never lethal and — more importantly — it never strands
@@ -121,6 +222,8 @@ const FUMBLE_NOVA = {
  */
 function fumbleTray(run, p, opts) {
   H.nova(run, p, p.x, p.y, FUMBLE_RADIUS, H.autoDamage(run, p, FUMBLE_DAMAGE, opts), FUMBLE_NOVA);
+  H.particles.burst(p.x, p.y, 12, C_PORCELAIN, SHARD_BURST);
+  H.effects.fallSprite(p.x, p.y, SP_TRAY, TRAY_DROP);
   const floor = p.maxHp * FUMBLE_HP_FLOOR;
   if (p.hp > floor) p.hp = Math.max(floor, p.hp - p.maxHp * FUMBLE_HP_COST);
   p.flags.mishaps = (p.flags.mishaps | 0) + 1;
@@ -148,6 +251,39 @@ const TRUSS_NOVA = {
 };
 const TRUSS_PULL = { param: 260, hitsEnemies: true };
 
+// THE THING THAT WAS MISSING FROM THIS MOVE
+// -----------------------------------------
+// A telegraph appeared, and then 0.4s later a shockwave appeared, and in
+// between them there was NOTHING. The player was being asked to infer a falling
+// object from a circle on the floor and a bang. The circle was the shadow of a
+// thing that was never drawn.
+//
+// It is drawn now. The fall is fired on the same frame as the telegraph with a
+// life of exactly the fuse, so the section arrives on the frame the scheduler
+// fires `dropRig` — one event, drawn once, landing once. `fallSprite` puts a
+// shadow under it that tightens all the way in, which matters more than the
+// girder does: the player is looking at their own feet, not at the ceiling.
+const V_RIG = { shape: 'girder', color: C_RIG, accent: C_RIG_DARK, size: 26, flash: false };
+const V_TRUSS = { shape: 'girder', color: C_TEA, accent: C_RIG_DARK, size: 44, flash: false };
+const SP_RIG = H.atlas.register(V_RIG);
+const SP_TRUSS = H.atlas.register(V_TRUSS);
+const RIG_FALL = { tier: 0, life: RIG_TELEGRAPH, from: 340, scale: 1.8, angle: 0, spin: 0.7 };
+const RIG_DUST = { speed: 180, life: 0.5, size: 0.4, drag: 4, shape: 'square' };
+/**
+ * How long before the end the main truss lets go.
+ *
+ * The truss cannot be spawned by `end()` — a drop that begins when the blast
+ * has already happened is a truss falling into its own crater. So the rigging
+ * gives way here instead, and the telegraph, the girder and the blast are all
+ * pinned to the point it was hanging over, which is where she was standing when
+ * it went. She is invulnerable for the whole move and has never once been
+ * anywhere else, but if she does walk out from under it, the ring the player
+ * was shown is still the ring that lands. A telegraph that lies is worse than
+ * no telegraph.
+ */
+const TRUSS_LEAD = 0.45;
+const TRUSS_FALL = { tier: 0, life: TRUSS_LEAD, from: 560, scale: 2.5, angle: 0.2, spin: 0.45 };
+
 /**
  * A fixed ring of drop records. The scheduler swap-and-pops, so callback order
  * is NOT insertion order and a rig cannot be identified by position — it has to
@@ -166,6 +302,9 @@ function dropRig(rec) {
   H.effects.shockwave(rec.x, rec.y, rec.radius, C_PORCELAIN, RIG_FX);
   H.effects.impact(rec.x, rec.y, C_TEA, RIG_IMPACT);
   H.particles.ring(rec.x, rec.y, 12, C_PORCELAIN, rec.radius * 2.4);
+  // Grey, and square, and thrown outward: the section that just landed came off
+  // a ceiling and left a piece of it behind.
+  H.particles.burst(rec.x, rec.y, 8, C_RIG, RIG_DUST);
   H.audio.play('explode');
   H.shake.small();
 }
@@ -185,25 +324,119 @@ const SLICK_OPTS = { param: 0.55 };          // 0.55 speed == "45% slower"
 const SLIDE_AWAY = { mode: 'densestCluster', range: 560 };
 const BOW_FX = { tier: 0, life: 0.42, width: 6, from: 20, spokes: 14 };
 
+/**
+ * THE SKID.
+ *
+ * `dash` leaves a ghost chain already, but it leaves an UPRIGHT one, because
+ * every other escape in the game is a person moving fast while standing up.
+ * This one is a person on her face. A second chain rides under the first,
+ * smaller and offset a few pixels down the screen so it sits below her feet,
+ * and it is brightest in the MIDDLE of the path rather than at the end — a
+ * slide is fastest where it started and she is already stopping by the time she
+ * arrives, which is the opposite of the curve a dash wants.
+ */
+const SKID_GHOSTS = 6;
+const SKID_SIZE = 9;
+const SKID_DROP = 8;
+const SKID_FX = { tier: 0, life: 0.44, alpha: 0.5 };
+/** Floor wax off the leading edge, thrown forward the way she is going. */
+const SKID_SPRAY = { speed: 210, life: 0.34, size: 0.36, additive: true };
+
+/**
+ * THE BOW, one beat after the slide stops.
+ *
+ * The taunt lands the instant the slide does — that is gameplay and it is not
+ * moving — but the POSE cannot be simultaneous with the thing it is a reaction
+ * to. A bow drawn on the same frame as the skid is not a bow, it is a smear. A
+ * fifth of a second later it is a separate beat: she has come to rest, realised
+ * what she has done, and folded in half about it.
+ *
+ * Four slots because the ring costs nothing; the escape's own 6s cooldown means
+ * one would do.
+ */
+const BOW_DELAY = 0.18;
+const BOW_SLOTS = 4;
+const BOWS = [];
+for (let i = 0; i < BOW_SLOTS; i++) BOWS.push({ x: 0, y: 0, a: 0, n: 0 });
+let bowSlot = 0;
+const BOW_DIP = { tier: 0, life: 0.5, alpha: 0.95 };
+const BOW_POP = { tier: 0, life: 0.26, size: 15 };
+
+function takeABow(rec) {
+  // Folded over: a smaller silhouette than the one that arrived, tipped forward
+  // past the direction she was travelling in.
+  H.effects.afterimage(rec.x, rec.y, rec.a + 0.9, 11, C_AOI, BOW_DIP);
+  H.effects.impact(rec.x, rec.y - 10, C_PORCELAIN, BOW_POP);
+  H.particles.ring(rec.x, rec.y, 10, C_AOI, 180);
+  if (rec.n > 0) H.floaters.spawn(rec.x, rec.y - 52, 'SORRY!!', C_AOI, 18, 1.0);
+}
+
+/**
+ * S5's slick is SPILLED TEA and has to look spilled.
+ *
+ * It was a blue disc, which is every other chill field in the game. It is tea
+ * gold now, it has the splatter it landed with, and the tray is lying in the
+ * middle of it — the same tray prop the fumble drops, because it is the same
+ * accident happening for the same reason. The splats are placed off the run
+ * stream deliberately: `fxRng` is the throwaway cosmetic stream and a puddle's
+ * shape must never be able to move a seeded replay.
+ */
+const TEA_SPILL = { tier: 0, life: 0.42, from: 210, scale: 1.1, angle: 1.1, spin: 5.5 };
+const TEA_SPLAT = { tier: 0, life: 0.4, size: 20 };
+const TEA_SPRAY = { speed: 190, life: 0.6, size: 0.42, drag: 2.6 };
+const TEA_SPLATS = 3;
+
 // --- Live and Unedited ------------------------------------------------------
 const VIEWER_PER_DAMAGE = 12;
 const VIEWERS_PER_STACK = 10;
 const VIEWER_STACK_DAMAGE = 0.05;
 const VIEWER_MAX_STACKS = 20;
+/**
+ * THE COUNTER WAS INVISIBLE FOR NINE VIEWERS OUT OF TEN.
+ *
+ * The passive only ever spoke when a stack landed, so the nine mishaps before
+ * it were converted in total silence — the player took a hit, took a hit, took
+ * a hit, and then out of nowhere was told about a number they had never seen
+ * moving. Now every single viewer says so the moment it arrives, small and
+ * dim, and the audience it has bought drifts up off her continuously between
+ * times, faster the more of them there are. The stack is still the loud moment;
+ * it is just no longer the only one.
+ */
+const VIEWER_MOTE = { life: 1.3, size: 0.34, sizeEnd: 0.06, speed: 14, grav: -26, alpha: 0.75 };
+const VIEWER_MOTE_GAP = 0.55;
+const VIEWER_MOTE_STEP = 0.02;
+const VIEWER_MOTE_FLOOR = 0.14;
+const VIEWER_RADIUS = 90;
+const VIEWER_POP = { tier: 0, life: 0.34, width: 4, spokes: 12 };
+
+/** One viewer, or several at once, the moment they land. */
+function showViewers(p, n) {
+  H.floaters.spawn(p.x + H.fxRng.signed() * 16, p.y - 26, '+' + n, C_AOI, 12, 0.55);
+  H.particles.drift(p.x + H.fxRng.signed() * 14, p.y - 6, C_AOI, VIEWER_MOTE);
+}
 
 /** Idempotent on both counters: viewers only ever move forward. */
 function countViewers(run, p, ctx) {
   const taken = run.stats.damageTaken;
   const gained = ((taken - ctx.seenDamage) / VIEWER_PER_DAMAGE) | 0;
-  if (gained > 0) { ctx.seenDamage += gained * VIEWER_PER_DAMAGE; ctx.viewers += gained; }
+  if (gained > 0) {
+    ctx.seenDamage += gained * VIEWER_PER_DAMAGE;
+    ctx.viewers += gained;
+    showViewers(p, gained);
+  }
   const m = p.flags.mishaps | 0;
-  if (m > ctx.seenMishaps) { ctx.viewers += m - ctx.seenMishaps; ctx.seenMishaps = m; }
+  if (m > ctx.seenMishaps) {
+    showViewers(p, m - ctx.seenMishaps);
+    ctx.viewers += m - ctx.seenMishaps;
+    ctx.seenMishaps = m;
+  }
 
   const want = Math.min(VIEWER_MAX_STACKS, (ctx.viewers / VIEWERS_PER_STACK) | 0);
   if (want <= ctx.stacks) return;
   ctx.stacks = want;
   ctx.mods.damageMult = want * VIEWER_STACK_DAMAGE;
   p.recompute();
+  H.effects.burstRing(p.x, p.y, H.area(p, VIEWER_RADIUS), C_AOI, VIEWER_POP);
   H.floaters.spawn(p.x, p.y - 50, ctx.viewers + ' VIEWERS', C_AOI, 18, 1.1);
   H.audio.play('pickup');
 }
@@ -467,7 +700,28 @@ registerAll({
       const t = H.target(run, p, ctx.def.targeting, opts);
       if (!t.found) return;
       SAUCER.damage = H.autoDamage(run, p, ctx.def.damage, opts);
-      H.spread(run, p, o.x, o.y, t.angle, SAUCER_COUNT, 0.5, SAUCER);
+      const n = H.spread(run, p, o.x, o.y, t.angle, SAUCER_COUNT, SAUCER_FAN, SAUCER);
+
+      // THE RELEASE, laid over the fan `spread` just fired on. The angles are
+      // re-derived from the count it returned rather than assumed, so Extra Shot
+      // widening the fan widens the flourish with it — and `shown` caps how many
+      // of them get one, because this is a flourish for the THROW and not a
+      // decoration on every projectile in it.
+      const shown = n < RELEASE_MAX ? n : RELEASE_MAX;
+      const fan = n > 1 ? SAUCER_FAN : 0;
+      saucerSwing = -saucerSwing;
+      for (let i = 0; i < shown; i++) {
+        const a = shown > 1 ? t.angle - fan * 0.5 + (i / (shown - 1)) * fan : t.angle;
+        SAUCER_RELEASE.sweep = (i & 1) ? -saucerSwing : saucerSwing;
+        H.effects.sweepSprite(o.x, o.y, a, RELEASE_ARC, RELEASE_RADIUS, SP_SAUCER, SAUCER_RELEASE);
+      }
+      // And the tray, still in her hands, following the throw through. It is
+      // drawn on every throw for one reason: the fourth one has to be the throw
+      // where it is suddenly NOT in her hands, and that only lands if the player
+      // has watched her hold on to it three times.
+      TRAY_SWING.sweep = saucerSwing;
+      H.effects.sweepSprite(o.x, o.y, t.angle, TRAY_ARC, TRAY_RADIUS, SP_TRAY, TRAY_SWING);
+      H.particles.cone(o.x, o.y, t.angle, SAUCER_FAN, 5, C_PORCELAIN, THROW_SPRAY);
       H.audio.play('shoot');
     },
   },
@@ -493,6 +747,12 @@ registerAll({
       ctx.left = ctx.s3 ? RIG_COUNT_S3 : RIG_COUNT;
       ctx.gap = DISASTER_TIME / ctx.left;
       ctx.next = 0;
+      // Where the truss will land, and whether it has let go yet. Seeded to her
+      // cast position so that `end()` running early — the run finishing under a
+      // live special — still has a real point to put it on.
+      ctx.truss = false;
+      ctx.trussX = p.x;
+      ctx.trussY = p.y;
       H.applyInvuln(p.st, DISASTER_TIME + 0.25);
       H.grade(run, C_PORCELAIN, 0.45, 0.8);
       H.camera.punch(0.07, 0.5);
@@ -501,6 +761,20 @@ registerAll({
       H.audio.play('telegraph');
     },
     tick(run, p, ctx, dt) {
+      // THE TRUSS LETS GO FIRST. Deliberately ahead of the rig-section gate
+      // below, which stops running the moment the last section is out — the
+      // truss is not one of the sections and must not be gated on them.
+      if (!ctx.truss && ctx.t <= TRUSS_LEAD) {
+        ctx.truss = true;
+        ctx.trussX = p.x;
+        ctx.trussY = p.y;
+        TRUSS_FALL.life = ctx.t;      // arrives on the frame `end()` fires
+        H.effects.fallSprite(ctx.trussX, ctx.trussY, SP_TRUSS, TRUSS_FALL);
+        run.hazards.telegraph(ctx.trussX, ctx.trussY, H.area(p, TRUSS_RADIUS),
+                              ctx.t, C_TEA, 'circle');
+        H.audio.play('telegraph');
+      }
+
       ctx.next -= dt;
       if (ctx.next > 0 || ctx.left <= 0) return;
       ctx.next = ctx.gap;
@@ -515,14 +789,26 @@ registerAll({
       rec.radius = H.area(p, RIG_RADIUS);
       rec.damage = H.abilityDamage(run, p, RIG_DAMAGE);
       run.hazards.telegraph(rec.x, rec.y, rec.radius, RIG_TELEGRAPH, C_TEA, 'circle');
+      // The section itself, in the air, for the whole length of the fuse. Its
+      // angle is stepped off the counter rather than rolled, so nine girders
+      // come down at nine different attitudes and a seeded run drops them the
+      // same way twice.
+      RIG_FALL.angle = ctx.left * 0.7;
+      RIG_FALL.spin = (ctx.left & 1) ? -0.7 : 0.7;
+      RIG_FALL.scale = rec.radius / RIG_RADIUS * 1.8;
+      H.effects.fallSprite(rec.x, rec.y, SP_RIG, RIG_FALL);
       run.scheduler.after(RIG_TELEGRAPH, dropRig, rec);
     },
     end(run, p, ctx) {
-      // The main truss. It lands on her, because of course it does.
+      // The main truss. It lands on her, because of course it does — on the
+      // point the rigging gave way over, which is where the telegraph has been
+      // and where the girder has been falling for the last half second.
+      const x = ctx.trussX, y = ctx.trussY;
       if (ctx.s3) {
-        H.field(run, p, p.x, p.y, TRUSS_PULL_RADIUS, 0.6, 'pull', 0, C_TEA, TRUSS_PULL);
+        H.field(run, p, x, y, TRUSS_PULL_RADIUS, 0.6, 'pull', 0, C_TEA, TRUSS_PULL);
       }
-      H.nova(run, p, p.x, p.y, TRUSS_RADIUS, H.abilityDamage(run, p, TRUSS_DAMAGE), TRUSS_NOVA);
+      H.nova(run, p, x, y, TRUSS_RADIUS, H.abilityDamage(run, p, TRUSS_DAMAGE), TRUSS_NOVA);
+      H.particles.burst(x, y, 16, C_RIG, RIG_DUST);
       H.grade(run, C_TEA, 0.55, 0.7);
       H.flash.fire('#ffffff', 0.5, 2.2);
       H.camera.punch(0.11, 0.7);
@@ -534,7 +820,7 @@ registerAll({
   apology_slide: {
     // "She loses her footing and slides 240px on her face, invulnerable,
     //  ploughing everything on the path 300px aside for 40 damage, and finishes
-    //  in a bow so mortified that everything within 260px is taunted onto her
+    //  in a bow so mortified that everything within 200px is taunted onto her
     //  for 2s."   S5: a 160px tea slick, 45% slow, 5s.
     cast(run, p, ctx, opts) {
       if (H.isHostile(opts)) return false;    // there is no dignity here to mirror
@@ -547,17 +833,42 @@ registerAll({
       SLIDE_CUT.damage = H.abilityDamage(run, p, SLIDE_DAMAGE) + (p.flags.escapeDamages || 0);
       const d = H.dash(run, p, a, dist, ctx.def.iframes, SLIDE_CUT);
 
+      // THE SKID, along the path `dash` actually took — its clamped endpoints,
+      // not the 240px it was asked for, so a slide that ran into the arena wall
+      // stops where she stopped.
+      for (let i = 0; i <= SKID_GHOSTS; i++) {
+        const f = i / SKID_GHOSTS;
+        SKID_FX.alpha = 0.22 + 0.5 * (1 - Math.abs(f - 0.5) * 2);
+        H.effects.afterimage(H.lerp(d.x0, d.x1, f), H.lerp(d.y0, d.y1, f) + SKID_DROP,
+                             a, SKID_SIZE, C_PORCELAIN, SKID_FX);
+      }
+      H.particles.cone(d.x1, d.y1, a, 0.9, 9, C_PORCELAIN, SKID_SPRAY);
+
       // The bow. Everything close enough to have watched it is now watching her.
+      // The taunt is applied here, on the frame the slide ends; the POSE is a
+      // beat behind it and scheduled below.
       const r = H.area(p, BOW_RADIUS);
       S.x = p.x; S.y = p.y; S.t = BOW_TAUNT; S.n = 0;
       H.forEachEnemyIn(run, p.x, p.y, r, tauntToPoint);
       H.effects.shockwave(p.x, p.y, r, C_PORCELAIN, BOW_FX);
       H.particles.ring(p.x, p.y, 14, C_AOI, r * 2.2);
-      if (S.n > 0) H.floaters.spawn(p.x, p.y - 52, 'SORRY!!', C_AOI, 18, 1.0);
+      const bow = BOWS[bowSlot];
+      bowSlot = (bowSlot + 1) % BOW_SLOTS;
+      bow.x = p.x; bow.y = p.y; bow.a = a; bow.n = S.n;
+      run.scheduler.after(BOW_DELAY, takeABow, bow);
 
       if (ctx.s5) {
-        H.field(run, p, (d.x0 + d.x1) * 0.5, (d.y0 + d.y1) * 0.5,
-                SLICK_RADIUS, SLICK_TIME, 'chill', 0, C_AOI, SLICK_OPTS);
+        const mx = (d.x0 + d.x1) * 0.5, my = (d.y0 + d.y1) * 0.5;
+        H.field(run, p, mx, my, SLICK_RADIUS, SLICK_TIME, 'chill', 0, C_TEA, SLICK_OPTS);
+        // Everything she was carrying, arriving after her. The tray lands in the
+        // middle of the puddle it made.
+        H.effects.fallSprite(mx, my, SP_TRAY, TEA_SPILL);
+        const rr = H.area(p, SLICK_RADIUS);
+        for (let i = 0; i < TEA_SPLATS; i++) {
+          H.effects.impact(mx + H.fxRng.signed() * rr * 0.6,
+                           my + H.fxRng.signed() * rr * 0.6, C_TEA, TEA_SPLAT);
+        }
+        H.particles.burst(mx, my, 14, C_TEA, TEA_SPRAY);
         H.floaters.spawn(p.x, p.y - 34, 'SPILLED TEA', C_TEA, 15, 0.9);
       }
       H.camera.punch(0.03, 0.25);
@@ -572,11 +883,24 @@ registerAll({
       ctx.stacks = 0;
       ctx.seenDamage = run.stats.damageTaken;
       ctx.seenMishaps = 0;
+      ctx.moteT = 0;
       p.flags.mishaps = 0;
       ctx.mods = { damageMult: 0 };
       p.addBuff('live_and_unedited', FOREVER, ctx.mods);
     },
-    tick(run, p, ctx) { countViewers(run, p, ctx); },
+    tick(run, p, ctx, dt) {
+      countViewers(run, p, ctx);
+      // The audience she has already earned, drifting up off her between
+      // stacks. The gap closes as the stacks climb, so twenty stacks is a
+      // visibly busier character than two — with a floor, because this runs for
+      // the whole run and an unbounded rate is a particle pool spent on ambience.
+      ctx.moteT -= dt;
+      if (ctx.moteT > 0 || ctx.viewers <= 0) return;
+      const gap = VIEWER_MOTE_GAP - ctx.stacks * VIEWER_MOTE_STEP;
+      ctx.moteT = gap > VIEWER_MOTE_FLOOR ? gap : VIEWER_MOTE_FLOOR;
+      H.particles.drift(p.x + H.fxRng.signed() * VIEWER_RADIUS * 0.6,
+                        p.y + H.fxRng.signed() * 26, C_AOI, VIEWER_MOTE);
+    },
     onDamaged(run, p, ctx) { countViewers(run, p, ctx); },
   },
 
@@ -1312,6 +1636,10 @@ RELIC_IMPL.cracked_teacup = {
     p.flags.mishaps = (p.flags.mishaps | 0) + 1;
     H.effects.shockwave(p.x, p.y, r, C_PORCELAIN, TEACUP_FX);
     H.particles.ring(p.x, p.y, 14, C_TEA, r * 2.2);
+    // The same porcelain the fumbled tray throws. It is the same accident and
+    // it has to leave the same mess on the floor, or her signature relic reads
+    // as somebody else's ability that happens to cost her HP.
+    H.particles.burst(p.x, p.y, 10, C_PORCELAIN, SHARD_BURST);
     H.floaters.spawn(p.x, p.y - 46, 'CRASH', C_TEA, 17, 1.0);
     H.audio.play('explode');
     H.shake.small();

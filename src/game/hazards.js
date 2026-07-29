@@ -48,6 +48,21 @@ function makeField() {
 
 export const FIELD = { DAMAGE: 0, CHILL: 1, BURN: 2, PULL: 3, HEAL: 4, SUNLIGHT: 5 };
 
+/**
+ * EVERY `kind` THE TWO SWITCHES BELOW ACTUALLY HANDLE.
+ *
+ * This exists because a `switch` is not introspectable, and that is precisely
+ * how five of the six stage hazards came to be dead content: the data said
+ * 'debris' and the engine said 'collapsing', nothing matched, nothing ran, and
+ * nothing anywhere could tell. A hand-kept list is only as good as the test that
+ * reads it — tests/suites.js asserts every kind declared in data/stages.js
+ * HAZARDS appears here, so adding a hazard whose handler was never written now
+ * fails the build instead of shipping as a stage that quietly has no weather.
+ */
+export const HAZARD_KINDS = [
+  'lanes', 'debris', 'visibility', 'reconfigure', 'cycle', 'zones',
+];
+
 export class HazardSystem {
   constructor(run) {
     this.run = run;
@@ -133,6 +148,27 @@ export class HazardSystem {
   }
 
   // --- stage hazard setup ----------------------------------------------------
+  /**
+   * FIVE OF THESE SIX HAZARDS HAD NEVER FIRED.
+   *
+   * Both switches below used to case on 'collapsing' / 'smoke' /
+   * 'shifting_rooms' / 'tide' / 'spotlights'. The HAZARDS table in
+   * data/stages.js — which is the thing that actually names them — declares
+   * `kind: 'debris' | 'visibility' | 'reconfigure' | 'cycle' | 'zones'`. Only
+   * `lanes` ever matched. So the collapsing walls, the smoke bombs, the shifting
+   * rooms, the rising tide and the spotlights were dead content: declared in the
+   * data, previewed on the stage-select screen, promised in every stage's codex
+   * entry, and silently switched off in the engine, with no warning and no error
+   * because a `switch` that matches nothing simply does nothing.
+   *
+   * The param NAMES had drifted the same way, and that half was worse than the
+   * rename: every stale read fell through to an `||` default that happened to be
+   * plausible, so even if a case had matched, the smoke would have been the
+   * wrong radius and the rooms the wrong count, and it would have looked like a
+   * tuning problem rather than a wiring one. Both switches now case on what the
+   * data says, and every param below is read by the name the data declares it
+   * under.
+   */
   setStageHazard(hazardDef) {
     this.kind = hazardDef ? hazardDef.kind : null;
     this.params = hazardDef ? hazardDef.params : null;
@@ -157,7 +193,7 @@ export class HazardSystem {
         }
         break;
       }
-      case 'spotlights': {
+      case 'zones': {
         const n = this.params.count || 3;
         this.spotlights = [];
         for (let i = 0; i < n; i++) {
@@ -169,7 +205,7 @@ export class HazardSystem {
         }
         break;
       }
-      case 'shifting_rooms':
+      case 'reconfigure':
         this.roomT = this.params.interval || 45;
         break;
     }
@@ -311,11 +347,11 @@ export class HazardSystem {
       }
 
       // --- Stage 3: collapsing walls ---------------------------------------
-      case 'collapsing': {
+      case 'debris': {
         this._hazT = (this._hazT || 0) - dt;
         if (this._hazT <= 0) {
           this._hazT = P.interval || 14;
-          const n = P.count || 3;
+          const n = P.zones || 3;
           for (let i = 0; i < n; i++) {
             const a = runRng.angle();
             const d = runRng.range(200, 520);
@@ -323,14 +359,23 @@ export class HazardSystem {
             const y = clamp(p.y + Math.sin(a) * d, run.bounds.minY + 60, run.bounds.maxY - 60);
             const r = P.radius || 90;
             this.telegraph(x, y, r, feel.telegraphLethal, 'red', 'x');
-            run.scheduler.after(feel.telegraphLethal, dropRubble, { run, x, y, r, dmg: P.damage || 40, life: P.rubbleLife || 22 });
+            // The wreck it leaves is its OWN radius, not a fraction of the blast:
+            // the data separates `radius` (what it hits) from `obstacleRadius`
+            // (what it then blocks) precisely because the cover is meant to be
+            // smaller than the zone you had to leave to avoid it.
+            run.scheduler.after(feel.telegraphLethal, dropRubble, {
+              run, x, y, r,
+              dmg: P.damage || 40,
+              life: P.obstacleLifetime || 22,
+              blockR: P.obstacleRadius || r * 0.62,
+            });
           }
         }
         break;
       }
 
       // --- Stage 4: smoke bombs --------------------------------------------
-      case 'smoke': {
+      case 'visibility': {
         this._hazT = (this._hazT || 0) - dt;
         if (this._hazT <= 0) {
           this._hazT = P.interval || 20;
@@ -338,7 +383,7 @@ export class HazardSystem {
         }
         if (this._smokeT > 0) {
           this._smokeT -= dt;
-          const target = P.visibility || 300;
+          const target = P.visionRadius || 300;
           this.visibilityRadius = lerp(this.visibilityRadius || 2000, target, dt * 2);
         } else if (this.visibilityRadius > 0) {
           this.visibilityRadius = lerp(this.visibilityRadius, 2400, dt * 1.5);
@@ -348,7 +393,7 @@ export class HazardSystem {
       }
 
       // --- Stage 5: shifting rooms -----------------------------------------
-      case 'shifting_rooms': {
+      case 'reconfigure': {
         this.roomT -= dt;
         if (this.roomT <= 2 && !this._roomWarned) {
           this._roomWarned = true;
@@ -364,8 +409,12 @@ export class HazardSystem {
       }
 
       // --- Stage 6: rising tide --------------------------------------------
-      case 'tide': {
-        this.tidePhase += dt / (P.cycle || 60) * TAU;
+      case 'cycle': {
+        // A sine over `period` is a 50% duty cycle, and the data asks for
+        // highTideDuration 30 out of period 60 — which is that exact split, so
+        // the cheap version is also the correct one. If a stage ever wants an
+        // asymmetric tide this has to become a phase comparison instead.
+        this.tidePhase += dt / (P.period || 60) * TAU;
         const high = Math.sin(this.tidePhase) > 0;
         if (high !== this.tideHigh) {
           this.tideHigh = high;
@@ -376,7 +425,7 @@ export class HazardSystem {
       }
 
       // --- Stage 7: spotlights ---------------------------------------------
-      case 'spotlights': {
+      case 'zones': {
         this._spotlit = false;
         for (const s of this.spotlights) {
           s.t -= dt;
@@ -402,7 +451,7 @@ export class HazardSystem {
     const P = this.params;
     run.obstacles.clear();
     const cx = run.player.x, cy = run.player.y;
-    const n = P.walls || 9;
+    const n = P.wallCount || 9;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * TAU + runRng.range(-0.3, 0.3);
       const d = runRng.range(230, 620);
@@ -532,12 +581,12 @@ export class HazardSystem {
 }
 
 function dropRubble(ctx) {
-  const { run, x, y, r, dmg, life } = ctx;
+  const { run, x, y, r, dmg, life, blockR } = ctx;
   areaDamage(run, x, y, r, dmg, SRC.HAZARD, { falloff: 0.3, canCrit: false });
   if (dist2(x, y, run.player.x, run.player.y) < r * r) {
     damagePlayer(run, dmg, SRC.HAZARD, { fromX: x, fromY: y });
   }
-  run.obstacles.addCircle(x, y, r * 0.62, life);
+  run.obstacles.addCircle(x, y, blockR > 0 ? blockR : r * 0.62, life);
   particles.burst(x, y, 12, '#6b6f80', { speed: 200, life: 0.6, size: 0.8 });
   run.shakeMedium();
 }

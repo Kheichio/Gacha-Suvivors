@@ -18,6 +18,7 @@ import { ui, PALETTE } from '../ui/widgets.js';
 import { camera } from '../render/camera.js';
 import { particles } from '../render/particles.js';
 import { effects } from '../render/effects.js';
+import { StageBackdrop } from '../render/stageBackdrop.js';
 import { damageNumbers, floaters } from '../render/damageNumbers.js';
 import { shake, flash } from '../render/screenShake.js';
 import { debugOverlay } from '../render/debug.js';
@@ -34,7 +35,9 @@ export const runScene = {
   manager: null,
   run: null,
   endT: 0,
-  _bgSprites: null,
+  /** The layered scenery for the CURRENT run, and the run it was built for. */
+  _backdrop: null,
+  _backdropRun: null,
 
   enter(params, mgr) {
     this.manager = mgr;
@@ -68,6 +71,8 @@ export const runScene = {
     if (this._codexUnsub) events.off(EV.ENEMY_SPAWNED, this._codexUnsub);
     audio.stopMusic();
     if (this.run) { this.run.dispose(); this.run = null; }
+    this._backdrop = null;
+    this._backdropRun = null;
     debugOverlay.attachRun(null);
   },
 
@@ -174,6 +179,7 @@ export const runScene = {
     this._background(r, run, cx, cy);
     run.obstacles.draw(r, alpha);
     run.hazards.drawUnder(r, alpha);
+    run.stageEvents.drawUnder(r, alpha);
     this._pickupRing(r, run, alpha);
     this._altar(r, run);
     run.pickups.draw(r, alpha);
@@ -188,6 +194,10 @@ export const runScene = {
     effects.draw(r, alpha);
     run.boss.drawOver(r, alpha);
     run.hazards.drawOver(r, alpha);
+    // Over the horde, for exactly the reason telegraphs are: an objective ring
+    // you cannot see because forty zombies are standing in it is not an
+    // objective, it is a guess.
+    run.stageEvents.drawOver(r, alpha);
     this._enemyBars(r, run, alpha);
     this._marks(r, run, alpha);
     damageNumbers.draw(r);
@@ -203,6 +213,14 @@ export const runScene = {
       r.vignette('rgba(6,8,14,0.97)', 0.85);
     }
     hud.draw(r, run);
+    // Drawn AFTER the HUD, deliberately: `ui` binds itself to the renderer in
+    // hud.draw, and a widget drawn before that is drawn against whatever screen
+    // bound it last. It also has to sit clear of the HUD's own furniture —
+    // portrait top-left, timer top-centre, build strip bottom-centre, relics
+    // bottom-right — which leaves the middle of the left edge, and that is
+    // where this goes. hud.js belongs to somebody else; this is the scene's own
+    // screen-space block.
+    this._eventBanner(r, run);
     levelUpScreen.draw(r, run);
     if (run.state === RUN_STATE.VICTORY || run.state === RUN_STATE.DEFEAT) {
       this._endCard(r, run);
@@ -210,33 +228,93 @@ export const runScene = {
   },
 
   // --- world background -------------------------------------------------------
+  /**
+   * THE STAGE'S OWN SCENERY.
+   *
+   * This used to be a ground rect, a 128px grid, a border and one mote — for all
+   * seven stages, which meant a school roof at sunset and a flooded stadium were
+   * the same screen with four hex codes swapped. render/stageBackdrop.js builds
+   * a real layered backdrop per stage instead; everything this function still
+   * does is decide WHEN to build it.
+   *
+   * Built lazily against the run rather than in enter(), because enter() is not
+   * the only way a run reaches this scene: tests/renderSmoke.js assigns
+   * `runScene.run` directly and renders, and a backdrop that only existed on the
+   * enter() path would be null for every one of those frames.
+   */
   _background(r, run, cx, cy) {
-    const pal = run.stage.palette;
-    const b = run.bounds;
-    // Ground fill + a parallax grid. Cheap, readable, and it gives the player a
-    // sense of motion that a flat colour cannot.
-    r.drawRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY, pal.ground || pal.bg, 1);
+    if (this._backdropRun !== run) {
+      this._backdropRun = run;
+      this._backdrop = new StageBackdrop(run.stage, run.bounds,
+                                         run.data.stages.BACKDROPS, run.seed);
+    }
+    this._backdrop.draw(r, run, cx, cy);
+  },
 
-    const cell = 128;
-    const x0 = Math.floor((cx - r.halfW) / cell) * cell;
-    const x1 = cx + r.halfW + cell;
-    const y0 = Math.floor((cy - r.halfH) / cell) * cell;
-    const y1 = cy + r.halfH + cell;
-    const gridColor = pal.grid || 'rgba(255,255,255,0.04)';
-    for (let x = x0; x < x1; x += cell) r.drawLine(x, y0, x, y1, gridColor, 1, 0.35);
-    for (let y = y0; y < y1; y += cell) r.drawLine(x0, y, x1, y, gridColor, 1, 0.35);
+  /**
+   * THE MINI-EVENT BANNER.
+   *
+   * Three lines and a bar: what it is, how far along you are, and how long is
+   * left. It stays up for three seconds after the event resolves, in the result
+   * colour, because a marker that simply vanishes reads as a despawn rather than
+   * as a win or a loss — and the failure has to be as unmistakable as the win.
+   */
+  _eventBanner(r, run) {
+    const ev = run.stageEvents;
+    if (!ev || (!ev.active && ev.resultT <= 0)) return;
+    // The system stops ticking the moment the run ends, so `resultT` freezes
+    // wherever it was — without this the last banner of the run sits under the
+    // death card until the scene changes.
+    if (run.state === RUN_STATE.VICTORY || run.state === RUN_STATE.DEFEAT) return;
+    const def = ev.def;
+    if (!def) return;
 
-    // Arena boundary — a visible wall, because an invisible one feels broken.
-    r.strokeRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY, pal.accent || '#ff2d95', 6, 0.4);
+    // GEOMETRY is scaled by hand; TEXT SIZES ARE NOT. `ui.text` multiplies by
+    // `ui.scale`, which is this same setting — so passing `14 * s` here would
+    // render at 14 * s * s and outgrow a panel that only grew by s. Do not
+    // "fix" this to match the surrounding style.
+    const s = save.data.settings.uiScale || 1;
+    const W = 262 * s, H = 66 * s;
+    // Below the HP plate, above the ability radials, clear of everything.
+    const x = 18, y = Math.max(r.h * 0.32, 212 * s);
+    const done = !ev.active;
+    const col = done ? (ev.success ? '#7bf59a' : '#ff6f91') : ev.color;
+    // Fade the result card out over its last half-second rather than cutting.
+    const a = done ? clamp(ev.resultT / 0.6, 0, 1) : 1;
 
-    // Ambient motes.
-    const amb = run.stage.ambience;
-    if (amb && (run.frameParity & 3) === 0) {
-      particles.drift(
-        cx + (Math.random() - 0.5) * r.halfW * 2,
-        cy + (Math.random() - 0.5) * r.halfH * 2,
-        amb.particleColor || pal.accent,
-        { life: 2.2, size: 0.35, speed: 12, shape: amb.particleShape });
+    ui.panel(x, y, W, H, {
+      radius: 6, color: 'rgba(12,16,28,0.88)',
+      borderColor: col, borderWidth: 2, alpha: a,
+    });
+    ui.text(done ? (ev.success ? 'EVENT CLEARED' : 'EVENT MISSED') : def.name, x + 12 * s, y + 16 * s, {
+      size: 14, color: col, weight: 800, alpha: a,
+    });
+    ui.text(done ? def.name : this._objectiveLine(ev, def), x + 12 * s, y + 34 * s, {
+      size: 11, color: PALETTE.textDim, weight: 700, alpha: a,
+    });
+
+    if (!done) {
+      // Two readouts in one place: the bar is progress, the thin rule under it
+      // is the clock. Neither is guessable from the other and both matter.
+      ui.bar(x + 12 * s, y + 44 * s, W - 24 * s, 8 * s, ev.fraction, ev.color,
+             { bg: 'rgba(4,6,14,0.8)' });
+      const tf = ev.limit > 0 ? ev.timeLeft / ev.limit : 0;
+      r.drawRect(x + 12 * s, y + 55 * s, (W - 24 * s) * clamp(tf, 0, 1), 3 * s,
+                 tf < 0.25 ? '#ff6f91' : PALETTE.textFaint, 0.9);
+      ui.text(Math.ceil(ev.timeLeft) + 's', x + W - 12 * s, y + 16 * s, {
+        size: 12, color: tf < 0.25 ? '#ff6f91' : PALETTE.textDim,
+        weight: 800, align: 'right', mono: true,
+      });
+    }
+  },
+
+  /** "12 / 18", "9.4s / 16s", "62%" — the progress line, per event kind. */
+  _objectiveLine(ev, def) {
+    switch (ev.kind) {
+      case 'cull':
+      case 'gather': return def.objective + '   ' + Math.floor(ev.progress) + ' / ' + ev.need;
+      case 'hold': return def.objective + '   ' + ev.progress.toFixed(1) + 's / ' + ev.need + 's';
+      default: return def.objective + '   ' + Math.round(ev.fraction * 100) + '%';
     }
   },
 
@@ -403,6 +481,27 @@ export const runScene = {
    */
   _edgeArrows(r, run, cx, cy) {
     const p = run.player;
+
+    // THE OBJECTIVE ARROW, ahead of the treasure-compass guard.
+    //
+    // Chests only get an arrow for the players who bought one; an active mini
+    // event gets one for everybody, always. The marker is placed 600-1250px away
+    // from wherever the player happened to be standing, which is routinely off
+    // screen at the moment it is announced — an objective you are told about and
+    // then cannot find is a worse feature than no objective at all.
+    const ev = run.stageEvents;
+    if (ev && ev.active) {
+      const dx = ev.x - cx, dy = ev.y - cy;
+      if (Math.abs(dx) > r.halfW * 0.86 || Math.abs(dy) > r.halfH * 0.86) {
+        const a = Math.atan2(dy, dx);
+        const ex = cx + Math.cos(a) * r.halfW * 0.84;
+        const ey = cy + Math.sin(a) * r.halfH * 0.84;
+        const pulse = 0.6 + 0.4 * Math.sin(run.time * 4);
+        r.drawWedge(ex, ey, 22, a - 0.38, a + 0.38, ev.color, 0.55 + pulse * 0.35);
+        r.strokeCircle(ex, ey, 26, ev.color, 2, 0.3 + pulse * 0.25);
+      }
+    }
+
     if (!p.flags.treasureCompass) return;
     const items = run.pickups.items;
     for (let i = 0; i < run.pickups.count; i++) {

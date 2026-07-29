@@ -174,11 +174,32 @@ export class Player {
     }
 
     // --- shrine (meta) -------------------------------------------------------
+    //
+    // Two shapes, both of them shrine.js's problem rather than ours. A row with
+    // `effects` moves two stats at once (Curse, Glass Edge) and its own
+    // stat/perLevel/mode are absent; a row with `scope: 'run'` is read straight
+    // out of save.data.shrine by run.js at start-of-run and has nothing to say
+    // to this pipeline at all.
+    //
+    // The scope check is not a micro-optimisation. Rerolls and Banish declare
+    // `freeRerolls` and `banishes`, which are real keys that run.js really
+    // consumes but which STAT_KEYS has never heard of — so every recompute fed
+    // _applyStat() two keys it could only answer with the "unknown stat" warning
+    // below. Both upgrades worked the whole time, and the warning that exists to
+    // catch the ones that DON'T opened every dev session with two false
+    // positives, which is precisely how a warning stops being read. Worse, it
+    // burned those two names in WARNED, so the two loudest examples of the bug
+    // that warning is for could only ever be reported once, first, and wrongly.
     const shrineLevels = save.data.shrine;
     for (const up of this.run.data.shrine.SHRINE_UPGRADES) {
+      if (up.scope === 'run') continue;
       const lv = shrineLevels[up.id] || 0;
       if (lv <= 0) continue;
-      this._applyStat(s, up.stat, up.perLevel * lv, up.mode);
+      if (up.effects) {
+        for (const e of up.effects) this._applyStat(s, e.stat, e.perLevel * lv, e.mode);
+      } else {
+        this._applyStat(s, up.stat, up.perLevel * lv, up.mode);
+      }
     }
 
     // --- bond ----------------------------------------------------------------
@@ -328,11 +349,22 @@ export class Player {
     return !!(r && r.owner && r.owner === this.id);
   }
 
+  /**
+   * `dur` is the buff's FULL length, kept alongside the countdown so the HUD has
+   * a denominator. Without it the timer strip divided every buff's remaining
+   * time by a hardcoded 60 seconds, so a four-second buff drew as a bar 7% full
+   * that never visibly moved — which is indistinguishable from a bar that is
+   * broken. A refresh raises both, because a refreshed buff is a full one again.
+   */
   addBuff(id, duration, mods) {
     for (const b of this.buffs) {
-      if (b.id === id) { b.t = Math.max(b.t, duration); return b; }
+      if (b.id === id) {
+        b.t = Math.max(b.t, duration);
+        if (b.t > b.dur) b.dur = b.t;
+        return b;
+      }
     }
-    const b = { id, t: duration, mods };
+    const b = { id, t: duration, dur: duration, mods };
     this.buffs.push(b);
     this.recompute();
     // Singularity Patch counts stacks, so the count has to announce itself.

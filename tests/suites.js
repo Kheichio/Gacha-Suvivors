@@ -28,6 +28,7 @@ import * as refs from '../src/data/refs.js';
 // (DECISIONS.md §22.3). If they lived in refs.js, DEV_MODE=false would print the
 // exact source-IP names the flag exists to hide.
 import { SHIP_NAMES } from '../src/data/shipNames.js';
+import { HAZARD_KINDS } from '../src/game/hazards.js';
 
 import { Rng, mulberry32, hashString } from '../src/core/rng.js';
 import { Pool } from '../src/core/pool.js';
@@ -695,8 +696,8 @@ describe('achievements / the gates DECISIONS.md §24 made real', () => {
 
 // ============================================================================
 describe('shrine', () => {
-  it('10 upgrades with growing costs', () => {
-    assert.equal(shrine.SHRINE_UPGRADES.length, 10);
+  it('22 upgrades with growing costs', () => {
+    assert.equal(shrine.SHRINE_UPGRADES.length, 22);
     for (const u of shrine.SHRINE_UPGRADES) {
       assert.atLeast(u.maxLevel, 1);
       assert.atLeast(u.baseCost, 1);
@@ -706,5 +707,35 @@ describe('shrine', () => {
 
   it('a free full refund is guaranteed', () => {
     assert.equal(shrine.SHRINE_REFUND_FREE, true);
+  });
+});
+
+// ============================================================================
+describe('hazards', () => {
+  it('every declared hazard kind has a handler', () => {
+    // FIVE OF SIX SHIPPED DEAD. data/stages.js declared kind 'debris' /
+    // 'visibility' / 'reconfigure' / 'cycle' / 'zones'; game/hazards.js switched
+    // on 'collapsing' / 'smoke' / 'shifting_rooms' / 'tide' / 'spotlights'. Only
+    // 'lanes' ever matched, so the collapsing walls, the smoke, the shifting
+    // rooms, the tide and the spotlights never fired once — while the stage
+    // select screen previewed them and every codex entry promised them.
+    //
+    // A switch cannot be inspected, so the fix is only as durable as this: the
+    // handled set is exported, and every kind the data names must be in it.
+    const missing = [];
+    for (const id in stages.HAZARDS) {
+      const k = stages.HAZARDS[id].kind;
+      if (HAZARD_KINDS.indexOf(k) < 0) missing.push(`${id} -> "${k}"`);
+    }
+    assert.equal(missing.length, 0,
+                 'hazards with no handler:\n      ' + missing.join('\n      '));
+  });
+
+  it('every stage hazard a stage names actually exists', () => {
+    const bad = [];
+    for (const s of stages.STAGES) {
+      for (const h of s.hazards || []) if (!stages.HAZARDS[h]) bad.push(`${s.id} -> "${h}"`);
+    }
+    assert.equal(bad.length, 0, 'unknown hazards: ' + bad.join(', '));
   });
 });

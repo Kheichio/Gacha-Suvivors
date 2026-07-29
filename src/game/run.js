@@ -27,6 +27,7 @@ import { PickupSystem, PICKUP_KIND } from './pickup.js';
 import { MinionSystem, MINION_ROLE } from './minion.js';
 import { ObstacleField } from './obstacles.js';
 import { HazardSystem } from './hazards.js';
+import { StageEventSystem } from './stageEvents.js';
 import { WaveDirector } from './waveDirector.js';
 import { AdaptiveDirector } from './adaptiveDirector.js';
 import { BossController } from './boss.js';
@@ -109,6 +110,7 @@ export class Run {
     this.minions = new MinionSystem(this);
     this.obstacles = new ObstacleField(this);
     this.hazards = new HazardSystem(this);
+    this.stageEvents = new StageEventSystem(this);
     this.waveDirector = new WaveDirector(this);
     this.adaptive = new AdaptiveDirector(this);
     this.boss = new BossController(this);
@@ -196,7 +198,14 @@ export class Run {
 
     this.hazards.setStageHazard(stage.hazards && stage.hazards.length
       ? this.data.stages.HAZARDS[stage.hazards[0]] : null);
-    this.obstacles.setStyle(stage.palette.grid || '#4a4f63');
+
+    // The stage's own static blockers. `stage.obstacles` had been a field that
+    // NOTHING READ since it was written — five of seven stages were flat empty
+    // floors and the other two only had geometry because a hazard dropped some.
+    // The LOOK is set here; the SCATTER waits until the altar exists below,
+    // because the altar is one of the two positions a piece may never land on.
+    this.obstacleSet = this.data.stages.OBSTACLE_SETS[stage.obstacles] || null;
+    this.obstacles.setStyle(this.obstacleSet);
 
     this.waveDirector.load(stage, this.data.waves.WAVES[stage.id] || []);
 
@@ -215,6 +224,10 @@ export class Run {
       goldUses: 0,
       sprite: atlas.ensure({ shape: 'triangle', color: '#ff5f7e', accent: '#3a0a18', size: 22, emoji: '⛩' }),
     };
+
+    // Now that both keep-out positions are known, populate the map.
+    if (this.obstacleSet) this.obstacles.scatter(this.obstacleSet);
+    this.stageEvents.load(stage, this.data.stages.STAGE_EVENTS);
 
     this.weapons.init();
     this.relicHooks.rebuild();
@@ -405,6 +418,9 @@ export class Run {
     this.pickups.update(dt);
     this.hazards.update(dt);
     this.obstacles.update(dt);
+    // After the hazards, so an event that started this tick is already placed
+    // when the wave director decides what to walk on next to it.
+    this.stageEvents.update(dt);
     this.waveDirector.update(dt);
     this.adaptive.update(dt);
     this.relicHooks.tick(dt);
@@ -1284,6 +1300,10 @@ export class Run {
     this.minions.clear();
     this.hazards.clear();
     this.obstacles.clear();
+    // Not optional: the event system holds an ENEMY_KILLED subscription on the
+    // global bus, and leaving it attached would keep this whole run — its pools,
+    // its player, its data — alive and counting kills for the next one.
+    this.stageEvents.clear();
     this.scheduler.clear();
     this.relicHooks.dispose();
     abilities.onRunEnd(this);

@@ -205,6 +205,64 @@ const SHAPES = {
     ctx.arc(cx, cy, r * 0.68, 0, TAU, true);
     ctx.closePath();
   },
+
+  // --- props ----------------------------------------------------------------
+  // The three below are PROPS rather than projectile silhouettes: they are meant
+  // to be blitted large and rotated at runtime by `effects.sweepSprite` /
+  // `effects.fallSprite`, so each one is authored to fit inside radius `r` (the
+  // atlas canvas is only `(size + pad) * 2` across, and anything poking past `r`
+  // is clipped the moment it turns).
+
+  /**
+   * A SCYTHE, laid along +X the way `shard` and `crescent` are.
+   *
+   * Two subpaths, exactly like `cross`: a haft running back to the butt, and a
+   * crescent blade hooking forward off the neck. One closed shape has to carry
+   * the whole read at 30px, and the read is "long stick, big hook" — so the hook
+   * is oversized against the haft, which is the opposite of a real scythe and the
+   * only reason the silhouette survives the outline pass at this size.
+   */
+  scythe(ctx, cx, cy, r) {
+    const t = r * 0.095;
+    ctx.beginPath();
+    ctx.moveTo(cx - r * 0.84, cy + r * 0.46 - t);
+    ctx.lineTo(cx + r * 0.24, cy - r * 0.28 - t);
+    ctx.lineTo(cx + r * 0.24, cy - r * 0.28 + t);
+    ctx.lineTo(cx - r * 0.84, cy + r * 0.46 + t);
+    ctx.closePath();
+    const bx = cx + r * 0.10, by = cy - r * 0.24, br = r * 0.70;
+    const a0 = -1.45, a1 = 0.55;
+    const sx = bx + Math.cos(a0) * br, sy = by + Math.sin(a0) * br;
+    ctx.moveTo(sx, sy);
+    ctx.arc(bx, by, br, a0, a1);
+    ctx.quadraticCurveTo(bx + br * 0.20, by - br * 0.08, sx, sy);
+    ctx.closePath();
+  },
+
+  /** A thrown saucer: a disc seen at a shallow angle. Long axis is +X. */
+  saucer(ctx, cx, cy, r) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, r, r * 0.46, 0, 0, TAU);
+    ctx.closePath();
+  },
+
+  /** A lighting-rig truss section — two chords and an X brace. Lies along +X. */
+  girder(ctx, cx, cy, r) {
+    const L = r * 0.92, h = r * 0.34, t = r * 0.11;
+    ctx.beginPath();
+    ctx.rect(cx - L, cy - h, L * 2, t);
+    ctx.rect(cx - L, cy + h - t, L * 2, t);
+    ctx.moveTo(cx - L * 0.88, cy - h + t);
+    ctx.lineTo(cx - L * 0.58, cy - h + t);
+    ctx.lineTo(cx + L * 0.04, cy + h - t);
+    ctx.lineTo(cx - L * 0.26, cy + h - t);
+    ctx.closePath();
+    ctx.moveTo(cx + L * 0.26, cy - h + t);
+    ctx.lineTo(cx + L * 0.56, cy - h + t);
+    ctx.lineTo(cx - L * 0.06, cy + h - t);
+    ctx.lineTo(cx - L * 0.36, cy + h - t);
+    ctx.closePath();
+  },
 };
 
 /** Stable key for a visual descriptor. Boot-time only — allocates a string. */

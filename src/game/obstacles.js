@@ -1,6 +1,6 @@
 // Static blockers + steering avoidance. DECISIONS.md §18.
 //
-// Two of seven stages need geometry the spec never acknowledged: Stage 3's
+// Two of seven stages needed geometry the spec never acknowledged: Stage 3's
 // collapsing walls "block enemy pathing", Stage 5's corridors "form". There is no
 // tilemap, no nav mesh and no A* anywhere in the architecture, and `chaser` is
 // defined as "moves directly at the player".
@@ -9,6 +9,12 @@
 // add a lateral push; the player is hard-blocked. A chaser in a dead-end pocket
 // will hug the wall rather than route around it — which is acceptable, readable,
 // and costs 120 lines instead of a navigation subsystem.
+//
+// ALL SEVEN STAGES NOW SCATTER SOMETHING. `stage.obstacles` had existed since the
+// data layer was written and nothing had ever read it, so five stages were flat
+// empty floors and the other two only had geometry because a hazard happened to
+// drop some. scatter() below is what makes that field mean something, and the
+// steering approximation above is exactly why it stays SPARSE.
 
 import { feel } from '../core/feel.js';
 import { clamp, dist2, normalize, V } from '../core/math.js';
@@ -17,6 +23,20 @@ import { atlas } from '../render/spriteAtlas.js';
 import { runRng } from '../core/rng.js';
 
 const MAX_OBSTACLES = 128;
+
+/**
+ * The look a field falls back to when nobody has given it one — the engine's
+ * own grey hex chunk. Written out as a literal that MATCHES the entry in
+ * prewarm.js ENGINE_VISUALS exactly, because the atlas keys on every field
+ * including `flash`, and a descriptor that differs by one character is a second
+ * sprite rasterised on the frame the first blocker appears.
+ */
+const DEFAULT_STYLE = {
+  name: 'Debris',
+  detail: 'none',
+  visual: { shape: 'hex', color: '#4a4f63', accent: '#0b0d16', size: 32 },
+  box: { color: '#4a4f63', edge: '#0b0d16' },
+};
 
 export class ObstacleField {
   constructor(run) {
@@ -31,10 +51,99 @@ export class ObstacleField {
     this.life = new Float32Array(MAX_OBSTACLES); // 0 = permanent
     this.fade = new Float32Array(MAX_OBSTACLES);
     this.sprite = null;
-    this.color = '#4a4f63';
+    this.style = DEFAULT_STYLE;
+    this.color = DEFAULT_STYLE.box.color;
+    this.edge = DEFAULT_STYLE.box.edge;
+    this.detail = 'none';
   }
 
-  setStyle(color) { this.color = color; this.sprite = null; }
+  /**
+   * Give the field a per-stage LOOK, from an OBSTACLE_SETS entry.
+   *
+   * Every stage's blockers used to draw as the same grey hexagon tinted to the
+   * stage's grid colour, so rubble, desks, coral and a fallen light truss were
+   * one silhouette in seven shades. A set brings its own sprite, its own box
+   * fill/edge pair, and a `detail` pass drawn on top of rectangles.
+   *
+   * A null set is legal and means DEFAULT_STYLE — the hazard-dropped rubble on a
+   * stage that declares no set of its own still has to look like something.
+   *
+   * @param set an OBSTACLE_SETS entry, or null
+   */
+  setStyle(set) {
+    this.style = (set && set.visual) ? set : DEFAULT_STYLE;
+    const box = (set && set.box) || DEFAULT_STYLE.box;
+    this.color = box.color;
+    this.edge = box.edge || '#0b0d16';
+    this.detail = (set && set.detail) || 'none';
+    this.sprite = null;
+  }
+
+  /**
+   * SCATTER THE STAGE'S OWN BLOCKERS, once, at run start.
+   *
+   * The brief for this was precise — "things here and there", not a maze — so
+   * the tuning is deliberately sparse: ~20 pieces across 4000x4000 is one every
+   * 800px on a side. You meet one every few seconds of running and you are never
+   * asked to navigate a corridor, which matters because DECISIONS.md §18 gave
+   * the horde STEERING and not pathfinding: a chaser in a dead-end pocket hugs
+   * the wall instead of routing around it, and a dense layout would turn that
+   * acceptable approximation into the whole experience.
+   *
+   * `clearance` is held empty around BOTH the player's start and the altar. They
+   * are the two positions in the arena a player is guaranteed to stand in, and a
+   * blocker on either is the difference between "the map has furniture" and "the
+   * game spawned me inside a wall".
+   *
+   * Rejection sampling with a hard attempt cap rather than a lattice: a lattice
+   * reads as a grid the moment you have seen it twice, and the cap means a set
+   * that asks for more pieces than will fit quietly places fewer instead of
+   * spinning.
+   */
+  scatter(set) {
+    if (!set || !set.count || !set.forms || !set.forms.length) return 0;
+    const run = this.run;
+    const b = run.bounds;
+    const margin = 140;
+    const clear2 = (set.clearance || 400) * (set.clearance || 400);
+    const spacing2 = (set.spacing || 200) * (set.spacing || 200);
+    const px = run.player.x, py = run.player.y;
+    // The altar is placed before this runs; guard anyway so an ordering change
+    // downgrades to "one fewer keep-out zone" rather than a crash.
+    const ax = run.altar ? run.altar.x : px;
+    const ay = run.altar ? run.altar.y : py;
+
+    // Weights are read into a module-level scratch array rather than mapped into
+    // a fresh one. Not a hot path, but the discipline is the point: a `.map()`
+    // here is the one that gets copy-pasted into a hot path later.
+    WEIGHTS.length = 0;
+    for (const f of set.forms) WEIGHTS.push(f.weight || 1);
+
+    let placed = 0;
+    const want = Math.min(set.count, MAX_OBSTACLES - this.count);
+    for (let attempt = 0; attempt < want * 12 && placed < want; attempt++) {
+      const x = runRng.range(b.minX + margin, b.maxX - margin);
+      const y = runRng.range(b.minY + margin, b.maxY - margin);
+      if (dist2(x, y, px, py) < clear2) continue;
+      if (dist2(x, y, ax, ay) < clear2) continue;
+      let crowded = false;
+      for (let i = 0; i < this.count; i++) {
+        if (dist2(x, y, this.x[i], this.y[i]) < spacing2) { crowded = true; break; }
+      }
+      if (crowded) continue;
+
+      const fi = runRng.weightedIndex(WEIGHTS);
+      const form = set.forms[fi < 0 ? 0 : fi];
+      const idx = form.form === 'box'
+        ? this.addBox(x, y, runRng.range(form.w[0], form.w[1]), runRng.range(form.h[0], form.h[1]))
+        : this.addCircle(x, y, runRng.range(form.r[0], form.r[1]));
+      if (idx < 0) break;
+      // Scattered geometry has always been there; it must not fade in.
+      this.fade[idx] = 1;
+      placed++;
+    }
+    return placed;
+  }
 
   addCircle(x, y, r, life) {
     if (this.count >= MAX_OBSTACLES) return -1;
@@ -72,7 +181,12 @@ export class ObstacleField {
       if (this.life[i] > 0) {
         this.life[i] -= dt;
         if (this.life[i] <= 0) {
-          particles.burst(this.x[i], this.y[i], 8, this.color, { speed: 120, life: 0.5, size: 0.7 });
+          // The VISUAL's colour, not the box fill. Particle sprites are
+          // pre-rastered from the colours the atlas already knows about, and
+          // the box fill is a raw hex on a data table that the harvest in
+          // prewarm.js never sees — bursting it would rasterise a particle
+          // sheet on the frame a piece of rubble crumbles.
+          particles.burst(this.x[i], this.y[i], 8, this.style.visual.color, { speed: 120, life: 0.5, size: 0.7 });
           this.removeAt(i);
           i--;
         }
@@ -178,26 +292,82 @@ export class ObstacleField {
     return false;
   }
 
+  /**
+   * CULLED, and styled per stage.
+   *
+   * The cull is not an optimisation flourish: every stage now scatters ~20
+   * permanent blockers and the collapsing-walls hazard adds more on top, and
+   * `drawRect` on a box 3,000px behind the camera still pays for a fillRect and
+   * a stroke. drawSprite culls itself; primitives do not.
+   *
+   * `detail` is the whole reason a desk and a fallen truss no longer look alike:
+   * the box itself is a rectangle either way, and the two or three lines drawn
+   * inside it are what say "drawers", "shutter", "bracing" or "crate".
+   */
   draw(r, alpha) {
     if (this.count === 0) return;
-    if (!this.sprite) {
-      this.sprite = atlas.register({ shape: 'hex', color: this.color, accent: '#0b0d16', size: 32 });
-    }
+    if (!this.sprite) this.sprite = atlas.ensure(this.style.visual);
+    const detail = this.detail;
     for (let i = 0; i < this.count; i++) {
+      const x = this.x[i], y = this.y[i];
+      if (x + this.r[i] < r.cullMinX || x - this.r[i] > r.cullMaxX ||
+          y + this.r[i] < r.cullMinY || y - this.r[i] > r.cullMaxY) continue;
       const f = this.fade[i];
       const dying = this.life[i] > 0 && this.life[i] < 1 ? this.life[i] : 1;
+      const a = f * dying;
       if (this.isBox[i]) {
-        r.drawRect(this.x[i] - this.hw[i], this.y[i] - this.hh[i],
-                   this.hw[i] * 2, this.hh[i] * 2, this.color, f * dying);
-        r.strokeRect(this.x[i] - this.hw[i], this.y[i] - this.hh[i],
-                     this.hw[i] * 2, this.hh[i] * 2, '#0b0d16', 3, f * dying);
+        const hw = this.hw[i], hh = this.hh[i];
+        r.drawRect(x - hw, y - hh, hw * 2, hh * 2, this.color, a);
+        r.strokeRect(x - hw, y - hh, hw * 2, hh * 2, this.edge, 3, a);
+        if (detail !== 'none') this._detail(r, x, y, hw, hh, a);
       } else {
         const s = (this.r[i] / 32) * f;
-        r.drawSprite(this.sprite, this.x[i], this.y[i], 0, s, dying, false, 0);
+        r.drawSprite(this.sprite, x, y, 0, s, dying, false, 0);
+        // A hard rim under the sprite. The sprite's own outline is 14% of its
+        // radius, which reads at 32px and disappears at 58 — and a blocker whose
+        // edge you cannot find is a blocker you keep walking into.
+        r.strokeCircle(x, y, this.r[i], this.edge, 2, a * 0.7);
       }
     }
     r.setAlpha(1);
   }
+
+  /** The two-or-three-line pass that gives a rectangle a material. */
+  _detail(r, x, y, hw, hh, a) {
+    const c = this.edge;
+    const al = a * 0.55;
+    switch (this.detail) {
+      case 'slats': {
+        // Drawer fronts / vent fins: horizontal rules down the face.
+        const n = Math.min(3, Math.max(1, (hh / 12) | 0));
+        for (let k = 1; k <= n; k++) {
+          const yy = y - hh + (hh * 2) * (k / (n + 1));
+          r.drawLine(x - hw + 4, yy, x + hw - 4, yy, c, 2, al);
+        }
+        break;
+      }
+      case 'lattice':
+        // A shutter or a paper screen: one cross, always centred.
+        r.drawLine(x, y - hh + 3, x, y + hh - 3, c, 2, al);
+        r.drawLine(x - hw + 3, y, x + hw - 3, y, c, 2, al);
+        break;
+      case 'ribs':
+        // Structural bracing: the diagonals of the box.
+        r.drawLine(x - hw + 4, y - hh + 4, x + hw - 4, y + hh - 4, c, 2, al);
+        r.drawLine(x + hw - 4, y - hh + 4, x - hw + 4, y + hh - 4, c, 2, al);
+        break;
+      case 'bolts':
+        // Crate corners. Four dots is cheaper than a border and reads as wood.
+        r.drawCircle(x - hw + 6, y - hh + 6, 2.5, c, al);
+        r.drawCircle(x + hw - 6, y - hh + 6, 2.5, c, al);
+        r.drawCircle(x - hw + 6, y + hh - 6, 2.5, c, al);
+        r.drawCircle(x + hw - 6, y + hh - 6, 2.5, c, al);
+        break;
+    }
+  }
 }
 
 const PUSH = { x: 0, y: 0 };
+
+/** Scratch for the weighted form roll in scatter(). Never read across calls. */
+const WEIGHTS = [];

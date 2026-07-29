@@ -25,6 +25,8 @@
 //     ctx.s5         true when the S5 ESCAPE upgrade is unlocked
 //     ctx.active     set by cast(), cleared when end() runs
 //     ctx.t          duration remaining while active
+//     ctx.t0         what ctx.t was handed at cast — the denominator a bar needs.
+//                    Stamped here, read by activeState(), used by nothing else.
 //     ctx.power      a multiplier applied by the mirror boss (1.0 normally)
 
 import { events, EV } from '../../core/events.js';
@@ -195,6 +197,7 @@ class AbilityDriver {
     const ctx = this._ctx(run, def.id);
     if (impl.fire) impl.fire(run, p, ctx, MIRROR_OPTS);
     else if (impl.cast) impl.cast(run, p, ctx, MIRROR_OPTS);
+    this._markDuration(ctx);
     MIRROR_OPTS.origin = null;
     MIRROR_OPTS.hostile = false;
     MIRROR_OPTS.power = 1;
@@ -211,7 +214,9 @@ class AbilityDriver {
     const impl = this._impl(id);
     if (!impl || !impl.cast) return false;
     const ctx = this._ctx(run, id);
-    return impl.cast(run, p, ctx) !== false;
+    const ok = impl.cast(run, p, ctx) !== false;
+    this._markDuration(ctx);
+    return ok;
   }
 
   _cast(run, def, kind) {
@@ -223,8 +228,92 @@ class AbilityDriver {
     ctx.def = def;
     const ok = impl.cast(run, p, ctx);
     if (ok === false) return false;
+    this._markDuration(ctx);
     if (kind === 'special' && p.def.barks && runRng.chance(0.25)) run.bark(p.def.barks.spawn);
     return true;
+  }
+
+  /**
+   * THE DENOMINATOR.
+   *
+   * `ctx.t` has always counted DOWN and nothing has ever recorded what it
+   * counted down FROM, so the remaining time could be printed and never drawn:
+   * "1.4" means nothing without "of 8". The instant after cast() returns is the
+   * only moment the clock is known to be whole, and this is the one funnel every
+   * press goes through — stamping it here rather than in thirty-odd ability
+   * files is what keeps "an ability that sets ctx.t gets a bar" true for the
+   * ability somebody writes next month without them doing anything.
+   *
+   * It CLEARS rather than leaves a stale value when the cast started nothing
+   * timed. The same ability's duration changes with its S3 upgrade and several
+   * cast() bodies choose between a timed and an untimed form on the day, so a
+   * left-over `t0` from the previous press would silently become the next bar's
+   * denominator and start it part-full — the exact class of bug this field is
+   * here to fix.
+   *
+   * Every path that can reach an impl's cast() calls this, the mirror boss's
+   * included: if a mirrored cast leaves the player's own ctx running, the bar
+   * the player is looking at had better be measuring the clock that is ticking.
+   */
+  _markDuration(ctx) {
+    ctx.t0 = (ctx.active && ctx.t !== undefined) ? ctx.t : undefined;
+  }
+
+  /**
+   * WHAT IS RUNNING RIGHT NOW — a read, for the HUD.
+   *
+   * The driver has always known this: `ctx.t` is the seconds left on an active
+   * special or escape, counted down in tick() above. It was simply unreachable
+   * from outside this file, so the HUD could say when an ability would come BACK
+   * and never when the one you are standing inside would STOP — and that second
+   * half is the one you play around. Being untouchable for another 0.3s and
+   * being untouchable for another 3s are two different games.
+   *
+   * Generic by construction, and deliberately so: it asks the player's own data
+   * which ability occupies the slot, then asks that ability's own scratch state
+   * how long it has. No character, no ability id and no duration appears here,
+   * so an ability written next month is covered the moment its cast() sets
+   * `ctx.t` — which every duration ability in the game already does, because
+   * that is how the driver ends them.
+   *
+   * @param {object} run
+   * @param {'special'|'escape'} key
+   * @returns {object} abilityActive — read it immediately, before the next call
+   */
+  activeState(run, key) {
+    const s = abilityActive;
+    s.active = false; s.timed = false; s.remaining = 0; s.total = 0; s.frac = 0;
+    const p = run && run.player;
+    const def = p && p.def[key];
+    if (!def) return s;
+    // Deliberately NOT p.state(): that accessor CREATES the scratch slot on a
+    // miss, and a poll that runs on every rendered frame must not be able to
+    // author simulation state as a side effect of being looked at. No slot means
+    // the ability has never been cast, and the honest answer to "is it running"
+    // is no.
+    const ctx = p.abilityState[def.id];
+    if (!ctx || !ctx.active) return s;
+    s.active = true;
+
+    // ACTIVE-BUT-UNTIMED IS AN ANSWER, NOT A MISSING ONE. A couple of abilities
+    // never set `ctx.t` on purpose — the black flame spreads for the rest of the
+    // run, a planted gate waits until you use it — and a progress bar for those
+    // would sit pinned at 100% forever, which reads as a broken bar rather than
+    // as an effect with no end. Callers get `timed: false` and are expected to
+    // draw something that admits it.
+    if (ctx.t === undefined) return s;
+
+    s.timed = true;
+    s.remaining = ctx.t > 0 ? ctx.t : 0;
+    // `t0` is the clock as cast() left it — but an ability may re-arm its own
+    // clock mid-flight (the rum barrel shortens itself when it shatters, and
+    // several abilities wind down early by setting `ctx.t` to a hair above
+    // zero), so the denominator is whichever of the two is larger. A bar drawn
+    // past 100% full is a worse lie than one that starts part-full, and an
+    // ability that just cut its own timer really IS about to end.
+    s.total = ctx.t0 > s.remaining ? ctx.t0 : s.remaining;
+    s.frac = s.total > 0 ? s.remaining / s.total : 0;
+    return s;
   }
 
   /** Evolutions patch behaviour through the same registry, never through a branch. */
@@ -238,6 +327,23 @@ class AbilityDriver {
 function camelize(id) {
   return id.replace(/_([a-z])/g, (m, c) => c.toUpperCase());
 }
+
+/**
+ * Reusable output for `activeState()`, on the same contract as `targetResult`
+ * in targeting.js and for the same reason: the HUD asks about SPECIAL and then
+ * about ESCAPE on every rendered frame, so a fresh object per answer is a
+ * hundred-odd pieces of garbage a second produced by LOOKING at the run. Both
+ * answers land here, so read one before asking the next question.
+ *
+ *   active     the ability is running at all
+ *   timed      ...and it knows when it will stop
+ *   remaining  seconds left    (0 when untimed)
+ *   total      seconds it began with — the bar's denominator (0 when untimed)
+ *   frac       remaining / total, 0..1 (0 when untimed)
+ */
+export const abilityActive = {
+  active: false, timed: false, remaining: 0, total: 0, frac: 0,
+};
 
 const EMPTY_OPTS = { origin: null, damageOverride: 0, hostile: false, power: 1, noRelicHooks: false };
 const MIRROR_OPTS = { origin: null, damageOverride: 0, hostile: false, power: 1, noRelicHooks: false };

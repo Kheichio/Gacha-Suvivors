@@ -779,8 +779,8 @@ const NEKROMINA = {
   },
   autoAttack: {
     id: 'reapers_rhythm', name: "Reaper's Rhythm",
-    desc: 'Sweeps the scythe around herself, releasing 3 crescent waves for 16 ' +
-          'damage each, every 0.8s. It fires on a steady beat, because of course it does.',
+    desc: 'A 180° scythe arc, 16 damage, 150px reach, every 0.8s, alternating ' +
+          'left, right, left, right. It keeps time, because of course it does.',
     interval: 0.8, damage: 16, targeting: { mode: 'aroundSelf' },
   },
   special: {

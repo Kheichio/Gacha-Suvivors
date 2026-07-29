@@ -215,7 +215,18 @@ function fx(tier) {
   return FX;
 }
 
-/** Alternates every swing so a combo reads left-right-left. Deterministic. */
+/**
+ * Alternates every swing so a combo reads left-right-left. Deterministic.
+ *
+ * ONE toggle shared by every melee ability in the game, which is exactly right
+ * for as long as a swing's direction is arbitrary. It stopped being arbitrary
+ * the moment an ability started drawing the WEAPON through the arc as well as
+ * the energy: `effects.sweepSprite` swings a real scythe, and if the prop and
+ * its own slash pick opposite directions they do it for the whole run, because
+ * this toggle's phase depends on how many other swings happened first.
+ * `opts.sweep` lets such a caller pin it; every existing caller omits the field
+ * and keeps alternating exactly as it did.
+ */
 let SWING = 1;
 
 const ARC_SPARK = { speed: 220, life: 0.16, size: 0.4 };
@@ -242,7 +253,7 @@ export function meleeArc(run, p, x, y, angle, arcRad, radius, damage, o) {
   const color = opts.color || '#ffe86a';
   const tier = visualTier(p, opts);
 
-  SWING = -SWING;
+  SWING = opts.sweep ? (opts.sweep < 0 ? -1 : 1) : -SWING;
   const f = fx(tier);
   f.sweep = SWING;
   f.life = opts.fxLife > 0 ? opts.fxLife : (tier ? 0.30 : 0.24);

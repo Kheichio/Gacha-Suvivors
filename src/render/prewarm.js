@@ -14,6 +14,7 @@
 import { atlas, digits } from './spriteAtlas.js';
 import { particles } from './particles.js';
 import { DEFAULT_VISUAL, DEFAULT_ENEMY_VISUAL } from '../game/projectile.js';
+import { bossProjectileVisuals } from '../game/boss.js';
 import { DEV_MODE } from '../core/config.js';
 
 /** Visuals the engine creates itself and that no data file declares. */
@@ -22,7 +23,12 @@ const ENGINE_VISUALS = [
   DEFAULT_ENEMY_VISUAL,
   // minion default
   { shape: 'capsule', color: '#9fd3ff', accent: '#123a5c', size: 11 },
-  // obstacle chunk
+  // The DEFAULT obstacle chunk — the one an ObstacleField draws before anybody
+  // has given it a style, and the literal ObstacleField's own DEFAULT_STYLE
+  // copies character for character. The seven PER-STAGE obstacle looks are not
+  // listed here: they live on OBSTACLE_SETS in data/stages.js and arrive through
+  // `data.allVisuals()` below, because a hand-kept second copy of a data table
+  // is exactly the kind of list that goes stale the next time content lands.
   { shape: 'hex', color: '#4a4f63', accent: '#0b0d16', size: 32 },
   // the in-map altar
   { shape: 'triangle', color: '#ff5f7e', accent: '#3a0a18', size: 22, emoji: '⛩' },
@@ -66,6 +72,44 @@ const CODE_PARTICLE_COLORS = [
 const PARTICLE_SHAPES = ['circle', 'diamond', 'square', 'star', 'shard'];
 
 /**
+ * Colours and shapes that belong to a STAGE or an AFFIX rather than to an entity.
+ *
+ * The harvest below walks visual descriptors, and a stage has none: its ambient
+ * mote colour, its mote shape and the colour of each of its mini events are
+ * plain fields on data/stages.js that no `visual` anywhere mentions. So every
+ * one of them rasterised on first use — the ambient motes on the very first
+ * frame of a stage, and an event's burst ring on the frame it was announced,
+ * which is the single worst moment for a hitch because it is also the frame the
+ * player is being asked to look somewhere else.
+ *
+ * `crescent` is the reason the SHAPES are collected too and not just the
+ * colours: Stage 1's motes are crescents and that shape is not in the list
+ * above, so harvesting its colour alone would have fixed nothing.
+ */
+function harvestLooseColors(data, colors, shapes) {
+  const st = data && data.stages;
+  if (!st) return;
+  for (const s of st.STAGES || []) {
+    const amb = s.ambience;
+    if (!amb) continue;
+    if (amb.particleColor) colors.add(amb.particleColor);
+    if (amb.particleShape) shapes.add(amb.particleShape);
+  }
+  for (const id in st.STAGE_EVENTS || EMPTY_TABLE) {
+    const c = st.STAGE_EVENTS[id].color;
+    if (c) colors.add(c);
+  }
+  // Affixes are the same shape of problem for the same reason: `volatile` bursts
+  // a ring in its own colour and that colour lives on the affix row, not on any
+  // visual. Found by driving full-length runs headlessly, which is the only way
+  // a late affix ever fires.
+  const en = data.enemies;
+  for (const a of (en && en.AFFIXES) || []) if (a.color) colors.add(a.color);
+}
+
+const EMPTY_TABLE = {};
+
+/**
  * Ability and boss effects build these on demand; do it up front instead.
  *
  * THIS LIST IS KEPT HONEST BY A TEST, not by discipline. `tests/renderSmoke.js`
@@ -96,7 +140,6 @@ const EFFECT_VISUALS = [
   { shape: 'circle', color: '#8a7f72', accent: '#3a332c', size: 15, emoji: '🪨' },
   { shape: 'circle', color: '#9aa3b8', accent: '#2b3040', size: 13, emoji: '⚒️' },
   { shape: 'circle', color: '#e8f0ff', accent: '#6b7285', size: 11, emoji: '🫖', glow: true },
-  { shape: 'circle', color: '#eaf2ff', accent: '#1e2440', size: 10, rotates: true },
   { shape: 'circle', color: '#ffb03d', accent: '#7a3b00', size: 10, glow: true },
   { shape: 'circle', color: '#ffd76a', accent: '#7a5200', size: 6, glow: true, flash: false },
   { shape: 'circle', color: '#ffffff', accent: '#d63b4a', size: 12, emoji: '🍡', glow: true },
@@ -121,6 +164,25 @@ const EFFECT_VISUALS = [
   // --- evolved-weapon and boss telegraph visuals ---------------------------
   { shape: 'crescent', color: '#ffd76a', accent: '#ff7a3d', size: 22, rotates: true, glow: true },
   { shape: 'triangle', color: '#ffb020', accent: '#e0452c', size: 11, rotates: true, glow: true },
+
+  // --- PROPS: swung and dropped objects (effects.sweepSprite / fallSprite) --
+  //
+  // These are the only visuals in the game that are drawn as OBJECTS rather than
+  // as energy, and they are deliberately `rotates: false`: `drawSpriteRotated`
+  // reads frame 0 and turns on the context, so one frame is all any of them ever
+  // needs — and a 44px girder baked at 32 steps with a flash twin is 3 MB of
+  // atlas for a prop that appears nine times a run.
+  //
+  // `flash: false` on all of them for the same reason it is on pickups: none of
+  // these can be hit, so the white twin is memory nothing will ever read. It IS
+  // part of the atlas key, so an ability that omits it rasterises a second copy
+  // mid-run — which is exactly what tests/renderSmoke.js fails the build over.
+  { shape: 'scythe', color: '#dfe8f5', accent: '#8b0f2a', size: 30, flash: false },
+  { shape: 'scythe', color: '#ffd76a', accent: '#8b0f2a', size: 30, flash: false },
+  { shape: 'saucer', color: '#eaf2ff', accent: '#1e2440', size: 11, rotates: true },
+  { shape: 'saucer', color: '#c9a227', accent: '#1e2440', size: 18, flash: false },
+  { shape: 'girder', color: '#8a93a8', accent: '#12161f', size: 26, flash: false },
+  { shape: 'girder', color: '#c9a227', accent: '#12161f', size: 44, flash: false },
 ];
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
@@ -143,6 +205,12 @@ export async function prewarmAtlas(data, onProgress) {
   // 2. everything the engine makes itself
   for (const v of ENGINE_VISUALS) visuals.push(v);
   for (const v of EFFECT_VISUALS) visuals.push(v);
+
+  // 2b. the boss projectile descriptors, which are built from an ATTACK's own
+  //     colour and radius and so cannot be written down anywhere. Harvested from
+  //     the same builder the fight uses, which is what guarantees the key here
+  //     and the key at 11 minutes into a boss phase are the same key.
+  for (const v of bossProjectileVisuals(data.bosses && data.bosses.BOSSES)) visuals.push(v);
 
   // 3. rotation variants for anything a projectile might use — the atlas keys on
   //    `rotates`, so a rotating copy of a static visual is a separate sprite.
@@ -183,13 +251,15 @@ export async function prewarmAtlas(data, onProgress) {
   //     outline, so ~400 of them is a rounding error against the atlas total —
   //     far cheaper than one hitch on the first cast of an ability.
   const particleColors = new Set(PARTICLE_COLORS);
+  const particleShapes = new Set(PARTICLE_SHAPES);
   for (const c of CODE_PARTICLE_COLORS) particleColors.add(c);
   for (const v of visuals) {
     if (v.color) particleColors.add(v.color);
     if (v.accent) particleColors.add(v.accent);
   }
+  harvestLooseColors(data, particleColors, particleShapes);
 
-  const total = visuals.length + particleColors.size * PARTICLE_SHAPES.length + 12;
+  const total = visuals.length + particleColors.size * particleShapes.size + 12;
   let done = 0;
   const bump = async () => {
     done++;
@@ -206,7 +276,7 @@ export async function prewarmAtlas(data, onProgress) {
 
   // 4. particle sprites
   for (const c of particleColors) {
-    for (const s of PARTICLE_SHAPES) {
+    for (const s of particleShapes) {
       particles.spriteFor(c, s);
       await bump();
     }

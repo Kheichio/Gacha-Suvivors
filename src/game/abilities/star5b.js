@@ -4,7 +4,9 @@
 //
 // The four identities this file has to protect:
 //   NEKROMINA fires ON A BEAT. Her auto is rhythmically regular and percussive,
-//             and the downbeat is visible.
+//             and the downbeat is visible. The beat is now carried by the swing
+//             itself — one 180° stroke per beat, alternating left and right —
+//             which is what keeping time with a two-handed weapon looks like.
 //   HIKARI    owns the most valuable passive in the game. `undying` does exactly
 //             one thing — it opens the revive slot run.js already routes.
 //   AKANE     is aimable chaos: every cannonball impact is telegraphed BEFORE it
@@ -24,7 +26,6 @@ import * as H from './helpers.js';
 import { input, ACT } from '../../core/input.js';
 
 // --- visuals: registered once, never allocated in a fire()/tick() -------------
-const CRESCENT_WAVE = { shape: 'crescent', color: '#ff5f8f', accent: '#8b0f2a', size: 13, rotates: true, glow: true };
 const DEADBEAT_VISUAL = { shape: 'capsule', color: '#efe6f2', accent: '#8b0f2a', size: 12 };
 const ZOMBIE_VISUAL = { shape: 'capsule', color: '#7e8f5a', accent: '#2c1a30', size: 10 };
 const FEATHER_VISUAL = { shape: 'shard', color: '#ff7a2f', accent: '#ffd24a', size: 8, rotates: true, glow: true };
@@ -40,6 +41,97 @@ const BROADSIDE_AIM = { mode: 'densestCluster', range: 760 };
 const AWAY_AIM = { mode: 'densestCluster', range: 520 };
 const MASS_WRITE_AIM = { mode: 'nearestN', count: 6, filter: 'unmarked', range: 620 };
 
+// --- NEKROMINA'S SCYTHE, the one PROP in this file ---------------------------
+//
+// Everything else in the game that an ability draws is ENERGY — an arc, a ring,
+// a beam — and `effects` builds those from vector primitives precisely because a
+// swing has to look different on every frame of its life. A scythe is the other
+// case: it is the same object in every frame, only rotated, which is exactly
+// what pre-rastering is for. So it is a registered atlas sprite blitted through
+// the arc by `effects.sweepSprite`, and the energy arc `meleeArc` already draws
+// is what the object did to the air.
+//
+// These two literals are EXACTLY the ones prewarm.js bakes at boot, field for
+// field. The atlas key includes `flash`, so dropping that one property here
+// would raster a SECOND copy of the scythe on the first swing of the run — a
+// hitch at the worst possible moment, and something tests/renderSmoke.js fails
+// the build over. Registering at module scope rather than inside fire() means
+// neither import order costs a frame: `register` is a cache hit if the boot pass
+// got here first and an ordinary raster if this module loaded before it.
+const SCYTHE_PALE = { shape: 'scythe', color: '#dfe8f5', accent: '#8b0f2a', size: 30, flash: false };
+const SCYTHE_GOLD = { shape: 'scythe', color: '#ffd76a', accent: '#8b0f2a', size: 30, flash: false };
+const SCYTHE_SPRITE = H.atlas.register(SCYTHE_PALE);
+const SCYTHE_SPRITE_EVO = H.atlas.register(SCYTHE_GOLD);
+
+// --- Reaper's Rhythm: the swing's geometry -----------------------------------
+/** A true half-circle. `coneDamage` halves this, so the footprint is ±90°. */
+const REAPER_ARC = Math.PI;
+/**
+ * 150px, and the number is the whole balance argument for the rework.
+ *
+ * The crescents travelled 360px, which sounds like a reach a melee swing cannot
+ * match — but they were THREE 26px-wide lanes fired 120° apart, each capped at
+ * three bodies by its pierce, with up to a full second of flight before the far
+ * end of that reach did anything at all. Swept area was ~54,000px² per beat
+ * behind a hard nine-hit ceiling. A solid half-disc at 150px is ~35,000px² with
+ * NO ceiling and no travel time, and the two land in the same place: driven for
+ * 60 seconds on four seeds, walking into the crowd the way the game is actually
+ * played, the swing does 985 damage against the waves' 992 — inside 1%. Standing
+ * perfectly still it does 1,352 against 1,496, ~10% behind, which is the correct
+ * direction for the trade: a melee auto should want you to close.
+ *
+ * Damage and cadence are untouched at 16 / 0.8s, exactly as her card states, so
+ * the reach is the only thing this rework spends.
+ *
+ * 150 also makes her the longest melee auto on the roster — the cutlass is
+ * 100px, the biggest chop 130px — which is what a two-handed scythe is FOR, and
+ * it happens to put her whole summon ring (they spawn at 64px) inside her own
+ * swing, which is a good place for a chorus line to stand.
+ */
+const REAPER_REACH = 150;
+/**
+ * How far the cone walks per beat with NOTHING in reach.
+ *
+ * Inherited from the crescent version, where it existed because three thin lanes
+ * left 120° holes that had to be walked over. A half-disc has no holes, so the
+ * walk now does exactly one job: an idle Nekromina keeps scything the room in a
+ * slow rotation rather than facing one wall forever. The moment a body is inside
+ * her reach the cone snaps onto it and the walk stops mattering.
+ */
+const REAPER_IDLE_STEP = H.TAU / 9;
+/** Swing life, and the longer one the downbeat gets. */
+const SWING_FX_LIFE = 0.26;
+const DOWNBEAT_FX_LIFE = 0.36;
+/**
+ * Where the blade rides along the reach, and how much of the reach it spans.
+ *
+ * `sweepSprite` blits the prop centred on its radius, so riding at 0.62 and
+ * spanning 0.78 puts the butt of the haft near her hip and the tip of the hook
+ * on the damage edge — which is what makes the footprint legible without a
+ * single extra draw call. Both scythe variants declare `size: 30`, so one
+ * scale-per-pixel-of-reach constant serves both.
+ */
+const SCYTHE_RIDE = 0.62;
+const SCYTHE_UNIT = 0.78 / Math.max(1, SCYTHE_SPRITE.w);
+
+/**
+ * The swing's two option bags. Mutated in place; never rebuilt per beat.
+ *
+ * `sweep` on the meleeArc bag is the one field here that is a REQUEST rather
+ * than a setting. `helpers.meleeArc` currently picks the energy arc's direction
+ * from one module-level toggle it flips on every call, which alternates
+ * correctly — that toggle is what gives every sword in the game its left-right
+ * combo — but its phase is shared, so it cannot be told to agree with a prop
+ * being swung on top of it. Passing the direction we want costs nothing today
+ * and locks the scythe and its own slash together the moment the helper reads
+ * it; nothing else in this file depends on that landing.
+ */
+const REAPER_SWING = {
+  color: '#ff5f8f', element: 'shadow', knockback: 40, src: H.SRC.AUTO,
+  sweep: 1, fxLife: SWING_FX_LIFE, tier: 0,
+};
+const SCYTHE_SWEEP = { sweep: 1, scale: 1, ghosts: 4, life: SWING_FX_LIFE };
+
 // --- shared numbers ----------------------------------------------------------
 const DEADBEAT_TAG = 'deadbeat';
 const ZOMBIE_TAG = 'necro_zombie';
@@ -54,30 +146,97 @@ registerAll({
   // NEKROMINA — "The Grave Idol". Death's apprentice, second shift.
   // =========================================================================
 
-  // AUTO — "Reaper's Rhythm": sweeps the scythe in a rotating arc around herself,
-  // releasing 3 crescent waves, 16 damage, every 0.8s. Fires on a steady beat —
-  // the SFX is percussive and loopable. Targeting: aroundSelf (rotating spread).
+  // AUTO — "Reaper's Rhythm": swings the scythe through a 180° arc for 16 damage
+  // every 0.8s, alternating left, right, left, right. Fires on a steady beat —
+  // the SFX is percussive and loopable. Targeting: aroundSelf.
+  //
+  // THIS USED TO BE THREE THROWN CRESCENTS, which was never what the move is.
+  // "Sweeps the scythe" described a spread of projectiles fanned 120° apart that
+  // left her hand and flew away; the scythe itself never moved, and neither the
+  // damage footprint nor the silhouette had anything to do with a swing. It is
+  // now one melee cone — H.meleeArc at arcRad = π, so `coneDamage` tests the
+  // exact half-disc `effects.slash` fills in — with the scythe SPRITE swung
+  // through the same arc on top of it.
   reapers_rhythm: {
     fire(run, p, ctx, opts) {
       const o = H.origin(run, p, opts);
-      const t = H.target(run, p, ctx.def.targeting, opts);
       const beat = ctx.shotIndex | 0;
-      // The sweep advances a fixed step every beat, so successive bars of three
-      // walk all the way around her instead of cutting the same three lanes.
-      const base = (t.found ? t.angle : o.facing || 0) + beat * (H.TAU / 9);
-      H.spread(run, p, o.x, o.y, base, 3, H.TAU * (2 / 3), {
-        damage: H.autoDamage(run, p, ctx.def.damage, opts),
-        speed: 360, life: 1.0, radius: 13, pierce: 2,
-        motion: H.MOTION.STRAIGHT, element: 'shadow',
-        visual: CRESCENT_WAVE, trailColor: '#8b0f2a', knockback: 40,
-        tag: 'rhythm',
-      });
-      H.audio.play('slash');
+      // Resolved once: the reach the cone will actually use, after areaMult and
+      // the signature weapon. Everything below is measured against it so the
+      // damage, the prop and the pulse cannot disagree about how big the swing is.
+      const reach = H.area(p, REAPER_REACH);
+
+      // WHERE THE HALF-CIRCLE POINTS.
+      //
+      // `aroundSelf` hands back her own facing and nothing else, which was the
+      // right answer for a 240° fan of three waves: whichever way she faced, two
+      // of the three lanes pointed somewhere useful. A single 180° cone has a
+      // BACK, and a beat spent swinging at the wall behind the crowd is a beat
+      // that does nothing — so the cone snaps onto the nearest body inside its
+      // own reach. Nothing is lost by doing that: `nearestTo` measures centre
+      // distance and `coneDamage` allows radius + the enemy's own radius, so
+      // anything close enough to be snapped to is guaranteed to be hit.
+      //
+      // With the room empty it falls back to the declared spec and keeps walking
+      // (see REAPER_IDLE_STEP), which is the same "rotating arc around herself"
+      // the crescents drew — just with the scythe in it.
+      const body = H.nearestTo(run, o.x, o.y, reach, null);
+      let aim;
+      if (body) {
+        aim = H.angleTo(o.x, o.y, body.x, body.y);
+      } else {
+        const t = H.target(run, p, ctx.def.targeting, opts);
+        aim = t.angle + beat * REAPER_IDLE_STEP;
+      }
+
+      // THE BEAT, AS A SWING. A rhythm you can see is a rhythm that ALTERNATES:
+      // left, right, left, right, one stroke per beat, which is what a person
+      // actually looks like keeping time with a two-handed weapon. Beat parity
+      // decides the direction, so the downbeat — every fourth, an even one —
+      // always falls on the same stroke, exactly like a real bar.
+      const sweep = (beat & 1) ? -1 : 1;
+      const downbeat = (beat & 3) === 0;
+      // Resolved HERE rather than left to meleeArc so the energy arc and the
+      // scythe cannot end up on different tiers: an evolved kit has to read as
+      // evolved in one frame, and half of that read is the blade turning gold.
+      const tier = H.visualTier(p, opts);
+      const life = downbeat ? DOWNBEAT_FX_LIFE : SWING_FX_LIFE;
+
+      REAPER_SWING.sweep = sweep;
+      REAPER_SWING.tier = tier;
+      REAPER_SWING.fxLife = life;
+      // meleeArc plays 'slash' itself, which is why this no longer does: two
+      // copies of the same sample on the same frame is a phasing artefact, not
+      // a louder swing.
+      H.meleeArc(run, p, o.x, o.y, aim, REAPER_ARC, REAPER_REACH,
+                 H.autoDamage(run, p, ctx.def.damage, opts), REAPER_SWING);
+
+      // THE SCYTHE ITSELF, riding the same arc at the same speed. `sweepSprite`
+      // aligns every ghost along its own radius, so the haft always points back
+      // at whoever is holding it — which is what makes this read as a swing from
+      // her hip rather than a blade sliding sideways across the screen.
+      //
+      // "Whoever" is load-bearing: everything here pivots on `o`, not on `p`. A
+      // mirroring minion and THE FINAL FORM both arrive as an origin, so both
+      // sweep from where THEY stand, aim from where THEY stand, and — because
+      // they all read the one shot index — stroke the same way on the same beat.
+      // Nothing downstream assumed a projectile had left her hand: the old
+      // version's only outputs were `run.projectiles.fire` calls, and no relic,
+      // weapon or hook reads the 'rhythm' tag they carried.
+      SCYTHE_SWEEP.sweep = sweep;
+      SCYTHE_SWEEP.scale = reach * SCYTHE_UNIT;
+      SCYTHE_SWEEP.ghosts = downbeat ? 6 : 4;
+      SCYTHE_SWEEP.life = life;
+      H.effects.sweepSprite(o.x, o.y, aim, REAPER_ARC, reach * SCYTHE_RIDE,
+                            tier ? SCYTHE_SPRITE_EVO : SCYTHE_SPRITE, SCYTHE_SWEEP);
+
       // THE DOWNBEAT. Every fourth bar lands a visible pulse, so the rhythm is
       // something you can see as well as hear (and time Deadbeats' bobbing to).
-      if ((beat & 3) === 0) {
-        H.particles.ring(o.x, o.y, 10, '#ff5f8f', 300);
-        H.camera.punch(0.012, 0.12);
+      // The ring is sized to the real reach, so the accent doubles as the one
+      // frame per bar that shows exactly how far the swing goes.
+      if (downbeat) {
+        H.particles.ring(o.x, o.y, 14, '#ff5f8f', reach * 2.2);
+        H.camera.punch(0.02, 0.16);
       }
     },
   },

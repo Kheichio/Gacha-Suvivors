@@ -558,8 +558,18 @@ const BEHAVIORS = {
       e.aiT -= dt;
       e.aiT2 += dt;
       if (e.aiT <= 0) {
+        // THE BLAST CAN KILL THE EXPLODER ITSELF — through its own self-damage
+        // or through a chain — and `release()` nulls `visual` on the pooled
+        // slot. Reading `e.visual.color` on the line after the damage therefore
+        // threw "Cannot read properties of null" and took the whole run down;
+        // on a reef run it landed at around ninety seconds, every time. So the
+        // colour and the position are read BEFORE the damage, and the tail
+        // checks the slot is still live before it touches `e` again.
+        const puff = e.visual ? e.visual.color : '#ff6b3d';
+        const bx = e.x, by = e.y;
         areaDamage(run, e.x, e.y, blast, e.damage * 2, SRC.HAZARD, { falloff: 0.45, canCrit: false });
-        particles.ring(e.x, e.y, 16, e.visual.color, blast * 3);
+        particles.ring(bx, by, 16, puff, blast * 3);
+        if (!e.active) return;
         // Jellyfish Chorus chains: the blast can set off neighbours.
         if (e.params.chains) {
           const hash = run.enemyHash;

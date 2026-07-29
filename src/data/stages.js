@@ -40,9 +40,19 @@
 //   hpMult/xpMult/goldMult  per-stage tuning knobs applied on top of SCALING.
 //                   DECISIONS.md §14 makes these the intended TTK dial, so the
 //                   global k values never have to be touched for one stage.
-//   obstacles       which static-blocker set game/obstacles.js registers for this
-//                   stage: none | rubble | shifting_rooms (DECISIONS.md §18 —
-//                   steering avoidance, not pathfinding).
+//   obstacles       which static-blocker set game/obstacles.js scatters at run
+//                   start, by key into OBSTACLE_SETS below (DECISIONS.md §18 —
+//                   steering avoidance, not pathfinding). This used to be one of
+//                   three words — none | rubble | shifting_rooms — and NOTHING
+//                   READ IT: five of seven stages were flat, empty floors and the
+//                   two that were not only got geometry because a hazard happened
+//                   to drop some. It is a real registry key now.
+//   backdrop        key into BACKDROPS below. The layered scenery render/
+//                   stageBackdrop.js builds once per run. Before this every stage
+//                   was the same grid and border in four different hex codes.
+//   events          the MINI EVENTS this stage may roll, by key into STAGE_EVENTS.
+//                   Themed per stage exactly like `hazards` is, so a new event on
+//                   an existing kind is a data-only addition.
 //   music           optional. audio.js no-ops cleanly when the file is absent.
 
 export const STAGES = [
@@ -85,7 +95,9 @@ export const STAGES = [
     firstClearReward: { starFragments: 50 },
     // Tutorial stage: fodder dies a little faster than the curve says it should.
     hpMult: 0.9, xpMult: 1.0, goldMult: 1.0,
-    obstacles: 'none',
+    obstacles: 'rooftop_clutter',
+    backdrop: 'school_roof',
+    events: ['rooftop_confession', 'petal_drift'],
     music: 'audio/stage1.ogg',
     codex: 'Three years of your life happen on this roof. The fence is for leaning ' +
       'on dramatically, the desk has been up here since before anyone can remember, ' +
@@ -125,7 +137,9 @@ export const STAGES = [
     firstClearReward: { starFragments: 50, relic: 'neon_visor' },
     // Zombies queueing for capsules carry cash.
     hpMult: 1.0, xpMult: 1.0, goldMult: 1.1,
-    obstacles: 'none',
+    obstacles: 'street_furniture',
+    backdrop: 'wet_street',
+    events: ['crowd_control', 'capsule_burst'],
     music: 'audio/stage2.ogg',
     codex: 'Six storeys of signage, all of it screaming, none of it in agreement. ' +
       'The rain never washes the street so much as it doubles the light. Every ' +
@@ -165,6 +179,8 @@ export const STAGES = [
     // Titan's Shadow already doubles LARGE HP; the flat knob stays gentle.
     hpMult: 1.1, xpMult: 1.05, goldMult: 1.0,
     obstacles: 'rubble',
+    backdrop: 'ruined_town',
+    events: ['hold_the_breach', 'supply_cache'],
     music: 'audio/stage3.ogg',
     codex: 'It was a town. There were bakeries. The grey is not weather, it is what ' +
       'is left of the roofs, and the smoke has been going long enough that people ' +
@@ -203,7 +219,9 @@ export const STAGES = [
     boss: 'the_sealed_beast',
     firstClearReward: { starFragments: 50, relic: 'nine_seal_ward' },
     hpMult: 1.1, xpMult: 1.05, goldMult: 1.05,
-    obstacles: 'none',
+    obstacles: 'training_yard',
+    backdrop: 'hidden_village',
+    events: ['signal_lantern', 'smoke_and_steel'],
     music: 'audio/stage4.ogg',
     codex: 'A village that is technically hidden and practically the loudest place ' +
       'in the country. Every roof is a road, every lantern is a rendezvous, and ' +
@@ -246,6 +264,8 @@ export const STAGES = [
     // The skill-check stage, and two minutes longer than its neighbours.
     hpMult: 1.2, xpMult: 1.1, goldMult: 1.0,
     obstacles: 'shifting_rooms',
+    backdrop: 'paper_halls',
+    events: ['the_still_room', 'scattered_wards'],
     music: 'audio/stage5.ogg',
     codex: 'Rooms without a building. Staircases that arrive from underneath. Paper ' +
       'doors opening onto four hundred more paper doors, all tastefully appointed, ' +
@@ -287,7 +307,9 @@ export const STAGES = [
     firstClearReward: { starFragments: 50, relic: 'abyssal_setlist' },
     // Deep Pressure already triples gold; the stage knob stays at 1.0.
     hpMult: 1.15, xpMult: 1.1, goldMult: 1.0,
-    obstacles: 'none',
+    obstacles: 'coral_heads',
+    backdrop: 'sunken_stadium',
+    events: ['pearl_bed', 'feeding_frenzy'],
     music: 'audio/stage6.ogg',
     codex: 'The stadium sank with the lights still on. Forty thousand seats, coral ' +
       'through every one, and the jumbotron still loops a set list nobody swam away ' +
@@ -374,7 +396,9 @@ export const STAGES = [
     // as a Stage 7 exclusive.
     firstClearReward: { starFragments: 200, unlocksEndless: true },
     hpMult: 1.3, xpMult: 1.15, goldMult: 1.15,
-    obstacles: 'none',
+    obstacles: 'light_trusses',
+    backdrop: 'zenith_deck',
+    events: ['spotlight_check', 'stage_call'],
     music: 'audio/stage7.ogg',
     codex: 'The last venue. Floating slabs of every place you already survived hang ' +
       'on the horizon like tour posters, a million silhouettes are screaming in the ' +
@@ -463,6 +487,408 @@ export const HAZARDS = {
     },
   },
 };
+
+// -----------------------------------------------------------------------------
+// BACKDROPS — the layered scenery each stage is drawn on.
+//
+// `kind` selects the BUILDER in render/stageBackdrop.js, exactly the way a
+// hazard's `kind` selects its handler: the builder knows how to assemble a
+// rooftop or a wet street out of renderer primitives, and everything about what
+// COLOUR that rooftop is lives here. A stage that wanted an existing vocabulary
+// in new colours would be a data-only addition.
+//
+// The colour roles are the same seven names for every kind, so the builders can
+// read them generically and a re-skin never has to learn a new field:
+//   far / farEdge / farLit   the distant silhouette layer and its lit trim
+//   mid / midEdge            the near-scenery layer and its outline
+//   tile / seam              the ground pattern and the lines between its cells
+//   detail                   the small ground scatter (petals, ash, planks)
+//   glow                     the one warm/bright accent a stage is lit by
+//
+// `density` scales how many elements the DISTANT layer places. It is a knob for
+// "this stage feels cluttered" — the near layers are hand-composed per kind and
+// the draw is culled against the view either way, so it is not a perf dial.
+// -----------------------------------------------------------------------------
+export const BACKDROPS = {
+  school_roof: {
+    kind: 'rooftop',
+    desc: 'Tiled roof, a chain-link fence, school blocks against a sunset.',
+    far: '#331634', farEdge: '#ff7f50', farLit: '#ffd166',
+    mid: '#7a4470', midEdge: '#3d1a3a',
+    tile: '#43213f', seam: '#5a2e52',
+    detail: '#ff9ec4', glow: '#ff7f50',
+    density: 1.0,
+  },
+
+  wet_street: {
+    kind: 'wet_street',
+    desc: 'Black wet asphalt doubling every sign above it.',
+    far: '#150c2b', farEdge: '#ff2d95', farLit: '#6ad8ff',
+    mid: '#2a1a4a', midEdge: '#0a0616',
+    tile: '#160d2c', seam: '#241546',
+    detail: '#6ad8ff', glow: '#ff2d95',
+    density: 1.1,
+  },
+
+  ruined_town: {
+    kind: 'ruins',
+    desc: 'Cracked flagstones, broken roof lines, and the wall behind all of it.',
+    far: '#1f2227', farEdge: '#0f1113', farLit: '#3a3f47',
+    mid: '#33373e', midEdge: '#191b1f',
+    tile: '#2d3037', seam: '#3a3f47',
+    detail: '#585d66', glow: '#e07a3f',
+    density: 1.0,
+  },
+
+  hidden_village: {
+    kind: 'village',
+    desc: 'Packed earth, plank roofs used as roads, lanterns, scheduled mist.',
+    far: '#141a2a', farEdge: '#0a0e18', farLit: '#25384d',
+    mid: '#241a12', midEdge: '#100c08',
+    tile: '#1d1712', seam: '#2c2117',
+    detail: '#3a2c1e', glow: '#ffa53c',
+    density: 1.0,
+  },
+
+  paper_halls: {
+    kind: 'halls',
+    desc: 'Tatami without a building, sliding doors without a wall, one moon.',
+    far: '#161036', farEdge: '#0d0a24', farLit: '#f2e6c0',
+    mid: '#3a2350', midEdge: '#120c22',
+    tile: '#2e2036', seam: '#4a2f60',
+    detail: '#c8102e', glow: '#f2e6c0',
+    density: 0.9,
+  },
+
+  sunken_stadium: {
+    kind: 'reef',
+    desc: 'Rippled seabed sand over forty thousand seats, kelp, and caustics.',
+    far: '#07243a', farEdge: '#031420', farLit: '#0d3a52',
+    mid: '#0a3048', midEdge: '#031420',
+    tile: '#08263a', seam: '#0d3a52',
+    detail: '#46f0d0', glow: '#3fa9ff',
+    density: 1.1,
+  },
+
+  zenith_deck: {
+    kind: 'zenith',
+    desc: 'A polished stage floor, light trusses, floating slabs, too much aurora.',
+    far: '#0e1a3a', farEdge: '#060418', farLit: '#7cf7d0',
+    mid: '#20305c', midEdge: '#080a1a',
+    tile: '#131338', seam: '#20305c',
+    detail: '#fff3a8', glow: '#7cf7d0',
+    density: 1.0,
+  },
+};
+
+// -----------------------------------------------------------------------------
+// OBSTACLE SETS — the static blockers scattered at run start.
+//
+// The brief was exact about the tuning: "things here and there", not a maze. In
+// a 4000x4000 arena, ~20 pieces is one every 800px in each direction — you meet
+// one every few seconds of running and never have to navigate a corridor.
+// `spacing` keeps them from clumping into a wall and `clearance` is the radius
+// held empty around the player's start AND the altar, because the two places a
+// player is guaranteed to stand are the two places a blocker must never be.
+//
+// `forms` is a weighted roll of piece shapes. `w`/`h`/`r` are [min, max] ranges,
+// and w/h are HALF-extents because that is what ObstacleField.addBox takes.
+//
+// `visual` is the sprite circular pieces blit. It is joined into the boot-time
+// pre-raster by data/index.js allVisuals(), so adding a set here cannot cost a
+// mid-run rasterisation — which is what tests/renderSmoke.js fails the build over.
+// `box` is the fill/edge pair for rectangular pieces, which are primitives.
+// `detail` picks the extra pass drawn on top of a box: slats | lattice | ribs |
+// bolts | none.
+// -----------------------------------------------------------------------------
+export const OBSTACLE_SETS = {
+  // Kept so a stage can honestly declare that it has none. Nothing uses it
+  // today; every stage got geometry in this pass.
+  none: { name: 'Open Ground', count: 0, spacing: 0, clearance: 0, forms: [] },
+
+  rooftop_clutter: {
+    name: 'Rooftop Clutter',
+    count: 20, spacing: 250, clearance: 430,
+    detail: 'slats',
+    visual: { shape: 'circle', color: '#8a93a0', accent: '#1b1016', size: 32, flash: false },
+    box: { color: '#7a5638', edge: '#1a1008' },
+    // Desks that have been up here since before anyone can remember, plus the
+    // water tanks nobody has ever seen a maintenance crew visit.
+    forms: [
+      { form: 'box', weight: 5, w: [46, 92], h: [26, 40] },
+      { form: 'circle', weight: 2, r: [30, 44] },
+    ],
+  },
+
+  street_furniture: {
+    name: 'Street Furniture',
+    count: 21, spacing: 230, clearance: 430,
+    detail: 'lattice',
+    visual: { shape: 'circle', color: '#3a2a6a', accent: '#0a0616', size: 32, flash: false },
+    box: { color: '#2f1f5c', edge: '#0a0616' },
+    // Vending machines, crash barriers, and the claw machine you will lose
+    // money to. Denser than the rooftop because a city is denser than a roof —
+    // but the BARRIERS are short. A headless sweep that walks a bot straight at
+    // its objective got pinned against a 260px-long one for a whole event timer,
+    // and while a player would sidestep, the arena that produces that is the
+    // arena where the traffic lanes get to pin you against a wall as well.
+    forms: [
+      { form: 'box', weight: 6, w: [30, 54], h: [40, 72] },
+      { form: 'box', weight: 3, w: [55, 95], h: [18, 24] },
+      { form: 'circle', weight: 1, r: [26, 36] },
+    ],
+  },
+
+  rubble: {
+    name: 'Fallen Masonry',
+    count: 26, spacing: 210, clearance: 430,
+    detail: 'ribs',
+    // The one set that predates this table, so it keeps the engine's own
+    // hex chunk: the collapsing-walls hazard drops more of exactly these.
+    visual: { shape: 'hex', color: '#5a5f6b', accent: '#0b0d16', size: 32, flash: false },
+    box: { color: '#4b4f58', edge: '#191b1f' },
+    forms: [
+      { form: 'circle', weight: 5, r: [34, 58] },
+      { form: 'box', weight: 3, w: [40, 96], h: [24, 36] },
+    ],
+  },
+
+  training_yard: {
+    name: 'Training Yard',
+    count: 22, spacing: 240, clearance: 430,
+    detail: 'bolts',
+    visual: { shape: 'circle', color: '#6b4a2a', accent: '#140d06', size: 32, flash: false },
+    box: { color: '#43301c', edge: '#100c08' },
+    // Barrels, crates and the striking posts every genin has resented.
+    forms: [
+      { form: 'circle', weight: 4, r: [26, 40] },
+      { form: 'box', weight: 3, w: [22, 30], h: [22, 30] },
+      { form: 'box', weight: 2, w: [60, 110], h: [16, 22] },
+    ],
+  },
+
+  shifting_rooms: {
+    name: 'Sliding Walls',
+    count: 18, spacing: 260, clearance: 430,
+    detail: 'lattice',
+    visual: { shape: 'square', color: '#4a2f60', accent: '#120c22', size: 32, flash: false },
+    box: { color: '#4a2f60', edge: '#120c22' },
+    // The opening layout only. The shifting-rooms hazard calls
+    // ObstacleField.clear() and rebuilds its own corridors on top of this,
+    // which is exactly the point of the stage — do not "fix" it.
+    forms: [
+      { form: 'box', weight: 5, w: [80, 190], h: [20, 26] },
+      { form: 'box', weight: 5, w: [20, 26], h: [80, 190] },
+    ],
+  },
+
+  coral_heads: {
+    name: 'Coral Heads',
+    count: 24, spacing: 230, clearance: 430,
+    detail: 'none',
+    visual: { shape: 'star', color: '#3c8f8a', accent: '#04222c', size: 32, flash: false },
+    box: { color: '#0f4a4a', edge: '#031420' },
+    // Coral through every one of forty thousand seats, and a couple of rows
+    // that are still recognisably rows.
+    forms: [
+      { form: 'circle', weight: 6, r: [30, 52] },
+      { form: 'box', weight: 2, w: [70, 140], h: [16, 22] },
+    ],
+  },
+
+  light_trusses: {
+    name: 'Light Trusses',
+    count: 18, spacing: 280, clearance: 430,
+    detail: 'ribs',
+    visual: { shape: 'hex', color: '#8a93a8', accent: '#080a1a', size: 32, flash: false },
+    box: { color: '#2b3a66', edge: '#080a1a' },
+    // Rigging that came down, or never went up. Sparse: the finale is a
+    // gauntlet and it needs its floor.
+    forms: [
+      { form: 'box', weight: 5, w: [90, 170], h: [16, 20] },
+      { form: 'box', weight: 3, w: [16, 20], h: [90, 170] },
+      { form: 'circle', weight: 2, r: [26, 38] },
+    ],
+  },
+};
+
+// -----------------------------------------------------------------------------
+// STAGE EVENTS — the optional detours.
+//
+// Play report: "add random mini events to the maps that suit the map as well,
+// simply going to one place, killing mobs inside a circle etc." Same shape as
+// HAZARDS: `kind` selects the handler in game/stageEvents.js, so a new event on
+// an existing kind is a data-only addition and needs no engine work at all.
+//
+// FOUR KINDS:
+//   reach   a marked spot appears at range; stand in it to claim it.
+//   cull    kill `need` enemies inside a marked circle before the timer runs out.
+//   hold    survive `need` seconds inside a ring that shrinks as it counts.
+//   gather  collect `need` scattered motes before they expire.
+//
+// REWARDS ARE DELIBERATELY MODEST AND SELF-SCALING. `xpLevels` is a fraction of
+// the CURRENT level's requirement rather than a flat XP number — a flat number
+// is a free level at minute two and a rounding error at minute eighteen, and
+// this system fires six or seven times a run. Half a level plus pocket change
+// is worth walking 900px for; it is not worth restructuring a build around.
+//   xpLevels  fraction of xpNeeded(level) granted
+//   gold      flat, before the player's own gold multipliers
+//   chest     drop a normal chest at the marker
+//   goldChest drop a GOLD chest instead (3-5 upgrades — reserved for the two
+//             hardest events in the game)
+//   healPct   fraction of max HP restored
+//
+// `params`:
+//   range    [min, max] px from the player the marker is placed at
+//   radius   the marked circle
+//   need     seconds to claim (reach), kills (cull), seconds held (hold),
+//            or motes (gather)
+//   limit    seconds on the clock before it fails
+// -----------------------------------------------------------------------------
+export const STAGE_EVENTS = {
+  // --- Stage 1: Cherry Blossom Academy ------------------------------------
+  rooftop_confession: {
+    name: 'Rooftop Confession',
+    kind: 'reach',
+    color: '#ff9ec4',
+    objective: 'Get to the spot',
+    desc: 'Somebody left a note under a brick. The sunset is already doing its part.',
+    params: { range: [720, 1080], radius: 115, need: 1.6, limit: 45 },
+    reward: { xpLevels: 0.5, gold: 45 },
+  },
+  petal_drift: {
+    name: 'Petal Drift',
+    kind: 'gather',
+    color: '#ffc2dd',
+    objective: 'Catch the petals',
+    desc: 'The fall rate is contractually fixed. Catching them is not.',
+    params: { range: [520, 900], radius: 380, need: 8, limit: 40 },
+    reward: { xpLevels: 0.35, gold: 30, healPct: 0.2 },
+  },
+
+  // --- Stage 2: Neon Akiba District ---------------------------------------
+  crowd_control: {
+    name: 'Crowd Control',
+    kind: 'cull',
+    color: '#ff2d95',
+    objective: 'Clear the crossing',
+    desc: 'The intersection is jammed. Unjam it.',
+    params: { range: [640, 980], radius: 330, need: 18, limit: 32 },
+    reward: { xpLevels: 0.45, gold: 150 },
+  },
+  capsule_burst: {
+    name: 'Capsule Burst',
+    kind: 'gather',
+    color: '#6ad8ff',
+    objective: 'Grab the capsules',
+    desc: 'A machine finally gave up its stock. It will not do it twice.',
+    params: { range: [560, 940], radius: 400, need: 10, limit: 42 },
+    reward: { xpLevels: 0.25, gold: 60, chest: true },
+  },
+
+  // --- Stage 3: Ruins of Wall Amaris --------------------------------------
+  hold_the_breach: {
+    name: 'Hold the Breach',
+    kind: 'hold',
+    color: '#e07a3f',
+    objective: 'Hold the gap',
+    desc: 'There is a hole in the wall the size of a bakery. Stand in it.',
+    params: { range: [600, 940], radius: 300, need: 16, limit: 34 },
+    reward: { xpLevels: 0.6, gold: 60, chest: true },
+  },
+  supply_cache: {
+    name: 'Supply Cache',
+    kind: 'reach',
+    color: '#c8cdd4',
+    objective: 'Reach the cache',
+    desc: 'Somebody\'s gear is still exactly where they dropped it.',
+    params: { range: [780, 1180], radius: 110, need: 1.4, limit: 42 },
+    reward: { xpLevels: 0.3, gold: 40, chest: true, healPct: 0.3 },
+  },
+
+  // --- Stage 4: Hidden Ember Village --------------------------------------
+  signal_lantern: {
+    name: 'Signal Lantern',
+    kind: 'reach',
+    color: '#ffa53c',
+    objective: 'Make the rendezvous',
+    desc: 'A lantern went up on the far roof. Somebody wants a meeting, urgently.',
+    params: { range: [820, 1200], radius: 110, need: 1.4, limit: 40 },
+    reward: { xpLevels: 0.5, gold: 70 },
+  },
+  smoke_and_steel: {
+    name: 'Smoke and Steel',
+    kind: 'cull',
+    color: '#8ea0aa',
+    objective: 'Finish the ambush',
+    desc: 'The whole ambush is inside that ring. Being stabbed out of a bush is how they say hello.',
+    params: { range: [620, 960], radius: 320, need: 16, limit: 30 },
+    reward: { xpLevels: 0.45, gold: 55, chest: true },
+  },
+
+  // --- Stage 5: The Endless Tatami Halls ----------------------------------
+  the_still_room: {
+    name: 'The Still Room',
+    kind: 'hold',
+    color: '#c8102e',
+    objective: 'Stay in the room',
+    desc: 'Exactly one room is not moving. Do not get attached — but do not leave either.',
+    params: { range: [560, 900], radius: 290, need: 18, limit: 36 },
+    reward: { xpLevels: 0.65, gold: 60, healPct: 0.25 },
+  },
+  scattered_wards: {
+    name: 'Scattered Wards',
+    kind: 'gather',
+    color: '#f2e6c0',
+    objective: 'Collect the wards',
+    desc: 'Somebody sealed these doors properly once. The paper is all over the floor now.',
+    params: { range: [540, 920], radius: 420, need: 9, limit: 42 },
+    reward: { xpLevels: 0.7, gold: 40 },
+  },
+
+  // --- Stage 6: Sunken Idol Reef ------------------------------------------
+  pearl_bed: {
+    name: 'Pearl Bed',
+    kind: 'gather',
+    color: '#46f0d0',
+    objective: 'Work the bed',
+    desc: 'Something in row J has been making these for a very long time.',
+    params: { range: [560, 940], radius: 420, need: 10, limit: 44 },
+    reward: { xpLevels: 0.5, gold: 45 },
+  },
+  feeding_frenzy: {
+    name: 'Feeding Frenzy',
+    kind: 'cull',
+    color: '#3fa9ff',
+    objective: 'Break up the frenzy',
+    desc: 'The fish learned the choreography. This part of it is teeth.',
+    params: { range: [620, 980], radius: 330, need: 22, limit: 32 },
+    reward: { xpLevels: 0.5, gold: 60, chest: true, healPct: 0.25 },
+  },
+
+  // --- Stage 7: The Zenith Stage ------------------------------------------
+  spotlight_check: {
+    name: 'Spotlight Check',
+    kind: 'hold',
+    color: '#fff3a8',
+    objective: 'Hold the mark',
+    desc: 'The light found you. It would like to know whether you are the headliner.',
+    params: { range: [620, 1000], radius: 300, need: 20, limit: 38 },
+    reward: { xpLevels: 0.7, gold: 90, goldChest: true },
+  },
+  stage_call: {
+    name: 'Stage Call',
+    kind: 'reach',
+    color: '#7cf7d0',
+    objective: 'Take your mark',
+    desc: 'Marks, please. A million silhouettes are waiting in the dark.',
+    params: { range: [860, 1250], radius: 110, need: 1.6, limit: 42 },
+    reward: { xpLevels: 0.6, gold: 80, chest: true },
+  },
+};
+
+/** The four handlers game/stageEvents.js implements. Used by data/index.js. */
+export const STAGE_EVENT_KINDS = ['reach', 'cull', 'hold', 'gather'];
 
 // -----------------------------------------------------------------------------
 // MODIFIERS — one rule twist per stage. Every `params` key is consumed by the

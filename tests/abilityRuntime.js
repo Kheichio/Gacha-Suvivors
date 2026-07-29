@@ -604,6 +604,37 @@ describe('abilities / live execution at star 5 (S3 + S5 branches active)', () =>
     save.data.shrine = {};
   });
 
+  it('EVERY shrine row measurably changes the run', () => {
+    // The Lodestone bug, one layer up. A shrine row whose stat key nothing reads
+    // takes real gold, forever, and does nothing — with no error, no warning and
+    // no failing test, which is exactly how Lodestone and Swift Boots survived
+    // the entire life of the project. The row above exempts the run-scoped stats
+    // from the key check; this one closes the loophole from the other side by
+    // asking what actually MOVED, so a row cannot be dead in either direction.
+    freshSave(1);
+    const base = makeRun('rin', 70);
+    const before = JSON.stringify(base.player.stats);
+    const beforeRun = [base.rerollsLeft, base.banishesLeft,
+                       base.difficultyMult.count, base.difficultyMult.reward].join('|');
+    base.dispose();
+
+    const dead = [];
+    let seed = 71;
+    for (const u of data.shrine.SHRINE_UPGRADES) {
+      save.data.shrine = {};
+      save.data.shrine[u.id] = u.maxLevel;
+      const run = makeRun('rin', seed++);
+      const after = JSON.stringify(run.player.stats);
+      const afterRun = [run.rerollsLeft, run.banishesLeft,
+                        run.difficultyMult.count, run.difficultyMult.reward].join('|');
+      if (before === after && beforeRun === afterRun) dead.push(u.id);
+      run.dispose();
+    }
+    save.data.shrine = {};
+    assert.equal(dead.length, 0,
+                 'shrine rows that change NOTHING: ' + dead.join(', '));
+  });
+
   it('Lodestone actually widens the pickup radius', () => {
     // The reported symptom, asserted directly.
     freshSave(1);

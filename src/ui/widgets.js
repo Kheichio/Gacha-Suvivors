@@ -15,13 +15,20 @@ import { input, ACT } from '../core/input.js';
 import { audio } from '../core/audio.js';
 import { save } from '../core/save.js';
 import { clamp, lerp, easeOutCubic, TAU } from '../core/math.js';
-import { UI_FONT, MONO_FONT } from '../render/renderer.js';
+import { UI_FONT, MONO_FONT, DISPLAY_FONT } from '../render/renderer.js';
 
 // Contrast matters more than mood here. The first pass was near-black panels
 // with dim slate text — legible in isolation, mush on top of a screen full of
 // particles and damage numbers. Panels are lighter and more opaque, borders are
 // visible rather than implied, and the three text tiers are far enough apart
 // that "dim" still reads at a glance.
+//
+// The two lower text tiers were then lifted again, by roughly one step each.
+// #b9c4de/#8994b3 were chosen against a flat panel; almost nothing in this game
+// is drawn on a flat panel any more — the menus grew gradients, blooms and
+// motes underneath them, and "dim" quietly became "gone" on the busiest half of
+// every screen. They are still three clearly separated tiers, just measured
+// against the backgrounds they actually sit on.
 export const PALETTE = {
   bg: '#05060d',
   panel: 'rgba(30,37,58,0.96)',
@@ -31,8 +38,8 @@ export const PALETTE = {
   border: 'rgba(150,170,225,0.45)',
   borderHot: 'rgba(255,220,120,0.95)',
   text: '#f4f7ff',
-  textDim: '#b9c4de',
-  textFaint: '#8994b3',
+  textDim: '#c9d3ea',
+  textFaint: '#9aa6c6',
   accent: '#ffd76a',
   accent2: '#6ad8ff',
   pink: '#ff5fa2',
@@ -40,6 +47,22 @@ export const PALETTE = {
   bad: '#ff6f91',
   gold: '#ffd76a',
   gem: '#6ad8ff',
+
+  // Three hues the palette was missing, added so that eight destinations can
+  // each own one. Before this the hub had GACHA and CODEX both on #6ad8ff and
+  // PLAY and ACHIEVEMENTS both on #ffd76a — "distinguishable by its own colour"
+  // is not a property a palette can have if the palette has fewer colours than
+  // there are things to colour.
+  violet: '#c58cff',
+  ember: '#ff7a4d',
+  ice: '#dfe8f5',
+
+  // THE WORDMARK RAMP. Lifted verbatim from index.html's boot screen, which has
+  // always been the best-looking type in the project and had no way to reach the
+  // running game. Anything that wants to say the game's own name uses these.
+  displayHot: '#ffd76a',
+  displayMid: '#ff5fa2',
+  displayCool: '#6ad8ff',
 };
 
 export const RARITY_COLOR = { 3: '#6ad8ff', 4: '#c58cff', 5: '#ffd76a', 6: '#ff5fa2' };
@@ -54,6 +77,16 @@ class UI {
     this.ids = [];
     this.scale = 1;
     this.hotId = null;
+    /**
+     * The id of the button the cursor is currently HOLDING DOWN, or null.
+     *
+     * `hotId` answers "what is under the cursor" and there was no way at all to
+     * ask "what is being pressed" — the toolkit sank a held button by one pixel
+     * internally and told nobody. A caller that draws its own art (every
+     * `invisible: true` button) therefore could not show a press state, which is
+     * most of why the hub's PLAY button had no weight to it.
+     */
+    this.heldId = null;
     this.time = 0;
     this._navCooldown = 0;
     this._lastScreen = '';
@@ -95,10 +128,14 @@ class UI {
     this.itemCount = 0;
     this.ids.length = 0;
     this.hotId = null;
+    this.heldId = null;
     this._tooltip = null;
     this._pressUsed = false;
     this._clickUsed = false;
     this._wantPointer = false;
+    // A navigation source only ever survives from the render pass that produced
+    // it to the update pass immediately after it. See markSource().
+    SOURCE.valid = false;
   }
 
   /** Is the cursor inside this rect? Screen space, DPR already divided out. */
@@ -120,6 +157,40 @@ class UI {
 
   /** Mark the cursor as being over something interactive, for the pointer shape. */
   markHot() { this._wantPointer = true; }
+
+  /**
+   * WHERE A NAVIGATION CAME FROM.
+   *
+   * sceneManager grows the screen the player is going to out of the widget they
+   * pressed, which means it needs that widget's rect — and it cannot ask for it,
+   * because `go()` is called by ten screens, eight of which this file's author
+   * does not own and none of which should have to think about transitions.
+   *
+   * So the toolkit records it. Every activated button leaves its rect here for
+   * free; a caller that draws its own art can overwrite it with a colour, which
+   * is what makes the hub's cards wipe in their OWN colour rather than a generic
+   * one. Written into a module-level record, never a fresh object: this is
+   * touched on the frame a button fires, but `begin()` touches it every frame.
+   *
+   * LIFETIME, precisely. Set during render; cleared at the top of the NEXT
+   * render. That one-frame overhang is deliberate rather than sloppy: the loop
+   * order is update() -> updateRealtime() -> render(), and the run's pause menu
+   * sets a flag in render and calls go() from the update AFTER it — so a source
+   * that died at end-of-render would strand exactly the navigations that come
+   * from a paused, mid-run screen.
+   */
+  markSource(x, y, w, h, color) {
+    SOURCE.x = x; SOURCE.y = y; SOURCE.w = w; SOURCE.h = h;
+    SOURCE.color = color || '';
+    SOURCE.valid = true;
+  }
+
+  /** Consume the pending navigation source, or null. One-shot, by design. */
+  takeSource() {
+    if (!SOURCE.valid) return null;
+    SOURCE.valid = false;
+    return SOURCE;
+  }
 
   /**
    * Bind the renderer WITHOUT touching focus state. The HUD draws every frame
@@ -256,11 +327,24 @@ class UI {
     }
   }
 
+  /**
+   * A screen title. DISPLAY_FONT by default — that is the whole point of there
+   * being two faces, and every one of the twenty-odd `ui.title` call sites in
+   * this project is a heading that wants it.
+   *
+   * The three screens that pre-fit a title to a box (gacha, stage select) do
+   * their measuring through `fitSize`, which measures in UI_FONT. That stays
+   * correct because every DISPLAY_FONT fallback is condensed relative to the UI
+   * stack: the drawn string can only come out narrower than the measurement, so
+   * a title that fitted still fits. Fitting the other way — measuring condensed
+   * and drawing wide — is the direction that overflows, and nothing does it.
+   */
   title(text, x, y, opts) {
     const o = opts || EMPTY;
     this.r.drawText(text, x, y, {
       size: (o.size || 34) * this.scale, color: o.color || PALETTE.text,
-      weight: 800, align: o.align || 'left', baseline: 'middle', outline: o.outline,
+      weight: o.weight || 800, align: o.align || 'left', baseline: 'middle',
+      family: o.family || DISPLAY_FONT, outline: o.outline, alpha: o.alpha, fill: o.fill,
     });
   }
 
@@ -271,9 +355,102 @@ class UI {
       // and menu text is nowhere near the hot loop so the cost is nil.
       size: (o.size || 16) * this.scale, color: o.color || PALETTE.textDim,
       weight: o.weight || 600, align: o.align || 'left', baseline: o.baseline || 'middle',
-      family: o.mono ? MONO_FONT : UI_FONT, alpha: o.alpha, outline: o.outline,
+      // `display` opts a label into the title face. Card labels want it; body
+      // copy must not have it, because a condensed face at 12px is a legibility
+      // regression and this game's subtitles are where the information is.
+      family: o.family || (o.display ? DISPLAY_FONT : o.mono ? MONO_FONT : UI_FONT),
+      alpha: o.alpha, outline: o.outline, fill: o.fill,
     });
   }
+
+  /**
+   * THE WORDMARK — tracked display type filled with the boot screen's ramp.
+   *
+   * index.html has always had the best type in the project: a gold/pink/cyan
+   * gradient wordmark, tracked out, on the splash, for one second — and then the
+   * game started and nothing ever looked like that again. This is that
+   * treatment, drawn on a canvas. The two are kept deliberately identical, down
+   * to the tracking and the stop positions, so the splash reads as the hub
+   * arriving rather than as a different screen that got there first.
+   *
+   * TRACKING IS APPLIED BY HAND. `ctx.letterSpacing` exists in Chromium and
+   * nowhere else, and where it does exist it silently changes what measureText
+   * returns — so a layout tuned with it on is wrong on two of the three engines
+   * this game runs in. Measuring each glyph and advancing manually is the only
+   * spelling that behaves identically everywhere.
+   *
+   * ALLOCATION: the per-glyph advances, the split characters and the gradient
+   * are all cached and only rebuilt when the text, the size, the scale or the
+   * anchor actually changes — i.e. on a resize, not on a frame. The comparison
+   * is four numbers and a string identity, so the steady state allocates
+   * nothing at all.
+   */
+  wordmark(text, x, y, opts) {
+    const o = opts || EMPTY;
+    const r = this.r;
+    const size = (o.size || 34) * this.scale;
+    const weight = o.weight || 800;
+    const track = o.track === undefined ? 0.09 : o.track;
+
+    if (this._wmText !== text || this._wmSize !== size ||
+        this._wmWeight !== weight || this._wmTrack !== track) {
+      const chars = this._wmChars || (this._wmChars = []);
+      const adv = this._wmAdv || (this._wmAdv = []);
+      chars.length = 0; adv.length = 0;
+      let total = 0;
+      const gap = size * track;
+      for (let i = 0; i < text.length; i++) {
+        const ch = text.charAt(i);
+        const a = r.measureText(ch, size, weight, DISPLAY_FONT) + gap;
+        chars.push(ch); adv.push(a);
+        total += a;
+      }
+      this._wmText = text; this._wmSize = size;
+      this._wmWeight = weight; this._wmTrack = track;
+      this._wmWidth = Math.max(0, total - gap);
+      this._wmGrad = null;
+    }
+
+    const w = this._wmWidth;
+    const x0 = o.align === 'center' ? x - w / 2 : o.align === 'right' ? x - w : x;
+    if (!this._wmGrad || this._wmGradX !== x0 || this._wmGradY !== y) {
+      // Anchored to the RUN OF TEXT, not to the screen: a gradient built across
+      // the viewport puts the pink somewhere different at every window width,
+      // and the wordmark stops being one recognisable object.
+      const g = r.ctx.createLinearGradient(x0, y - size * 0.5, x0 + w, y + size * 0.45);
+      g.addColorStop(0.00, o.c0 || PALETTE.displayHot);
+      g.addColorStop(0.46, o.c1 || PALETTE.displayMid);
+      g.addColorStop(1.00, o.c2 || PALETTE.displayCool);
+      this._wmGrad = g;
+      this._wmGradX = x0; this._wmGradY = y;
+      r._fill = '';
+    }
+
+    const chars = this._wmChars, adv = this._wmAdv;
+    const alpha = o.alpha === undefined ? 1 : o.alpha;
+
+    // Pass 1: a hard drop shadow. Gradient-filled text on a dark, busy backdrop
+    // has no edge of its own — the cyan end in particular sinks straight into
+    // the panel behind it.
+    WM_OPT.size = size; WM_OPT.weight = weight; WM_OPT.baseline = 'middle';
+    WM_OPT.family = DISPLAY_FONT; WM_OPT.align = 'left';
+    WM_OPT.fill = null; WM_OPT.color = 'rgba(4,3,10,0.85)';
+    WM_OPT.alpha = alpha; WM_OPT.outline = false;
+    let px = x0 + Math.max(2, size * 0.045);
+    const sy = y + Math.max(2, size * 0.055);
+    for (let i = 0; i < chars.length; i++) { r.drawText(chars[i], px, sy, WM_OPT); px += adv[i]; }
+
+    // Pass 2: the ramp.
+    WM_OPT.color = null; WM_OPT.fill = this._wmGrad;
+    px = x0;
+    for (let i = 0; i < chars.length; i++) { r.drawText(chars[i], px, y, WM_OPT); px += adv[i]; }
+    WM_OPT.fill = null;
+    r._fill = '';
+    return w;
+  }
+
+  /** The width the last wordmark() call occupied, for laying out beside it. */
+  get wordmarkWidth() { return this._wmWidth || 0; }
 
   /**
    * A focusable button. Returns true on activation (click, Enter, gamepad A).
@@ -311,6 +488,7 @@ class UI {
       this._pressId = id;
     }
     const held = this._pressId === id && input.mouseDown && hover;
+    if (held) this.heldId = id;
 
     const pulse = focused ? 0.5 + 0.5 * Math.sin(this.time * 5) : 0;
 
@@ -331,8 +509,11 @@ class UI {
       if (focused && !disabled) {
         r.drawRoundRect(x, y + oy, w, h, o.radius === undefined ? 10 : o.radius, PALETTE.accent, 0.10 + pulse * 0.08);
       }
-    } else if (focused && !disabled) {
+    } else if (focused && !disabled && o.focusRing !== false) {
       // Still show focus — just as a ring around the caller's art, not over it.
+      // `focusRing: false` is for callers whose art already carries a richer
+      // focus state of its own; the plain ring drawn on top of one of those is
+      // a second, weaker outline fighting the first.
       r.strokeRect(x - 3, y - 3, w + 6, h + 6, PALETTE.accent, 3, 0.55 + pulse * 0.45);
     }
 
@@ -352,7 +533,16 @@ class UI {
     // Activate on RELEASE, over the widget the press started on, once per frame.
     const released = hover && input.mouseReleased && this._pressId === id;
     const clicked = (!this._clickUsed && released) || this.activated(idx);
-    if (clicked) { this._clickUsed = true; audio.play('uiConfirm'); }
+    if (clicked) {
+      this._clickUsed = true;
+      audio.play('uiConfirm');
+      // Every activated button volunteers its rect as a navigation source, so a
+      // screen that merely calls `manager.go('hub')` gets a transition that
+      // grows out of the button the player actually pressed — without that
+      // screen knowing transitions exist. Callers with a colour of their own
+      // overwrite this with markSource() before they navigate.
+      this.markSource(x, y, w, h, o.sourceColor);
+    }
     return clicked;
   }
 
@@ -597,11 +787,13 @@ class UI {
       if (hover && input.mouseClicked && !this._pressUsed) { this._pressUsed = true; this._pressId = id + ':' + idx; }
       if (hover && input.mouseReleased && this._pressId === id + ':' + idx && !this._clickUsed) {
         this._clickUsed = true; activated = idx; audio.play('uiConfirm');
+        this.markSource(x, ry, listW, rowH);
       }
       const focused = this.focus === idx2;
       if (focused) focusedRow = idx;
       if (focused && (input.pressed(ACT.CONFIRM) || input.pressed(ACT.SPECIAL))) {
         activated = idx; audio.play('uiConfirm');
+        this.markSource(x, ry, listW, rowH);
       }
       renderRow(items[idx], x, ry, listW, rowH - 4, focused, idx);
     }
@@ -714,4 +906,21 @@ export function formatCount(n) {
 }
 
 const EMPTY = {};
+
+/**
+ * The pending navigation source — see UI.markSource().
+ *
+ * One record, mutated in place and handed out by reference. A fresh object per
+ * activation would be harmless on its own, but `takeSource()` is read by the
+ * scene manager on a path that also runs on the frame a run ends, and this is a
+ * project where "the UI allocates a little" is how the per-frame budget goes.
+ */
+const SOURCE = { x: 0, y: 0, w: 0, h: 0, color: '', valid: false };
+
+/** The wordmark's per-glyph draw options. Mutated, never rebuilt. */
+const WM_OPT = {
+  size: 34, weight: 800, family: '', align: 'left', baseline: 'middle',
+  color: null, fill: null, alpha: 1, outline: false,
+};
+
 export const ui = new UI();

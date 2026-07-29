@@ -1,8 +1,29 @@
 // Scene manager.
 //
 // A scene is a plain object: { enter(params), exit(), update(dt), render(r, alpha),
-// resize(w, h)?, clearColor()? }. Transitions are a simple cross-fade so no
-// screen has to implement one.
+// resize(w, h)?, clearColor()? }. Transitions are implemented here so no screen
+// has to implement one.
+//
+// THE TRANSITION IS DIRECTIONAL, AND NO SCENE KNOWS THAT.
+// -------------------------------------------------------
+// Every navigation used to be the same 0.22s dip to black. It is not that the
+// cross-fade looked bad; it is that it carried no information. Eight of these
+// screens are reached by pressing a card that is ALREADY the right shape, in
+// the right place, in the right colour, and throwing all three away at the
+// moment of travel makes a menu feel like a set of unrelated documents rather
+// than one place you are moving around inside.
+//
+// So a navigation now plays in two beats: the widget the player pressed grows
+// until it covers the screen, and then that plate splits at the widget's own
+// position and opens to reveal where they landed. "This card took me there",
+// told in geometry.
+//
+// The scenes are not involved. `go()` takes exactly the arguments it always
+// took; the rect and the colour come from `ui.takeSource()`, which the toolkit
+// fills in for free on every activated button (see widgets.js markSource). A
+// screen this file's author has never read gets the transition anyway, and a
+// navigation with no widget behind it — the boot call, a recovery from a thrown
+// scene — finds no source and degrades to exactly the cross-fade it always was.
 //
 // Everything meta-facing (hub, roster, gacha, shrine, codex, settings, results)
 // is a scene; the run itself is a scene that owns a Run.
@@ -22,7 +43,7 @@ import { audio } from '../core/audio.js';
 import { save, addCurrency } from '../core/save.js';
 import { ui } from '../ui/widgets.js';
 import { input, ACT } from '../core/input.js';
-import { clamp, easeOutCubic } from '../core/math.js';
+import { clamp, easeOutCubic, mixHex } from '../core/math.js';
 import { Rng, hashString } from '../core/rng.js';
 import { createGacha } from '../game/gachaEngine.js';
 import { createAchievements } from '../game/achievements.js';
@@ -41,6 +62,19 @@ import { achievementsScene } from './achievementsScene.js';
 import { questsScene } from './questsScene.js';
 
 const FADE_TIME = 0.22;
+
+// The two beats of the directional transition. Deliberately close to the old
+// 0.22 + 0.22: the point of the rework is that the travel READS, not that it
+// takes longer. The grow is the shorter of the two because it happens while the
+// player still has their finger on the button and is not looking for anything;
+// the open is where the new screen has to arrive, so it gets the extra frames.
+const WIPE_OUT = 0.20;
+const WIPE_IN = 0.26;
+
+// When a navigation has a rect but no colour of its own — a BACK button, a list
+// row, anything that is not one of the hub's coloured destinations. Muted
+// indigo, so it reads as the game's furniture rather than as somebody's accent.
+const WIPE_DEFAULT = '#6f7bb8';
 
 // The UI half of the action set. `input.pressed()` is documented as UI-only —
 // the simulation reads presses through consume()/the latch — so clearing these
@@ -65,7 +99,17 @@ class SceneManager {
     /** Shared state that outlives a scene: the pending run config, last results. */
     this.shared = { characterId: null, stageId: null, tierIndex: 0, lastResult: null, seed: 0 };
     this._fade = 0;
+    /** How long the phase `_fade` is counting down actually lasts. */
+    this._fadeTotal = FADE_TIME;
+    this._pendingAge = 0;
     this._pending = null;
+    /**
+     * The directional transition, latched at go() time and mutated in place —
+     * never rebuilt. It has to survive `_swap`, because the second beat plays
+     * over the screen that has already been entered, and it has to be readable
+     * from render() on every frame in between.
+     */
+    this._wipe = { active: false, x: 0, y: 0, w: 0, h: 0, plate: '#000', rim: '#000', bright: 1 };
     this._toast = [];
     /** The toast a click went down on, so a dismiss needs press AND release. */
     this._toastPress = null;
@@ -145,12 +189,65 @@ class SceneManager {
     scene.manager = this;
   }
 
-  /** Switch scenes with a cross-fade. Safe to call from inside a scene's update. */
+  /**
+   * Switch scenes. Safe to call from inside a scene's update.
+   *
+   * The signature has not changed and must not: every screen in the game calls
+   * this, and the whole design of the directional transition is that none of
+   * them has to say anything about it. Where the player pressed comes from the
+   * toolkit, which recorded it when the button fired.
+   */
   go(id, params) {
     const scene = this.scenes[id];
     if (!scene) { console.warn('[scenes] unknown scene "' + id + '"'); return; }
     this._pending = { id, scene, params: params || EMPTY };
+    this._pendingAge = 0;
+    this._armTransition(ui.takeSource());
+  }
+
+  /**
+   * Decide which transition this navigation gets, and set up its first beat.
+   *
+   * THE OFF SWITCHES, and why they are the ones they are.
+   *
+   *   screenShakeOff — the shake slider dragged all the way to OFF is the only
+   *     unambiguous "do not move the picture at me" control this game has, and
+   *     a plate that sweeps across the whole viewport is exactly the thing that
+   *     control is for. That player gets the plain cross-fade, unchanged, with
+   *     no motion in it at all.
+   *
+   *   reduceFlashing — a different complaint, so a different answer. This is a
+   *     frequency cap (core/feel.js maxFlashHz), and the transition has no
+   *     frequency: it is one smooth pass in one direction, which is not what
+   *     that setting is protecting against. What IS worth suppressing for it is
+   *     the brightness — so the plate goes almost to black and the colour wash
+   *     over it is dropped, while the motion that carries the meaning stays.
+   *
+   * Anything without a usable rect falls back to the cross-fade too, which is
+   * what makes this safe to reach from the boot call and from `_sceneError`.
+   */
+  _armTransition(src) {
+    const wipe = this._wipe;
+    wipe.active = false;
+    this._fadeTotal = FADE_TIME;
     this._fade = FADE_TIME;
+
+    if (!src || !(src.w > 1) || !(src.h > 1)) return;
+    if (!isFinite(src.x + src.y + src.w + src.h)) return;
+    const s = save.data.settings;
+    if (s.screenShakeOff) return;
+
+    const col = (typeof src.color === 'string' && src.color.charAt(0) === '#' &&
+                 src.color.length === 7) ? src.color : WIPE_DEFAULT;
+    wipe.x = src.x; wipe.y = src.y; wipe.w = src.w; wipe.h = src.h;
+    wipe.rim = col;
+    // mixHex allocates a string. Once per navigation, never per frame — the
+    // draw path below only ever hands these two around by reference.
+    wipe.plate = mixHex(col, '#07060f', s.reduceFlashing ? 0.88 : 0.74);
+    wipe.bright = s.reduceFlashing ? 0 : 1;
+    wipe.active = true;
+    this._fadeTotal = WIPE_OUT;
+    this._fade = WIPE_OUT;
   }
 
   /** Immediate switch, no fade. Used at boot. */
@@ -193,16 +290,27 @@ class SceneManager {
       this._fade -= dtReal;
       this._pendingAge = (this._pendingAge || 0) + dtReal;
       // Belt and braces: whatever happens to the fade, a transition older than
-      // a second completes. Nothing is worth stranding the player over.
+      // a second completes. Nothing is worth stranding the player over. This
+      // outlives the rework unchanged — both wipe beats together are under 0.5s,
+      // so a transition that is still pending at 1.0s is a transition that has
+      // gone wrong, and the answer to that is still "arrive anyway".
       if (this._fade <= 0 || this._pendingAge > 1.0) {
         const p = this._pending;
         this._pending = null;
         this._pendingAge = 0;
-        this._fade = FADE_TIME;
+        // Hand over to the second beat. The plate is covering the whole screen
+        // at this instant, which is the only reason the swap underneath it is
+        // invisible — so the incoming phase must start at FULL coverage, and
+        // both the wipe and the plain fade do.
+        this._fadeTotal = this._wipe.active ? WIPE_IN : FADE_TIME;
+        this._fade = this._fadeTotal;
         this._swap(p.id, p.scene, p.params);
       }
     } else if (this._fade > 0) {
       this._fade -= dtReal;
+      // Let go of the latched rect the moment it stops being drawn, so a stale
+      // one can never be picked up by a later navigation that has no source.
+      if (this._fade <= 0) this._wipe.active = false;
     }
 
     if (this.current && this.current.updateRealtime) {
@@ -255,14 +363,20 @@ class SceneManager {
 
     // UI INPUT IS DEAD WHILE THE SCREEN IS COVERED.
     //
-    // The cross-fade overlay is painted after the scene renders, so for the
-    // whole of FADE_TIME the outgoing screen stayed fully hit-testable behind a
-    // fading black rectangle — clicking a character card on a screen that is 80%
-    // gone fired a real selection. hubScene and stageSelectScene each grew their
-    // own `_nav` guard for this and the other eight screens never did, so it is
-    // blocked here, once, for all of them: outright while leaving, and while the
-    // incoming screen is still more than half hidden.
-    const blocked = !!this._pending || (this._fade > 0 && this._fade / FADE_TIME >= 0.5);
+    // The transition overlay is painted after the scene renders, so for the
+    // whole of its duration the outgoing screen stayed fully hit-testable behind
+    // it — clicking a character card on a screen that is 80% gone fired a real
+    // selection. hubScene and stageSelectScene each grew their own `_nav` guard
+    // for this and the other eight screens never did, so it is blocked here,
+    // once, for all of them: outright while leaving, and while the incoming
+    // screen is still more than half hidden.
+    //
+    // Measured against `_fadeTotal`, not FADE_TIME. The wipe's two beats are
+    // different lengths from each other and from the plain fade, and hard-coding
+    // one of the three durations here is how this gate silently stops covering
+    // the case it exists for.
+    const total = this._fadeTotal || FADE_TIME;
+    const blocked = !!this._pending || (this._fade > 0 && this._fade / total >= 0.5);
     const wasInside = input.mouseInside;
     const wasClicked = input.mouseClicked;
     const wasReleased = input.mouseReleased;
@@ -290,12 +404,95 @@ class SceneManager {
       audio.play('uiBack');
     }
 
-    // cross-fade
+    // The transition, over everything, including the toasts.
+    //
+    // `_fadeTotal` is re-read HERE rather than reused from the `total` above,
+    // and the difference is a real one-frame artefact. The scene renders in
+    // between: a button inside it can fire, call go(), and re-arm the whole
+    // transition with a different phase length. Measuring this frame's progress
+    // against the length the previous phase had meant the very first frame of a
+    // navigation drew the plate already 23% grown — the one frame of the whole
+    // transition where the player is looking straight at the thing that moved.
+    // The input gate above keeps the pre-render value on purpose: it governs the
+    // render that has already happened.
     if (this._fade > 0) {
-      const t = this._pending
-        ? 1 - this._fade / FADE_TIME          // fading OUT
-        : this._fade / FADE_TIME;             // fading IN
-      r.overlay('#05060d', clamp(t, 0, 1));
+      const span = this._fadeTotal || FADE_TIME;
+      const k = clamp(1 - this._fade / span, 0, 1);    // 0 -> 1 within the beat
+      if (this._wipe.active) this._drawWipe(r, k, !!this._pending);
+      else r.overlay('#05060d', this._pending ? k : 1 - k);
+    }
+  }
+
+  /**
+   * The directional transition.
+   *
+   * BEAT ONE (`leaving`): the pressed widget grows from its own rect until it
+   * covers the viewport, corner radius relaxing to zero as it goes, while the
+   * screen behind it goes dark. Smoothstep rather than an ease-out — the plate
+   * has to leave slowly enough that the eye registers WHICH rect it was, and
+   * arrive fast enough that the wait is not felt.
+   *
+   * BEAT TWO: the plate splits and opens. It splits on the axis the widget was
+   * furthest off-centre along, AT the widget's own centre — so a card on the
+   * left opens on the left, and the new screen appears to be arriving from the
+   * direction the player reached in. A leading edge in the widget's colour
+   * rides each door so the motion has something to read against.
+   *
+   * ZERO ALLOCATION. Two colour strings, latched at go() time; everything else
+   * is arithmetic and primitive calls that take their alpha as a number. There
+   * is no string building, no options bag and no gradient in here, because this
+   * runs on every frame of every navigation for the life of the game.
+   */
+  _drawWipe(r, k, leaving) {
+    const wp = this._wipe;
+    const W = r.w, H = r.h;
+    r.setScreenSpace();
+
+    if (leaving) {
+      const e = k * k * (3 - 2 * k);
+      const x = wp.x * (1 - e);
+      const y = wp.y * (1 - e);
+      const w = wp.w + (W - wp.w) * e;
+      const h = wp.h + (H - wp.h) * e;
+      const rad = 14 * (1 - e);
+      r.overlay('#05060d', e * 0.92);
+      // Rim first, plate on top: at full coverage the rim rect is off the edges
+      // on all four sides and the plate is flush, so the result is opaque even
+      // though neither rectangle alone is.
+      r.drawRoundRect(x - 3, y - 3, w + 6, h + 6, rad + 3, wp.rim, 1);
+      r.drawRoundRect(x, y, w, h, rad, wp.plate, 1);
+      if (wp.bright) {
+        // Both of these have to reach ZERO exactly at full coverage. Beat two
+        // opens on a flat `wp.plate`, and any wash still left over on the last
+        // frame of beat one shows up as a colour pop at the handover — which is
+        // the one frame in the whole transition the player is looking hardest at.
+        r.drawRoundRect(x, y, w, h, rad, wp.rim, 0.34 * (1 - e));
+        r.strokeRect(x, y, w, h, wp.rim, 2, 0.85 * (1 - e));
+      }
+      return;
+    }
+
+    const e = easeOutCubic(k);
+    const fade = 1 - e;
+    // The new screen comes up out of the dark as the doors part.
+    r.overlay('#05060d', fade * 0.55);
+    const cx = clamp(wp.x + wp.w / 2, 0, W);
+    const cy = clamp(wp.y + wp.h / 2, 0, H);
+    const edge = wp.bright ? 0.30 + 0.70 * fade : 0.25 * fade;
+    if (Math.abs(cx - W / 2) >= Math.abs(cy - H / 2)) {
+      const lw = cx, rw = W - cx;
+      const lx = -e * lw, rx = cx + e * rw;
+      r.drawRect(lx, 0, lw, H, wp.plate, 1);
+      r.drawRect(rx, 0, rw, H, wp.plate, 1);
+      if (lw > 0) r.drawRect(lx + lw - 3, 0, 3, H, wp.rim, edge);
+      if (rw > 0) r.drawRect(rx, 0, 3, H, wp.rim, edge);
+    } else {
+      const th = cy, bh = H - cy;
+      const ty = -e * th, by = cy + e * bh;
+      r.drawRect(0, ty, W, th, wp.plate, 1);
+      r.drawRect(0, by, W, bh, wp.plate, 1);
+      if (th > 0) r.drawRect(0, ty + th - 3, W, 3, wp.rim, edge);
+      if (bh > 0) r.drawRect(0, by, W, 3, wp.rim, edge);
     }
   }
 

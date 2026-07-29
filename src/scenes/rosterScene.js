@@ -1,9 +1,9 @@
 // THE ROSTER — hub node 2 (SECTION 12 line 1571) plus BOND LEVELS (node 6).
 //
-// Left:  every one of the 19 characters as a card. Owned ones in full colour with
-//        their star level as pips; unowned ones silhouetted, labelled NOT OWNED,
-//        and told exactly which banners can produce them. Filterable and sortable
-//        by rarity and element.
+// Left:  every one of the 19 characters as a card, each carrying its FACE.
+//        Owned ones in full colour with their star level as pips; unowned ones
+//        silhouetted, labelled NOT OWNED, and told exactly which banners can
+//        produce them. Filterable and sortable by rarity and element.
 // Right: the selected character's FULL sheet. Every number this game knows about
 //        them, printed (SECTION 13: real numbers, never adjectives) — base stats,
 //        the four pillars, both star upgrades, the signature relic and its
@@ -21,12 +21,23 @@
 // until you had clicked past them. A pointer picks directly now; a stick still
 // walks the chips one at a time.
 //
+// THE ART IS THE POINT OF A ROSTER. This screen used to print `visual.emoji`
+// and stop there — one glyph — while the game was already building TWO sprites
+// per character and showing both of them everywhere else. `c.portrait` is an HD
+// head-and-shoulders bust (data/sprites.js portraitFor(), joined on in
+// data/index.js, pre-rastered at boot) and `c.visual.pixel` is the full-body
+// figure you actually play. A card gets the bust; the sheet gets both, with the
+// body standing on its own little stage and idling on its two bob frames,
+// because the sheet is the one place a player can stand still and appraise a
+// design instead of chasing it round an arena.
+//
 // Nothing is laid out against 1920x1080 — every number below is derived from
 // r.w / r.h, and the sheet re-flows (two text columns above 620px, one below).
 //
 // PERF: the sheet is a list of pre-measured draw items, rebuilt only when the
 // selection, the star level, the bond or the panel width changes. render() walks
-// it and allocates nothing.
+// it and allocates nothing. The sprites behind the art are resolved once per
+// character into `_artCache` and never looked up again — see `_art()`.
 
 import { ui, PALETTE, RARITY_COLOR, RARITY_NAME, wrapText, formatCount } from '../ui/widgets.js';
 import { input } from '../core/input.js';
@@ -34,6 +45,7 @@ import { save, rosterEntry } from '../core/save.js';
 import { audio } from '../core/audio.js';
 import { displayName } from '../core/config.js';
 import { clamp } from '../core/math.js';
+import { atlas } from '../render/spriteAtlas.js';
 
 // --- small formatters --------------------------------------------------------
 
@@ -54,6 +66,55 @@ function fit(r, text, maxW, size, weight) {
   if (r.measureText(s, px, w) <= maxW) return s;
   while (s.length > 1 && r.measureText(s + '…', px, w) > maxW) s = s.slice(0, -1);
   return s + '…';
+}
+
+// --- drawing sprites on a MENU -----------------------------------------------
+
+/**
+ * The camera cull box, parked while this screen blits a sprite in screen space.
+ *
+ * `r.drawSprite()` rejects anything outside cullMinX..cullMaxY, and on a menu
+ * those four numbers are whatever the last run left in them — a window round a
+ * player standing thousands of pixels away, so every portrait here is discarded
+ * before it reaches drawImage, silently, with a perfectly happy test suite.
+ * ui/hud.js `_topLeft()` opens the window round its own portrait blit for
+ * exactly this reason; this is the same trick, hoisted so the grid can pay for
+ * it once round the whole card loop rather than once per card.
+ *
+ * Module-level, so it allocates nothing per frame — which also makes it
+ * NON-REENTRANT. Every cullOff() must be closed by a cullOn() before the next
+ * one opens, including on the early-return paths.
+ */
+const CULL = { x0: 0, x1: 0, y0: 0, y1: 0 };
+
+function cullOff(r) {
+  CULL.x0 = r.cullMinX; CULL.x1 = r.cullMaxX;
+  CULL.y0 = r.cullMinY; CULL.y1 = r.cullMaxY;
+  r.cullMinX = -4000; r.cullMaxX = r.w + 4000;
+  r.cullMinY = -4000; r.cullMaxY = r.h + 4000;
+}
+
+function cullOn(r) {
+  r.cullMinX = CULL.x0; r.cullMaxX = CULL.x1;
+  r.cullMinY = CULL.y0; r.cullMaxY = CULL.y1;
+}
+
+/**
+ * The atlas Sprite behind a visual descriptor.
+ *
+ * Deliberately NOT `atlas.ensure()` for the pixel case. ensure() keys on
+ * visualKey(), which for a portrait comes out as shape|colour|size and nothing
+ * else — and this roster contains a pair of characters whose `visual.color` is
+ * the same string, so both portraits hash to one key and the second one to be
+ * registered is thrown away. In a HUD that shows one face at a time nobody ever
+ * notices; in a grid of nineteen it prints the wrong person. `registerPixel()`
+ * keys on the descriptor's OWN id, which is the exact reason portraitFor() gives
+ * the bust an id of its own, and it returns the sprite the boot pre-raster
+ * already built rather than making a new one.
+ */
+function pixelSprite(v) {
+  if (!v) return null;
+  return v.pixel ? atlas.registerPixel(v.pixel, v.size || 14) : atlas.ensure(v);
 }
 
 /** The 5 star pips. Filled up to `level`, hollow after. */
@@ -136,6 +197,12 @@ export const rosterScene = {
 
     this.chars = D.characters.CHARACTERS;
     this.elementIds = ['all'].concat(Object.keys(D.elements.ELEMENTS));
+
+    // id -> { face, body }. Kept ACROSS entries, not rebuilt per visit: a
+    // character's art never changes, and the whole point of the cache is that
+    // the draw loop never touches the atlas (a Map.get on a joined key string
+    // is an allocation, and there are nineteen of them a frame).
+    if (!this._artCache) this._artCache = Object.create(null);
 
     // Which banners can produce each character. Computed once — the pull screen
     // and this one must never disagree about where somebody comes from.
@@ -229,6 +296,115 @@ export const rosterScene = {
   },
 
   _char(id) { return this.manager.data.characters.CHARACTERS_BY_ID[id]; },
+
+  // --- art -------------------------------------------------------------------
+  /**
+   * The two sprites for a character, resolved once. `face` is the HD bust,
+   * `body` the full-body world sprite. Either may be null — a character with no
+   * entry in the art layer degrades to its emoji rather than to a hole.
+   */
+  _art(c) {
+    let a = this._artCache[c.id];
+    if (!a) {
+      a = { face: pixelSprite(c.portrait), body: pixelSprite(c.visual) };
+      this._artCache[c.id] = a;
+    }
+    return a;
+  },
+
+  /**
+   * A framed bust. The card's face, and the left half of the sheet header.
+   *
+   * UNOWNED DRAWS THE REAL SPRITE, NOT A QUESTION MARK. The rule this screen has
+   * always stated — "the shape is there, the person is not" — was being carried
+   * by a '?' in a grey circle, which tells you nothing whatsoever about who you
+   * are missing. The atlas already bakes a white twin of every pixel sprite for
+   * the hit-flash, so the silhouette costs nothing: blit that instead, at low
+   * alpha, and the hair, the horns, the hat and the wings all survive while the
+   * person does not.
+   *
+   * The CALLER owns the cull window (cullOff/cullOn) — the grid parks it once
+   * round the whole card loop rather than once per card.
+   */
+  _facePlate(r, c, owned, x, y, w, h, rc) {
+    r.drawRoundRect(x, y, w, h, 5, '#0b0f1c', owned ? 0.92 : 0.7);
+    // Rarity band across the top of the plate, matching the HUD portrait and the
+    // card wash, so one character reads the same way in a run and on this screen.
+    r.drawRect(x + 2, y + 2, w - 4, Math.max(2, h * 0.055), rc, owned ? 0.95 : 0.3);
+    r.strokeRect(x, y, w, h, rc, 1.5, owned ? 0.75 : 0.28);
+
+    const cx = x + w / 2, cy = y + h / 2 + h * 0.03;
+    const sp = this._art(c).face;
+    if (!sp) {
+      ui.text((c.visual && c.visual.emoji) || '★', cx, cy, {
+        size: Math.max(11, h * 0.42), align: 'center', alpha: owned ? 1 : 0.35,
+      });
+      return;
+    }
+    // Fitted to the SHORT side so a plate that is not quite square still frames
+    // the whole bust instead of cropping its shoulders.
+    const k = (Math.min(w, h) - 8) / Math.max(sp.w, sp.h);
+    r.drawSprite(sp, cx, cy, 0, k, owned ? 1 : 0.24, !owned, 0);
+  },
+
+  /**
+   * The same bust with no plate and no gutter, laid into the card as a BACKDROP.
+   *
+   * This is what a card too narrow for a face column gets, and it exists because
+   * the alternative was worse. At 1024x640 the grid packs to four columns of
+   * ~90px, and a 33px plate there leaves 33px for a name — so the choice was
+   * between a face on every card at every window size, or no face at all below
+   * about 1280. A wash is neither: it costs no layout, it bleeds behind the
+   * right-hand half where only the rarity chip sits, and at this alpha it reads
+   * as texture that happens to be a person rather than as art competing with
+   * the text on top of it.
+   *
+   * Drawn BEFORE the card's text, and the grid's clip rect keeps it off the
+   * neighbours.
+   */
+  _faceWash(r, c, owned, x, y, w, h) {
+    const sp = this._art(c).face;
+    if (!sp) return;
+    const k = (h - 4) / Math.max(sp.w, sp.h);
+    r.drawSprite(sp, x + w - sp.w * k * 0.5 - 3, y + h / 2, 0, k,
+                 owned ? 0.28 : 0.14, !owned, 0);
+  },
+
+  /**
+   * The full-body world sprite, standing on a floor line. Sheet only — a grid
+   * full of these would be a grid full of animations all competing for the eye,
+   * and at 46px of card height there is no room for a figure anyway.
+   *
+   * It idles on the sprite's two bob frames the way player.js does, but SLOWER:
+   * the in-run rate is 4Hz standing and 9Hz moving, which is right for something
+   * crossing an arena and unreadable on a menu you are trying to read next to.
+   * `ui.time` is the toolkit's own real-time clock — the same one every pulse on
+   * this screen already runs off — so this adds no timebase and reads no input.
+   */
+  _bodyPlate(r, c, owned, x, y, w, h, rc) {
+    r.drawRoundRect(x, y, w, h, 5, '#0b0f1c', owned ? 0.92 : 0.7);
+    r.strokeRect(x, y, w, h, rc, 1.5, owned ? 0.55 : 0.22);
+
+    const floorY = y + h - 12;
+    r.drawRect(x + 4, floorY, w - 8, 1, rc, owned ? 0.35 : 0.14);
+
+    const sp = this._art(c).body;
+    if (!sp) {
+      ui.text((c.visual && c.visual.emoji) || '★', x + w / 2, y + h / 2, {
+        size: Math.max(11, w * 0.5), align: 'center', alpha: owned ? 1 : 0.35,
+      });
+      return;
+    }
+    const k = Math.min((w - 12) / sp.w, (h - 26) / sp.h);
+    const anim = ((ui.time * 3) | 0) & 1;
+    const bob = Math.sin(ui.time * 2.1) * 1.5;
+    // Shadow first, and it stays put while the figure floats — a shadow that
+    // rides up with the sprite is the thing that makes a bob look like a glitch.
+    r.drawRect(x + w / 2 - sp.w * k * 0.28, floorY - 2, sp.w * k * 0.56, 4,
+               '#000000', owned ? 0.45 : 0.25);
+    r.drawSprite(sp, x + w / 2, floorY - sp.h * k * 0.5 + bob, 0, k,
+                 owned ? 1 : 0.24, !owned, anim);
+  },
 
   // ---------------------------------------------------------------------------
   render(r) {
@@ -383,6 +559,22 @@ export const rosterScene = {
     const cellH = clamp((gh - cellGap * (rows - 1)) / rows, minCellH, 116);
     const compact = cellH < 78;
 
+    // THE FACE GUTTER. One square plate down the left of every card, sized from
+    // the cell so it degrades instead of overflowing: bounded by the card's
+    // height (a short wide card gets a short face, not one hanging off the
+    // bottom) and by roughly a third of its width (so the name still has
+    // somewhere to go), and capped at 52 because past that the bust wins an
+    // argument it should not — the grid is for scanning, and a name you cannot
+    // read is a card you have to click to identify.
+    //
+    // Below 54px of remaining text width the column is dropped and the face
+    // becomes a backdrop instead (`_faceWash`) — a card with a face and no room
+    // for a name is worse than a card with no face, but a card with NO face is
+    // the thing this whole change exists to get rid of.
+    const faceBox = Math.round(clamp(Math.min(cellH - 10, cellW * 0.36), 22, 52));
+    const showFace = cellW - faceBox - 26 >= 54;
+    const textDx = showFace ? faceBox + 14 : 10;
+
     const equipped = this.manager.shared.characterId;
 
     // r.clipRect() clips DRAWING only — hit-testing goes straight through it, so
@@ -394,6 +586,9 @@ export const rosterScene = {
     // navigation last frame. That is how the keyboard previews and the pointer
     // does not — see the `kbNav` branch below.
     const kbNav = ui.focus !== this._focusMark;
+    // Parked once for the whole grid rather than per card. Closed immediately
+    // after the loop — there is no early return between here and there.
+    cullOff(r);
     r.clipRect(clip.x, clip.y, clip.w, clip.h);
     for (let i = 0; i < view.length; i++) {
       const c = view[i];
@@ -424,61 +619,79 @@ export const rosterScene = {
         r.strokeRect(x - 2, y - 2, cellW + 4, cellH + 4, PALETTE.accent2, 2, 0.85);
       }
 
-      const nameW = cellW - 16;
+      // The plate is square and vertically centred, so it sits clear of the
+      // card's own base strip at the bottom whatever the row height works out to.
+      if (showFace) {
+        this._facePlate(r, c, e.owned, x + 6, y + (cellH - faceBox) / 2,
+                        faceBox, faceBox, rc);
+      } else {
+        this._faceWash(r, c, e.owned, x + 2, y + 2, cellW - 4, cellH - 4);
+      }
+
+      const tx = x + textDx;
+      const nameW = cellW - textDx - 10;
       const roomy = cellH >= 66;                 // has space for the glyph row
       const yName = roomy ? 38 : 17;
       const yLine2 = roomy ? 56 : 34;
       const yLine3 = 74;
 
       if (e.owned) {
-        if (roomy) {
-          ui.text((c.visual && c.visual.emoji) || '★', x + 10, y + 17, { size: 15 });
+        // Only where the plate is not already carrying the face. The emoji is
+        // this card's oldest identity cue and it keeps its corner on the narrow
+        // layout — where the face is a wash on the far side and cannot be the
+        // thing your eye lands on — but stacking it on top of a framed bust is
+        // two portraits arguing in one 52px box.
+        if (roomy && !showFace) {
+          ui.text((c.visual && c.visual.emoji) || '★', tx, y + 17, { size: 15 });
         }
         ui.text(RARITY_NAME[c.rarity], x + cellW - 10, y + (roomy ? 17 : yName),
           { size: 12, color: rc, align: 'right', weight: 800 });
-        ui.text(fit(r, displayName(c), roomy ? nameW : nameW - 30, 14, 800), x + 10, y + yName,
+        ui.text(fit(r, displayName(c), roomy ? nameW : nameW - 30, 14, 800), tx, y + yName,
           { size: 14, color: PALETTE.text, weight: 800 });
-        starPips(r, x + 10, y + yLine2, e.starLevel || 1, PALETTE.accent, 11);
+        starPips(r, tx, y + yLine2, e.starLevel || 1, PALETTE.accent, 11);
         if (!compact) {
           const el = this.manager.data.elements.ELEMENTS[c.element];
           ui.text(fit(r, (el ? el.icon + ' ' + el.name : c.element) + '  ·  ' + c.archetype,
-            nameW, 11, 500), x + 10, y + yLine3, { size: 11, color: PALETTE.textFaint });
+            nameW, 11, 500), tx, y + yLine3, { size: 11, color: PALETTE.textFaint });
         }
         if (equipped === c.id) {
           ui.text('ON STAGE', x + cellW - 10, y + yLine2,
             { size: 10, color: PALETTE.good, align: 'right', weight: 800 });
         }
       } else {
-        // Silhouette: the shape is there, the person is not.
-        if (roomy) {
-          r.drawCircle(x + 20, y + 20, 9, '#1a2035', 1);
-          ui.text('?', x + 20, y + 20, { size: 14, color: '#39415f', align: 'center', weight: 800 });
+        // Silhouette: the shape is there, the person is not. The plate draws the
+        // real sprite as its white twin; only a card too narrow for a plate at
+        // all falls back to the old '?' disc.
+        if (roomy && !showFace) {
+          r.drawCircle(tx + 10, y + 20, 9, '#1a2035', 1);
+          ui.text('?', tx + 10, y + 20, { size: 14, color: '#39415f', align: 'center', weight: 800 });
         }
         ui.text(RARITY_NAME[c.rarity], x + cellW - 10, y + (roomy ? 20 : yName),
           { size: 12, color: rc, align: 'right', weight: 800, alpha: 0.55 });
-        ui.text('NOT OWNED', x + 10, y + yName,
+        ui.text('NOT OWNED', tx, y + yName,
           { size: 12, color: PALETTE.textFaint, weight: 800 });
         const bl = this.bannersFor[c.id];
         if (!bl || bl.length === 0) {
-          ui.text('No banner carries them.', x + 10, y + yLine2,
+          ui.text('No banner carries them.', tx, y + yLine2,
             { size: 10, color: PALETTE.bad });
         } else if (compact) {
-          ui.text(bl.length + (bl.length === 1 ? ' banner' : ' banners'), x + 10, y + yLine2,
+          ui.text(bl.length + (bl.length === 1 ? ' banner' : ' banners'), tx, y + yLine2,
             { size: 10, color: PALETTE.textFaint });
         } else {
           for (let b = 0; b < Math.min(2, bl.length); b++) {
             ui.text(fit(r, (bl[b].featured ? '★ ' : '· ') + bl[b].name, nameW, 10, 600),
-              x + 10, y + yLine2 + b * 14,
+              tx, y + yLine2 + b * 14,
               { size: 10, color: bl[b].featured ? PALETTE.accent : PALETTE.textFaint });
           }
           if (bl.length > 2 && cellH >= 96) {
-            ui.text('+' + (bl.length - 2) + ' more', x + 10, y + yLine2 + 28,
+            ui.text('+' + (bl.length - 2) + ' more', tx, y + yLine2 + 28,
               { size: 10, color: PALETTE.textFaint });
           }
         }
       }
     }
     r.unclip();
+    cullOn(r);
     this._focusMark = ui.focus;
     return cols;
   },
@@ -494,35 +707,87 @@ export const rosterScene = {
     const cw = pw - ip * 2;
 
     // --- fixed header ---------------------------------------------------------
-    const hh = 104;
+    //
+    // THE PLACE TO SPEND PIXELS. Both sprites, side by side: the bust that says
+    // who they are, then the figure that says what you will be looking at for
+    // twenty minutes.
+    //
+    // The big header needs BOTH dimensions to earn it — tall enough that the
+    // scrolling body still has something to scroll, and wide enough that two
+    // plates plus a 26px name is not the entire panel. Failing either, it falls
+    // back to roughly the height this header always was.
+    const hh = (ph >= 430 && cw >= 560) ? 138 : 106;
+    // 30 short of the header: ui.card() paints its own rarity band across the
+    // top and its own countable pip row along the bottom, and the plates have to
+    // sit inside both of them rather than over them.
+    const artH = hh - 30;
     const hx = px + ip, hy = py + ip;
+    const bustW = artH;
+    const bodyW = Math.round(artH * 0.62);
+    // The figure is the first thing to go on a narrow panel — the bust is the
+    // identity, the figure is the appraisal, and a name squeezed to six
+    // characters costs more than a second picture buys. At the compact art size
+    // the two plates together are ~130px, so this only actually bites on a
+    // panel too narrow to be legible with or without them.
+    const showBody = cw >= bustW + bodyW + 240;
+    const artW = bustW + (showBody ? bodyW + 8 : 0);
+    const tx = hx + 24 + artW;
+    const textW = Math.max(60, cw - (tx - hx) - 116);
+    // Baselines as fractions of the header, not constants: at 106 they land back
+    // on the 28 / 52 / 74 the fixed layout used, and at 138 they spread instead
+    // of leaving a hole under the last line.
+    const l1 = hy + Math.round(hh * 0.27);
+    const l2 = hy + Math.round(hh * 0.48);
+    const l3 = hy + Math.round(hh * 0.68);
+
     ui.card(hx, hy, cw, hh, c.rarity);
-    ui.text((c.visual && c.visual.emoji) || '★', hx + 34, hy + 40, { size: 34, align: 'center' });
-    ui.text(fit(r, displayName(c), Math.max(60, cw - 200), 26, 800), hx + 66, hy + 28,
+
+    cullOff(r);
+    this._facePlate(r, c, e.owned, hx + 10, hy + 12, bustW, artH, rc);
+    if (showBody) {
+      this._bodyPlate(r, c, e.owned, hx + 18 + bustW, hy + 12, bodyW, artH, rc);
+    }
+    cullOn(r);
+    // The emoji has not been thrown away — it is the character's own shorthand
+    // everywhere else in the game — it is a badge on the plate now rather than
+    // the only art on the screen. It gets its own chip: a bare glyph laid over
+    // a shoulder is unreadable against half the palettes on this roster.
+    // Inset by 2px on both edges so the chip sits INSIDE the plate's own rule
+    // rather than straddling it.
+    const bgx = hx + bustW - 4, bgy = hy + artH - 2;
+    r.drawRoundRect(bgx - 12, bgy - 12, 24, 24, 7, '#0b0f1c', 0.88);
+    r.strokeRect(bgx - 12, bgy - 12, 24, 24, rc, 1, e.owned ? 0.6 : 0.25);
+    ui.text((c.visual && c.visual.emoji) || '★', bgx, bgy,
+      { size: 15, align: 'center', alpha: e.owned ? 1 : 0.5 });
+
+    ui.text(fit(r, displayName(c), textW, 26, 800), tx, l1,
       { size: 26, color: PALETTE.text, weight: 800 });
-    ui.text(fit(r, c.epithet, Math.max(60, cw - 200), 14, 600), hx + 66, hy + 52,
+    ui.text(fit(r, c.epithet, textW, 14, 600), tx, l2,
       { size: 14, color: rc, weight: 700 });
     const el = D.elements.ELEMENTS[c.element];
-    ui.text(RARITY_NAME[c.rarity] + '  ·  ' + c.archetype + '  ·  ' +
-            (el ? el.icon + ' ' + el.name : c.element),
-      hx + 66, hy + 74, { size: 12, color: PALETTE.textDim });
+    ui.text(fit(r, RARITY_NAME[c.rarity] + '  ·  ' + c.archetype + '  ·  ' +
+            (el ? el.icon + ' ' + el.name : c.element), textW, 12, 600),
+      tx, l3, { size: 12, color: PALETTE.textDim });
 
     if (e.owned) {
-      starPips(r, hx + cw - 96, hy + 26, e.starLevel || 1, PALETTE.accent, 15);
-      ui.text('S' + (e.starLevel || 1), hx + cw - 16, hy + 50,
+      starPips(r, hx + cw - 96, l1 - 2, e.starLevel || 1, PALETTE.accent, 15);
+      ui.text('S' + (e.starLevel || 1), hx + cw - 16, l2,
         { size: 13, color: PALETTE.accent, align: 'right', weight: 800, mono: true });
       ui.text('BOND ' + (e.bond || 0) + '  ·  ' + (e.runs || 0) + ' runs',
-        hx + cw - 16, hy + 72, { size: 12, color: PALETTE.textDim, align: 'right' });
+        hx + cw - 16, l3, { size: 12, color: PALETTE.textDim, align: 'right' });
     } else {
-      ui.text('NOT OWNED', hx + cw - 16, hy + 28,
+      ui.text('NOT OWNED', hx + cw - 16, l1,
         { size: 15, color: PALETTE.bad, align: 'right', weight: 800 });
       const bl = this.bannersFor[c.id] || [];
       const line = bl.length
         ? bl.map((b) => (b.featured ? '★' : '') + b.name).join('  ·  ')
         : 'Not in any banner pool.';
-      ui.text(fit(r, line, Math.max(60, cw - 130), 11, 600), hx + cw - 16, hy + 52,
+      // Measured against the space LEFT OF the right edge and RIGHT OF the art,
+      // not against the whole panel: right-aligned text that fits `cw - 130`
+      // starts underneath the plates on a narrow sheet.
+      ui.text(fit(r, line, Math.max(60, cw - (tx - hx) - 130), 11, 600), hx + cw - 16, l2,
         { size: 11, color: PALETTE.textFaint, align: 'right' });
-      ui.text('★ = rate-up', hx + cw - 16, hy + 70,
+      ui.text('★ = rate-up', hx + cw - 16, l3,
         { size: 10, color: PALETTE.textFaint, align: 'right' });
     }
 

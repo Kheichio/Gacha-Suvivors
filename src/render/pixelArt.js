@@ -322,10 +322,15 @@ function drawHumanoid(b, d) {
   drawWings(b, m, P, d);
   drawTails(b, m, P, d);
   if (d.cape) drawCape(b, m, P, d);
+  if (d.hoodDown) drawHoodDown(b, m, P, d);
   drawHairBack(b, m, P, d);
   drawLegs(b, m, P, d);
   drawTorso(b, m, P, d);
   if (d.coat) drawCoat(b, m, P, d);
+  // The apron goes on over the dress and under the arms, which is the order the
+  // garments are actually put on. Drawn after the coat so a character wearing
+  // both reads as an apron over a coat rather than the other way round.
+  if (d.pinafore) drawPinafore(b, m, P, d);
   if (d.backpack) drawStraps(b, m, P, d);
   drawArms(b, m, P, d);
   if (d.harness) drawHarness(b, m, P, d);
@@ -516,6 +521,37 @@ function drawCape(b, m, P, d) {
   for (let i = -halfTop - 4; i <= halfTop + 4; i += 2) b.set(cx + i, shoulderY + h, c.deep);
 }
 
+/**
+ * A hood worn DOWN — the bunched cowl of a hooded garment lying behind the neck
+ * and spilling over the shoulders.
+ *
+ * `hair:'hood'` is the opposite case and the only one the vocabulary had: a hood
+ * UP, with no face under it, which is a whole different character note. Two of
+ * the briefs ask for a hoodie on somebody whose face is the entire point, and
+ * with only the up-hood available the previous pass just wrote `coat` and lost
+ * the garment. The cowl is drawn WIDER THAN THE HEAD and taller than the
+ * shoulders on purpose: the only part of a down hood that is ever visible from
+ * the front is the bunched roll either side of the jaw, so if it does not clear
+ * the head it is not there at all.
+ */
+function drawHoodDown(b, m, P, d) {
+  const c = slotRamp(d.hoodDown, d.outfit || '#e8e4dc');
+  const { cx, chinY, shoulderY, headR, halfTop } = m;
+  const wTop = headR + 2, wBot = halfTop + 3;
+  const top = Math.max(0, chinY - 3);
+  const h = Math.max(4, shoulderY - top + 5);
+  b.taper(cx - wTop, top, wTop * 2 + 1, wBot * 2 + 1, h, c.base);
+  b.hline(cx - wTop + 1, top, wTop * 2 - 1, c.lite);
+  b.hline(cx - wBot + 1, top + h - 1, wBot * 2 - 1, c.deep);
+  // Two gathers where the cloth rolls over on itself. Without them the shape is
+  // a collar — flat, symmetrical and obviously sewn on rather than folded down.
+  for (const s of [-1, 1]) {
+    b.vline(cx + s * (wTop - 1), top + 1, h - 3, c.dark);
+    b.set(cx + s * wTop, top + 2, c.lite);
+    b.set(cx + s * (wTop - 2), top + h - 3, c.deep);
+  }
+}
+
 function drawLegs(b, m, P, d) {
   const { cx, hipY, kneeY, bootY, bottom, halfBot } = m;
   // Narrow enough to leave a clear column between the outside of the boot and
@@ -687,6 +723,79 @@ function drawCoat(b, m, P, d) {
     b.vline(cx + halfTop + 1, top + 1, hem - top - 1, d.coatTrim);
     b.hline(cx - halfTop - 3, hem - 1, halfTop * 2 + 7, d.coatTrim);
   }
+  if (d.coatRagged) {
+    // A torn hem. Threads hanging a row or two below the finished edge, rather
+    // than pixels bitten out of it — the buffer has no eraser, and adding cloth
+    // below the line reads as "this has been shredded" every bit as well as
+    // removing cloth above it would, because outline() then wraps the tatters
+    // and the SILHOUETTE goes ragged, which is where the read actually lives.
+    // Only the outer band gets them: the hem's middle hangs over the legs, and a
+    // strip of coat dangling down a shin looks like damage to the renderer.
+    for (let i = halfTop - 1; i <= halfTop + 3; i += 2) {
+      for (const s of [-1, 1]) b.set(cx + s * i, hem + 1, c.base);
+    }
+    b.set(cx - halfTop - 1, hem + 2, c.dark);
+    b.set(cx + halfTop + 1, hem + 2, c.dark);
+  }
+}
+
+/**
+ * A PINAFORE — a bib panel over the chest on two shoulder straps, an apron over
+ * the skirt with a frilled hem, and the bow of its waist tie showing past both
+ * hips.
+ *
+ * This exists because `coat` was standing in for it, and a coat is not an apron:
+ * a coat has lapels, an open front and a hem that reaches the boot, and all
+ * three of those are exactly wrong. The bib is deliberately NARROWER than the
+ * chest so the dress shows on either side of it — an apron the full width of the
+ * torso is just a second shirt in a lighter colour, which is precisely what the
+ * stand-in looked like.
+ *
+ * The bow is the one part that cannot be drawn where it belongs. It is tied at
+ * the BACK of the waist, and every column between the hips is occupied by an arm
+ * hanging over it, so what gets drawn is what a back bow actually shows from the
+ * front: the loops standing proud of the hips just outside the arms, and the two
+ * ribbon ends falling past them.
+ */
+function drawPinafore(b, m, P, d) {
+  const c = slotRamp(d.pinafore, '#f4f1ea');
+  const frill = d.pinaforeTrim ? slotRamp(d.pinaforeTrim, c.dark) : c;
+  const { cx, shoulderY, hipY, halfTop, halfBot, armOut } = m;
+  const bw = Math.max(2, halfTop - 2);
+  const bibTop = shoulderY + 2;
+  const bibH = Math.max(3, hipY - bibTop - 2);
+  b.rect(cx - bw, bibTop, bw * 2 + 1, bibH, c.base);
+  b.hline(cx - bw, bibTop, bw * 2 + 1, c.lite);
+  b.vline(cx + bw, bibTop + 1, bibH - 1, c.dark);
+  b.vline(cx - bw, bibTop + 1, bibH - 1, c.base);
+  // The straps, set in from the bib's own corners and running back over the
+  // shoulder. Without them the bib is a panel sewn to the front of the dress.
+  for (const s of [-1, 1]) {
+    b.vline(cx + s * bw, shoulderY - 1, 3, c.base);
+    b.set(cx + s * bw, shoulderY - 1, c.lite);
+    b.set(cx + s * (bw - 1), bibTop, c.lite);
+  }
+  // The waist tie, holding the apron on.
+  b.hline(cx - bw - 1, hipY - 2, bw * 2 + 3, c.base);
+  b.hline(cx - bw - 1, hipY - 1, bw * 2 + 3, c.dark);
+  // The apron skirt: SHORTER than the dress under it, and finished with a frill
+  // of alternating pixels rather than a ruled line, which is the whole
+  // difference between an apron and a tablecloth.
+  const aw = halfBot + 2;
+  b.taper(cx - aw, hipY, aw * 2 + 1, aw * 2 + 3, 3, c.base);
+  b.hline(cx - aw + 1, hipY, aw * 2 - 1, c.lite);
+  for (let i = -aw - 1; i <= aw + 1; i++) {
+    b.set(cx + i, hipY + 3, i & 1 ? frill.base : frill.dark);
+  }
+  for (const s of [-1, 1]) {
+    const x = s < 0 ? cx - armOut - 3 : cx + armOut + 1;
+    b.rect(x, hipY, 3, 4, c.base);                      // a loop of the bow
+    b.hline(x, hipY, 3, c.lite);
+    b.hline(x, hipY + 3, 3, c.dark);
+    b.set(s < 0 ? x + 2 : x, hipY + 1, c.deep);         // where it gathers
+    b.rect(s < 0 ? x + 1 : x, hipY + 4, 2, 3, c.base);  // and the end it trails
+    b.hline(s < 0 ? x + 1 : x, hipY + 6, 2, c.deep);
+  }
 }
 
 function drawArms(b, m, P, d) {
@@ -750,6 +859,22 @@ function drawArms(b, m, P, d) {
       b.hline(x, hipY - 3, armW, g.lite);
       b.set(s < 0 ? x - 1 : x + armW, hipY - 3, g.lite);      // the cuff flare
       b.hline(x, hipY - 1, armW, g.deep);
+    }
+  }
+  if (d.cuffs) {
+    // DETACHED CUFFS: a band at the wrist that is not the bottom of a sleeve.
+    // Two things make it read as its own garment at 30x42 — it is a pixel PROUD
+    // of the arm on the outboard side, which no sleeve ever is, and it sits
+    // below the sleeve's own hem with the lit row on top, so there is a visible
+    // step where one ends and the other begins. Drawn after `detachedSleeves`
+    // on purpose: a character can wear both, and the cuff is the outer layer.
+    const cf = slotRamp(d.cuffs, '#f4f1ea');
+    for (const s of [-1, 1]) {
+      const x = s < 0 ? cx - armOut - 1 : cx + armOut - armW + 1;
+      b.rect(x, hipY - 1, armW + 1, 2, cf.base);
+      b.hline(x, hipY - 1, armW + 1, cf.lite);
+      b.hline(x, hipY, armW + 1, cf.dark);
+      b.set(s < 0 ? x : x + armW, hipY + 1, cf.deep);
     }
   }
   const handY = hipY + 1;
@@ -821,6 +946,29 @@ function drawNeckwear(b, m, P, d) {
     b.set(cx - headR + 1, chinY - 1, c.lite);
     b.set(cx + headR - 1, chinY - 1, c.lite);
     b.vline(cx, chinY + 1, shoulderY - chinY + 2, c.dark);
+  }
+  if (d.neckBow) {
+    // A ribbon tied in a BOW at the throat. Three garments live in exactly this
+    // six-pixel window and none of them may be drawn as either of the others:
+    // `scarf` is wrapped cloth with one long end whipping out to the side,
+    // `tie` is a knot with a single blade running down the shirt, and this is a
+    // short ribbon with two LOOPS and two stubby tails. Two of the cast were
+    // wearing a scarf because a bow was the one the vocabulary could not say.
+    const c = slotRamp(d.neckBow, d.accent || '#c8342a');
+    const y = chinY + 1;
+    for (const s of [-1, 1]) {
+      const x = s < 0 ? cx - 4 : cx + 2;
+      b.rect(x, y, 2, 2, c.base);                              // the loops
+      b.hline(x, y, 2, c.lite);
+      b.set(s < 0 ? x : x + 1, y + 1, c.dark);
+    }
+    b.rect(cx - 1, y, 3, 2, c.base);                           // the knot
+    b.set(cx, y, mixHex(c.lite, WHITE, 0.35));
+    b.set(cx, y + 1, c.deep);
+    b.set(cx - 1, y + 2, c.dark);                              // the two tails
+    b.set(cx + 1, y + 2, c.dark);
+    b.set(cx - 1, y + 3, c.deep);
+    b.set(cx + 1, y + 3, c.deep);
   }
   if (!d.scarf) return;
   const c = slotRamp(d.scarf, d.accent || '#c8342a');
@@ -957,7 +1105,7 @@ function drawFace(b, m, P, d) {
 function drawHairBack(b, m, P, d) {
   const style = d.hair || 'short';
   const hc = P.hair;
-  const { cx, headY, headR, chinY, shoulderY, hipY, bootY } = m;
+  const { cx, headY, headR, chinY, shoulderY, hipY, bootY, bottom, armOut, W } = m;
   const top = headY - headR;
   const side = headR;
   const tie = d.hairTie ? slotRamp(d.hairTie, d.accent || '#c8203a') : P.trim;
@@ -996,15 +1144,94 @@ function drawHairBack(b, m, P, d) {
       b.pair(cx, side + 1, top + 4, 2, 1, tie.lite);
       break;
     case 'drills': {
-      // Twin drills: each ringlet is a stack of shrinking blocks, which is the
-      // only way a curl reads at this size.
-      const rows = Math.max(3, ((hipY - chinY) / 2) | 0);
-      for (let i = 0; i < rows; i++) {
-        const w = Math.max(2, 6 - i);
-        b.pair(cx, side, chinY - 3 + i * 2, w, 2, i & 1 ? hc.base : hc.dark);
-        b.pair(cx, side, chinY - 3 + i * 2, 1, 1, hc.lite);
+      // TWIN DRILLS. The only pair in the whole cast, and half the silhouette of
+      // the character who wears them, so this style gets more code than any
+      // other and earns it.
+      //
+      // The previous pass stacked shrinking blocks all anchored to the same
+      // outer column. That is not a ringlet, it is a triangle: it read as a
+      // spear of hair taped to the head. A corkscrew only reads when three
+      // things happen at once — the SILHOUETTE scallops on the coil's pitch, a
+      // LIT THREAD wraps across the width and resets, and a DARK SEAM marks the
+      // row where the coil passes behind itself. Any two of the three gives you
+      // a cone with stripes painted on it.
+      //
+      // The drill also has to swing OUTWARD as it falls, and not for style: the
+      // arms hang over columns armOut-armW+1..armOut from the shoulder down, so
+      // a drill that stays where the temple put it is chopped in half by an
+      // elbow and the character loses the read they were built around.
+      //
+      // The bunch and the ribbon both sit at `side` and not inboard of it. One
+      // column further in and drawHairCap's crown ellipse — which runs the full
+      // width of the head and is drawn AFTER this pass — paints over most of
+      // both, which is how a character whose brief names the colour of her
+      // ribbons ended up with two pixels of them showing.
+      const bunchY = top + 2;
+      b.pair(cx, side, bunchY, 5, 5, hc.base);                 // the bunch
+      b.pair(cx, side + 1, bunchY + 1, 2, 3, hc.lite);
+      b.pair(cx, side, bunchY + 4, 5, 1, hc.dark);
+      // The RIBBON that ties it: `drills` ignored hairTie entirely, so the one
+      // pair of drills in the cast was tied with nothing at all. A band, and one
+      // loop standing off the outboard side so it reads as a bow and not a cuff.
+      b.pair(cx, side, bunchY + 5, 5, 2, tie.base);
+      b.pair(cx, side + 1, bunchY + 5, 2, 1, tie.lite);
+      b.pair(cx, side, bunchY + 6, 5, 1, tie.dark);
+      b.pair(cx, side + 4, bunchY + 3, 2, 3, tie.base);
+      b.pair(cx, side + 4, bunchY + 3, 1, 1, tie.lite);
+      const y0 = bunchY + 7;
+      const outer = Math.max(side, armOut + 1);
+      const len = Math.max(8, Math.min(bottom - 2, hipY + 2) - y0);
+      for (let j = 0; j <= len; j++) {
+        const y = y0 + j;
+        if (y > bottom) break;
+        const t = j / len;
+        const k = j & 3;
+        const dx = side + Math.round((outer - side) * Math.min(1, t * 3));
+        // The +1 on the middle two rows of every turn is the scallop: it is what
+        // puts the coil into the outline, where it survives being three colours
+        // deep in a crowd of two hundred.
+        const w = Math.min(Math.max(2, Math.round(6 - 4 * t)) + (k === 1 || k === 2 ? 1 : 0),
+                           Math.max(2, W - 1 - cx - dx));
+        b.pair(cx, dx, y, w, 1, k === 0 ? hc.dark : hc.base);
+        b.pair(cx, dx + Math.min(w - 1, k), y, 1, 1, k === 0 ? hc.deep : hc.lite);
+        if (k === 3) b.pair(cx, dx, y, 1, 1, hc.deep);
       }
-      b.pair(cx, side - 1, top + 2, 3, 4, hc.base);
+      const tipY = Math.min(bottom, y0 + len + 1);
+      b.pair(cx, outer, tipY, 2, 1, hc.dark);
+      b.pair(cx, outer, Math.min(bottom, tipY + 1), 1, 1, hc.deep);
+      break;
+    }
+    case 'lowTwin': {
+      // Two tails gathered LOW, at the nape, rather than high at the temples.
+      // Genuinely a different silhouette from `twin` and not a variant of it:
+      // the mass sits BEHIND THE JAW and falls straight, so the head reads small
+      // and the hair reads heavy, which is the whole note on the one character
+      // who wears it. Drawn with `twin` next to it in the roster grid, the two
+      // are told apart by where the ties are and nothing else, so the ties are
+      // the loudest thing in here.
+      //
+      // The mass starts BELOW the crown and widens downward. Squared off level
+      // with the top of the skull it reads as a flat slab with a face under it,
+      // which on the one character in the cast whose hair, robe and skin are all
+      // within two shades of white is the difference between a person and a box.
+      b.taper(cx - side, top + 2, side * 2 + 1, side * 2 + 5, chinY - top - 1, hc.base);
+      b.vline(cx - side - 1, top + 4, chinY - top - 4, hc.dark);
+      b.vline(cx + side + 1, top + 4, chinY - top - 4, hc.dark);
+      b.vline(cx - side, top + 5, chinY - top - 6, hc.lite);
+      b.pair(cx, side - 1, chinY - 2, 3, 1, tie.lite);         // the two low ties
+      b.pair(cx, side - 1, chinY - 1, 3, 3, tie.base);
+      b.pair(cx, side - 1, chinY + 1, 3, 1, tie.dark);
+      const fall = Math.max(6, bootY - chinY);
+      const out = Math.max(side - 1, armOut + 2);
+      for (let j = 0; j < fall; j++) {
+        const y = chinY + 2 + j;
+        if (y > bottom) break;
+        const dx = (side - 1) + Math.round((out - side + 1) * Math.min(1, j / 3));
+        const w = Math.max(2, 4 - ((j * 2 / fall) | 0));
+        b.pair(cx, dx, y, w, 1, j % 4 === 0 ? hc.dark : hc.base);
+        if (j % 4 === 2) b.pair(cx, dx, y, 1, 1, hc.lite);
+      }
+      b.pair(cx, out, Math.min(bottom, chinY + 2 + fall), 2, 1, hc.deep);
       break;
     }
     case 'ponytail':
@@ -1245,6 +1472,35 @@ function drawHairFront(b, m, P, d) {
       break;
   }
 
+  if (d.hairStreak) {
+    // ONE dyed lock in the fringe. `hairTip` is the other half of this problem —
+    // it gradients the WHOLE mass to a second colour — and a brief that asks for
+    // a single streak was getting either the whole head recoloured or nothing at
+    // all. Two columns wide and four rows long: at one column it is a scratch,
+    // and it has to hang past the fringe or it looks like a highlight.
+    const sc = slotRamp(d.hairStreak, d.accent || '#3fb6c8');
+    const x = cx + headR - 4;
+    b.vline(x, brow - 2, 4, sc.base);
+    b.vline(x + 1, brow - 2, 5, sc.dark);
+    b.set(x, brow - 2, sc.lite);
+    b.set(x + 1, brow + 3, sc.deep);
+  }
+  if (d.sideBraid) {
+    // A short braid at one temple, hanging in front of the ear, on a head whose
+    // main style is something else entirely. What says "braid" is the notch
+    // every third row, not the length, so a ten-row one works exactly as well as
+    // the full-length `braid` style and does not cost the character their cut.
+    const bc = typeof d.sideBraid === 'string' ? ramp(d.sideBraid) : hc;
+    const bt = d.hairTie ? slotRamp(d.hairTie, d.accent || '#c8203a') : P.trim;
+    const x = cx - headR;
+    const len = headR + 3;
+    for (let j = 0; j < len; j++) {
+      b.rect(x, brow + j, 2, 1, j % 3 === 2 ? bc.deep : bc.base);
+      if (j % 3 === 0) b.set(x, brow + j, bc.lite);
+    }
+    b.rect(x, brow + len, 2, 1, bt.base);
+    b.set(x, brow + len, bt.lite);
+  }
   if (d.scar) {
     // The fringe parts around it. A scar drawn on top of hair is a smudge; a
     // scar in a window of bare forehead is a scar.
@@ -1268,6 +1524,10 @@ function drawHeadgear(b, m, P, d) {
   // one of the cast has pink hair and GOLD ears, and there is no way to say that
   // without a slot of their own.
   const ec = d.earColor ? slotRamp(d.earColor, hc.base) : hc;
+  // The inner fur used to be a hard-coded pink mix, which is right for exactly
+  // one of the two foxes on the roster. The other one's brief names the colour —
+  // pale blue — and there was no way to say it without repainting both.
+  const ei = d.earInner ? slotRamp(d.earInner, ec.lite).base : mixHex(ec.lite, '#ffc4e0', 0.5);
   const top = headY - headR;
   switch (d.ears) {
     case 'fox':
@@ -1275,13 +1535,14 @@ function drawHeadgear(b, m, P, d) {
       // and they stop reading as a fox and start reading as a rabbit.
       for (const s of [-1, 1]) {
         b.spike(cx + s * (headR - 1) - 2, top, 5, 5, -1, ec.base);
-        b.spike(cx + s * (headR - 1) - 1, top - 1, 3, 3, -1, mixHex(ec.lite, '#ffc4e0', 0.5));
+        b.spike(cx + s * (headR - 1) - 1, top - 1, 3, 3, -1, ei);
         b.set(cx + s * (headR - 1), top - 4, mixHex(ec.lite, WHITE, 0.4));
       }
       break;
     case 'cat':
       for (const s of [-1, 1]) {
         b.spike(cx + s * (headR - 1) - 1, top, 3, 4, -1, ec.base);
+        b.set(cx + s * (headR - 1), top - 2, ei);
         b.set(cx + s * (headR - 1), top - 1, ec.lite);
       }
       break;
@@ -1342,6 +1603,38 @@ function drawHeadgear(b, m, P, d) {
     b.hline(cx - 3, y + 1, 7, pl.dark);
     b.set(cx, y, pl.deep);                                     // the engraving
     b.vline(cx - headR, y + 2, 4, c.dark);                     // the trailing tail
+  }
+  if (d.headdress) {
+    // A FRILLED HEADDRESS — the little servant's cap. It is not a headband and
+    // must never be drawn as one: a headband crosses the BROW and is the flat
+    // dark bar a fighter ties on, whereas this sits ON TOP OF THE HAIR, is pale,
+    // has a scalloped upper edge, and hangs a short ribbon at each side. The
+    // previous pass used `headband` for it and got a sweatband on a maid.
+    //
+    // The frill is the entire read. A plain white band across the crown at this
+    // size is a bandage, so the upper edge alternates a lit pixel and a base
+    // pixel with every fourth scallop standing a row taller — irregular on
+    // purpose, because an even comb of teeth reads as a crown.
+    const c = slotRamp(d.headdress, '#f4f1ea');
+    const r = slotRamp(d.headdressRibbon, typeof d.headdress === 'string' ? d.headdress : '#f4f1ea');
+    const y = Math.max(2, top);
+    const x = cx - headR + 1;
+    const w = headR * 2 - 1;
+    b.rect(x, y, w, 2, c.base);
+    b.hline(x, y + 1, w, c.dark);
+    for (let i = 0; i < w; i++) {
+      b.set(x + i, y - 1, i & 1 ? c.base : c.lite);
+      if ((i & 3) === 1) b.set(x + i, y - 2, mixHex(c.lite, WHITE, 0.5));
+    }
+    // The two short ribbon tails, which are what give the cap a silhouette of
+    // its own instead of a rounded lump the same shape as the skull under it.
+    for (const s of [-1, 1]) {
+      const rx2 = s < 0 ? x - 2 : x + w;
+      b.rect(rx2, y, 2, 2, r.base);
+      b.hline(rx2, y, 2, r.lite);
+      b.set(s < 0 ? rx2 : rx2 + 1, y + 2, r.dark);
+      b.set(s < 0 ? rx2 : rx2 + 1, y + 3, r.deep);
+    }
   }
   if (d.crown) {
     // A narrow band with three TALL points, not a wide bar with a bumpy top.
@@ -1648,10 +1941,51 @@ function drawWeapon(b, m, P, d) {
       break;
     }
     case 'chakram': {
-      const r = Math.max(2, headR - 2);
-      b.ellipse(wx - 1, hipY - 2, r, r, met.base);
-      b.ellipse(wx - 1, hipY - 2, r - 2, r - 2, gold.dark);
-      b.set(wx - 1, hipY - 2 - r, met.lite);
+      // A thrown ring, drawn IN THE AIR beside the head rather than resting at
+      // the hip. Two reasons, and the second is the load-bearing one: a disc is
+      // a weapon that has left the hand, so a disc parked at the waist reads as
+      // a shield; and at hip height on a 30-wide grid the only columns available
+      // are the ones the one character who throws it needs for her hair, so the
+      // prop and her whole silhouette were fighting over the same eight pixels.
+      const r = Math.max(2, headR - 3);
+      const mx = Math.min(wx, W - r - 2);
+      const my = Math.max(r + 1, top);
+      b.ellipse(mx, my, r, r, met.base);
+      b.ellipse(mx, my, r - 1, r - 1, gold.dark);
+      b.set(mx - 1, my - r, mixHex(met.lite, WHITE, 0.5));
+      b.set(mx + r, my + 1, met.dark);
+      // Two motes falling away underneath it, so the ring reads as something
+      // that has just left a hand rather than as jewellery hung in mid-air.
+      b.set(mx, my + r + 2, met.lite);
+      b.set(mx + 1, my + r + 4, met.base);
+      break;
+    }
+    case 'axe': {
+      // A two-handed axe: a long haft and a broad crescent bit with a horn top
+      // and bottom. The bit has to be WIDE — a narrow head on a long stick is a
+      // spear — and the whole note on the character who carries this is that the
+      // thing is far too big for the person holding it, so it is drawn as such.
+      // The head sits ABOVE the shoulder, not on it. Dropped level with the
+      // shoulder it lands on top of a pauldron, and two adjacent greys with a
+      // shared outline are one grey shape: the character was carrying a
+      // slightly larger shoulder plate rather than an axe.
+      const hy = Math.max(top + 4, shoulderY - 4);
+      b.vline(wx, top + 2, bottom - top - 3, grip.base);
+      b.vline(wx + 1, top + 3, bottom - top - 6, grip.dark);
+      b.hline(wx - 1, bottom - 2, 3, gold.base);             // the butt cap
+      for (let j = 0; j < 8; j++) {
+        // How far the outer edge stands off the haft, and how much of that run
+        // is solid. They are not the same number: the two HORNS curve away and
+        // stop short of the haft, and only the middle of the bit reaches back to
+        // the eye. That gap is the difference between an axe and a leaf blade.
+        const o = j < 2 ? 3 + 2 * j : j > 5 ? 3 + 2 * (7 - j) : 7;
+        const bw = j < 3 ? 2 + 2 * j : j > 4 ? 2 + 2 * (7 - j) : 7;
+        b.hline(wx - o, hy + j, bw, j & 1 ? met.base : met.lite);
+      }
+      b.vline(wx - 1, hy + 3, 2, met.deep);                  // the eye
+      b.vline(wx - 7, hy + 3, 2, mixHex(met.lite, WHITE, 0.5));   // the lit edge
+      b.hline(wx - 2, hy - 1, 3, gold.base);                 // the langets
+      b.hline(wx - 2, hy + 8, 3, gold.dark);
       break;
     }
     case 'hammer': {
@@ -1759,17 +2093,43 @@ function drawPortrait(b, d) {
     }
   }
   const backLen = ({ long: 18, bangs: 17, bob: 8, wave: 12, twin: 16, drills: 15,
-                     sidetail: 15, ponytail: 13, braid: 15, ducktail: 7 })[style] || 0;
+                     sidetail: 15, ponytail: 13, braid: 15, ducktail: 7,
+                     lowTwin: 16 })[style] || 0;
   if (backLen) {
     b.pair(cx, rx - 1, headY - ry + 3, 4, backLen, hc.base);
     b.pair(cx, rx + 2, headY - ry + 5, 1, backLen - 4, hc.dark);
     b.pair(cx, rx - 1, headY - ry + 6, 1, backLen - 6, hc.lite);
   }
   if (style === 'drills') {
-    for (let i = 0; i < 5; i++) {
-      b.pair(cx, rx - 1, chinY - 6 + i * 4, Math.max(2, 6 - i), 4, i & 1 ? hc.base : hc.dark);
-      b.pair(cx, rx - 1, chinY - 6 + i * 4, 1, 1, hc.lite);
+    // The same three cues as the world sprite — a scalloped edge, a lit thread
+    // wrapping the coil and a dark seam where it tucks behind itself — with the
+    // room a 40x40 grid buys to actually resolve them. The stacked blocks this
+    // replaced were a staircase, and a staircase is what a drill looks like only
+    // if you have never seen one.
+    const dTop = chinY - 7, dBot = H - 2;
+    const dLen = Math.max(8, dBot - dTop);
+    for (let j = 0; j <= dLen; j++) {
+      const y = dTop + j;
+      if (y >= H) break;
+      const t = j / dLen;
+      const k = j & 3;
+      const dx = rx - 1 + Math.round(3 * Math.min(1, t * 2.5));
+      const w = Math.min(Math.max(3, Math.round(8 - 5 * t)) + (k === 1 || k === 2 ? 1 : 0),
+                         Math.max(3, W - 1 - cx - dx));
+      b.pair(cx, dx, y, w, 1, k === 0 ? hc.dark : hc.base);
+      b.pair(cx, dx + Math.min(w - 1, k), y, 1, 1, k === 0 ? hc.deep : hc.lite);
+      if (k === 3) b.pair(cx, dx, y, 1, 1, hc.deep);
     }
+  }
+  if (style === 'lowTwin') {
+    // Gathered at the NAPE, which on a bust is the one place a hairstyle is
+    // fully in frame — so the ties are drawn big and the fall is drawn straight.
+    b.pair(cx, rx - 1, chinY - 5, 5, 2, tie.lite);
+    b.pair(cx, rx - 1, chinY - 3, 5, 3, tie.base);
+    b.pair(cx, rx - 1, chinY, 5, 1, tie.dark);
+    b.pair(cx, rx - 1, chinY + 1, 5, H - chinY - 1, hc.base);
+    b.pair(cx, rx + 2, chinY + 3, 1, H - chinY - 5, hc.dark);
+    b.pair(cx, rx - 1, chinY + 4, 1, H - chinY - 7, hc.lite);
   }
   if (style === 'twin') {
     b.pair(cx, rx, headY - ry + 1, 5, 5, hc.base);
@@ -1801,6 +2161,19 @@ function drawPortrait(b, d) {
     }
   }
   if (P.tip) b.retint(0, chinY, W, H - chinY, hc, P.tip);
+  if (d.hoodDown) {
+    // Drawn BEFORE the shoulders, so all that survives is the roll of cloth
+    // standing proud of the jaw on each side — which is the only part of a hood
+    // worn down that a head-and-shoulders crop can honestly show.
+    const c = slotRamp(d.hoodDown, d.outfit || '#e8e4dc');
+    const y = chinY - 4;
+    b.taper(cx - rx - 3, y, rx * 2 + 7, rx * 2 + 11, H - y, c.base);
+    b.hline(cx - rx - 2, y, rx * 2 + 5, c.lite);
+    for (const s of [-1, 1]) {
+      b.vline(cx + s * (rx + 2), y + 1, H - y - 2, c.dark);
+      b.set(cx + s * (rx + 3), y + 3, c.lite);
+    }
+  }
 
   // --- shoulders, collar and outfit ----------------------------------------
   const shBot = (W >> 1) - 3;
@@ -1820,6 +2193,20 @@ function drawPortrait(b, d) {
     if (d.coatTrim) {
       b.vline(cx - shBot, shoulderY + 2, H - shoulderY - 2, d.coatTrim);
       b.vline(cx + shBot, shoulderY + 2, H - shoulderY - 2, d.coatTrim);
+    }
+  }
+  if (d.pinafore) {
+    // The bib and its two straps are the whole of an apron that survives a bust,
+    // and they have to: a maid uniform with the pinafore cropped out of the
+    // portrait is a navy dress, which is a different character.
+    const c = slotRamp(d.pinafore, '#f4f1ea');
+    const bw = Math.max(3, shTop - 6);
+    b.rect(cx - bw, shoulderY + 2, bw * 2 + 1, H - shoulderY - 2, c.base);
+    b.hline(cx - bw, shoulderY + 2, bw * 2 + 1, c.lite);
+    b.vline(cx + bw, shoulderY + 3, H - shoulderY - 3, c.dark);
+    for (const s of [-1, 1]) {
+      b.vline(cx + s * bw, shoulderY - 1, 4, c.base);
+      b.set(cx + s * bw, shoulderY - 1, c.lite);
     }
   }
   if (d.pauldrons || d.pauldron) {
@@ -1862,6 +2249,28 @@ function drawPortrait(b, d) {
     b.set(cx - 5, shoulderY + 1, P.trim.deep);
     b.set(cx + 5, shoulderY + 1, P.trim.deep);
   }
+  if (d.neckBow) {
+    // Drawn AFTER the collar rather than instead of it: the ribbon is tied over
+    // whatever the character's neckline already is, and at bust scale there is
+    // finally room for two loops, a knot and two ends that are all separable.
+    const c = slotRamp(d.neckBow, d.accent || '#c8342a');
+    const y = chinY + 2;
+    for (const s of [-1, 1]) {
+      const x = s < 0 ? cx - 7 : cx + 3;
+      b.rect(x, y, 4, 4, c.base);
+      b.hline(x, y, 4, c.lite);
+      b.hline(x, y + 3, 4, c.dark);
+      b.set(s < 0 ? x : x + 3, y + 1, c.deep);
+    }
+    b.rect(cx - 2, y, 5, 4, c.base);                          // the knot
+    b.hline(cx - 2, y, 5, mixHex(c.lite, WHITE, 0.3));
+    b.hline(cx - 2, y + 3, 5, c.dark);
+    b.set(cx, y + 1, c.deep);
+    b.rect(cx - 2, y + 4, 2, 3, c.base);                      // the two ends
+    b.rect(cx + 1, y + 4, 2, 3, c.base);
+    b.hline(cx - 2, y + 6, 2, c.deep);
+    b.hline(cx + 1, y + 6, 2, c.deep);
+  }
   if (d.tie) {
     const t = slotRamp(d.tie, d.accent || '#8a2020');
     b.rect(cx - 2, shoulderY - 1, 5, 3, t.base);
@@ -1897,6 +2306,17 @@ function drawPortrait(b, d) {
   b.ellipse(cx, headY, rx, ry, P.skin.base);
   b.taper(cx - rx + 3, chinY - 5, rx * 2 - 5, 5, 6, P.skin.base);
   b.hline(cx - rx + 4, headY - ry + 1, rx * 2 - 7, P.skin.lite);
+  if (style !== 'none') {
+    // The crown of hair is drawn UNDER the face, and the face ellipse is taller
+    // than the crown's apex is wide: the top row of the skull pokes straight
+    // through the hair, so every single portrait in the game had a five-pixel
+    // BALD SPOT at the crown. Putting the apex back has to be an hline and not
+    // another ellipse, but nine columns is comfortably inside the fifteen the
+    // crown already occupies on that row, so outline() never sees it — which is
+    // the whole reason the highlights above are ellipses and this is allowed to
+    // be a bar.
+    b.hline(cx - 4, headY - ry, 9, hc.base);
+  }
   b.hline(cx - rx + 2, chinY - 4, 3, P.skin.dark);            // jaw shadow
   b.hline(cx + rx - 4, chinY - 4, 3, P.skin.dark);
   b.set(cx - 3, chinY, P.skin.dark);
@@ -2023,6 +2443,26 @@ function drawPortrait(b, d) {
       b.hline(cx - 3, fTop, 7, mixHex(hc.lite, WHITE, 0.3));
       b.hline(cx - 2, fTop + 1, 5, mixHex(hc.lite, WHITE, 0.15));
     }
+    if (d.hairStreak) {
+      const sc = slotRamp(d.hairStreak, d.accent || '#3fb6c8');
+      const x = cx + rx - 7;
+      b.rect(x, fTop, 3, fH + 4, sc.base);
+      b.vline(x + 2, fTop, fH + 5, sc.dark);
+      b.hline(x, fTop, 3, sc.lite);
+      b.set(x + 1, fTop + fH + 4, sc.deep);
+    }
+    if (d.sideBraid) {
+      const bc = typeof d.sideBraid === 'string' ? ramp(d.sideBraid) : hc;
+      const bt = d.hairTie ? slotRamp(d.hairTie, d.accent || '#c8203a') : P.trim;
+      const x = cx - rx - 1;
+      const len = ry + 6;
+      for (let j = 0; j < len; j++) {
+        b.rect(x, fTop + 2 + j, 3, 1, j % 3 === 2 ? bc.deep : bc.base);
+        if (j % 3 === 0) b.hline(x, fTop + 2 + j, 2, bc.lite);
+      }
+      b.rect(x, fTop + 2 + len, 3, 2, bt.base);
+      b.hline(x, fTop + 2 + len, 3, bt.lite);
+    }
     if (d.scar) {
       const x = cx + (d.scar === 'left' ? -6 : 3);
       const y = fTop + 1;
@@ -2039,10 +2479,11 @@ function drawPortrait(b, d) {
   const t = P.trim;
   if (d.ears === 'fox' || d.ears === 'cat') {
     const ec = d.earColor ? slotRamp(d.earColor, hc.base) : hc;
+    const ei = d.earInner ? slotRamp(d.earInner, ec.lite).base : mixHex(ec.lite, '#ff9ecb', 0.4);
     const h = d.ears === 'fox' ? 9 : 6;
     for (const s of [-1, 1]) {
       b.spike(cx + s * (rx - 2) - 3, top + 1, 7, h, -1, ec.base);
-      b.spike(cx + s * (rx - 2) - 2, top, 5, h - 3, -1, mixHex(ec.lite, '#ff9ecb', 0.4));
+      b.spike(cx + s * (rx - 2) - 2, top, 5, h - 3, -1, ei);
       b.set(cx + s * (rx - 2), top - h + 2, mixHex(ec.lite, WHITE, 0.4));
     }
   } else if (d.ears === 'long') {
@@ -2105,6 +2546,48 @@ function drawPortrait(b, d) {
     } else {
       b.rect(x, y, 5, 3, c.base);
       b.hline(x, y, 5, c.lite);
+    }
+  }
+  if (style === 'drills') {
+    // The ribbons, drawn LATE and AT THE ROOT OF THE FALL. In the back-hair pass
+    // they sat under the crown ellipse and half of each one was painted out by
+    // the very hair it is supposed to be tying; up at the temple they read as a
+    // pair of handlebars growing out of the head. They belong exactly where the
+    // coil starts, which is level with the jaw.
+    const ry0 = chinY - 9;
+    for (const s of [-1, 1]) {
+      const x = s < 0 ? cx - rx - 3 : cx + rx - 1;
+      b.rect(x, ry0 + 2, 4, 3, tie.base);                              // the knot
+      b.hline(x, ry0 + 2, 4, tie.lite);
+      b.hline(x, ry0 + 4, 4, tie.dark);
+      b.rect(x, ry0, 4, 2, tie.base);                                  // two loops
+      b.rect(x, ry0 + 5, 4, 2, tie.base);
+      b.hline(x, ry0, 4, tie.lite);
+      b.hline(x, ry0 + 6, 4, tie.deep);
+      b.set(s < 0 ? x + 3 : x, ry0 + 3, tie.deep);
+    }
+  }
+  if (d.headdress) {
+    // The frilled cap, sitting on top of the hair and NOT across the brow. On a
+    // bust it is in frame and unmissable, so the scallops get a full pixel of
+    // travel each instead of the single lit row the world sprite can afford.
+    const c = slotRamp(d.headdress, '#f4f1ea');
+    const r = slotRamp(d.headdressRibbon, typeof d.headdress === 'string' ? d.headdress : '#f4f1ea');
+    const y = Math.max(3, top + 1);
+    const x = cx - rx + 1;
+    const w = rx * 2 - 1;
+    b.rect(x, y, w, 3, c.base);
+    b.hline(x, y + 2, w, c.dark);
+    for (let i = 0; i < w; i++) {
+      b.set(x + i, y - 1, i & 1 ? c.base : c.lite);
+      if ((i & 3) === 1) b.vline(x + i, y - 3, 2, mixHex(c.lite, WHITE, 0.45));
+    }
+    for (const s of [-1, 1]) {
+      const rx2 = s < 0 ? x - 3 : x + w;
+      b.rect(rx2, y, 3, 3, r.base);
+      b.hline(rx2, y, 3, r.lite);
+      b.rect(s < 0 ? rx2 : rx2 + 1, y + 3, 2, 3, r.dark);
+      b.hline(s < 0 ? rx2 : rx2 + 1, y + 5, 2, r.deep);
     }
   }
   if (d.headband) {
