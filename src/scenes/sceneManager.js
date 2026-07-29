@@ -200,6 +200,24 @@ class SceneManager {
   go(id, params) {
     const scene = this.scenes[id];
     if (!scene) { console.warn('[scenes] unknown scene "' + id + '"'); return; }
+
+    // A SECOND go() TO THE SCENE ALREADY IN FLIGHT IS A NO-OP.
+    //
+    // Without this, a caller that asks every frame — which the end-of-run
+    // handler did, because its own guard latch was being cleared too early —
+    // rebuilds `_pending` and re-arms the transition on each of those frames.
+    // The fade restarts before it can finish, so it never finishes, and the
+    // player sits on a screen that is permanently 0.22 seconds from leaving.
+    //
+    // The `_pendingAge` reset below is what made that fatal rather than merely
+    // ugly. That counter is the belt-and-braces escape hatch in updateRealtime:
+    // any transition older than a second completes regardless of the fade. Zeroing
+    // it on every re-arm meant it could never reach one second, so the one
+    // mechanism specifically built to guarantee the player is never stranded was
+    // the mechanism keeping them stranded. It is reset for a genuinely NEW
+    // destination and left alone otherwise.
+    if (this._pending && this._pending.id === id) return;
+
     this._pending = { id, scene, params: params || EMPTY };
     this._pendingAge = 0;
     this._armTransition(ui.takeSource());

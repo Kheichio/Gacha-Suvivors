@@ -41,6 +41,10 @@ export const runScene = {
 
   enter(params, mgr) {
     this.manager = mgr;
+    // The one place the finish latch is cleared. A scene object is a singleton
+    // reused for every run, so a latch left set by the previous run would make
+    // the next death silent.
+    this._finishing = false;
     const shared = mgr.shared;
     const cfg = {
       characterId: params.characterId || shared.characterId,
@@ -160,7 +164,14 @@ export const runScene = {
       save.save();
     } catch (e) { /* a failed ticket must never block the transition */ }
 
-    this._finishing = false;
+    // `_finishing` STAYS SET. It is a one-way latch for the life of this scene,
+    // cleared only by enter(), and clearing it here instead is what stranded the
+    // player on the death card: updateRealtime() keeps running for as long as
+    // this scene is current, the run is still in DEFEAT, and endT is still past
+    // 2.2 — so _finish() fired again on the very next frame, and every frame
+    // after that. Each one re-armed the scene transition from scratch, so the
+    // cross-fade restarted forever and never completed, and each one also wrote
+    // the pendingRun claim ticket to disk, at sixty saves a second.
     this.manager.go('results');
   },
 

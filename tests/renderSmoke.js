@@ -647,6 +647,86 @@ describe('render / the screen is not black', () => {
     if (scene.exit) scene.exit();
   });
 
+  it('DYING GETS YOU OFF THE DEATH CARD', () => {
+    // The worst class of bug this game can have: not a crash, not a black
+    // screen, but a player who cannot leave. It shipped once. `runScene._finish`
+    // cleared its own re-entry latch on the way out, so updateRealtime() — which
+    // keeps running for as long as the run scene is current and the run is still
+    // in DEFEAT — called it again on the very next frame, and every frame after.
+    // Each call re-armed the scene transition from scratch, so the cross-fade
+    // restarted before it could ever finish AND the belt-and-braces "any
+    // transition older than a second completes" hatch had its age reset too. The
+    // player sat on RUN OVER, permanently 0.22 seconds from leaving.
+    //
+    // Nothing else in the suite could see it: every other test calls
+    // scene.render() directly and never drives the manager's frame loop, which
+    // is the only place a transition actually advances. So this one drives the
+    // real loop — update, updateRealtime, render — exactly as main.js does.
+    const DT = 1 / 60;
+    const frame = () => {
+      sceneManager.update(DT);
+      sceneManager.updateRealtime(DT);
+      renderer.beginFrame(sceneManager.clearColor());
+      sceneManager.render(renderer, 0.5);
+      renderer.endFrame();
+    };
+    const settle = (target, maxSeconds) => {
+      for (let i = 0; i < 60 * maxSeconds; i++) {
+        frame();
+        if (sceneManager.currentId === target) return i * DT;
+      }
+      return -1;
+    };
+
+    const failures = [];
+    // Twice, because the latch that fixes this is cleared in enter() — a second
+    // run has to end as cleanly as the first, or the fix has merely moved the
+    // bug to "you can die once per page load".
+    for (const attempt of [1, 2]) {
+      sceneManager.go('hub');
+      settle('hub', 3);
+      sceneManager.go('run', {
+        characterId: data.characters.CHARACTERS[0].id,
+        stageId: data.stages.STAGES[0].id, tierIndex: 0, seed: 900 + attempt,
+      });
+      if (settle('run', 3) < 0) { failures.push(`attempt ${attempt}: never entered the run`); continue; }
+      for (let i = 0; i < 60; i++) frame();
+
+      const live = sceneManager.scenes.run.run;
+      if (!live) { failures.push(`attempt ${attempt}: the run scene has no run`); continue; }
+      live.damageSelf(1e9);
+
+      // The death card holds for ~2.2s by design; 12 seconds is ample.
+      const took = settle('results', 12);
+      if (took < 0) failures.push(`attempt ${attempt}: STUCK on the death card after 12s`);
+      else if (took > 5) failures.push(`attempt ${attempt}: took ${took.toFixed(1)}s to leave`);
+    }
+    assert.equal(failures.length, 0, failures.join('\n      '));
+  });
+
+  it('every screen can be navigated to and actually arrives', () => {
+    // The same failure mode, one step out: a transition that never completes
+    // strands the player wherever they were, and `go()` returning normally is
+    // not evidence that anything happened.
+    const DT = 1 / 60;
+    const frame = () => {
+      sceneManager.update(DT);
+      sceneManager.updateRealtime(DT);
+      renderer.beginFrame(sceneManager.clearColor());
+      sceneManager.render(renderer, 0.5);
+      renderer.endFrame();
+    };
+    const failures = [];
+    for (const id of ['hub', 'roster', 'shrine', 'gacha', 'codex',
+                      'achievements', 'quests', 'stageSelect', 'settings', 'hub']) {
+      sceneManager.go(id);
+      let arrived = false;
+      for (let i = 0; i < 180 && !arrived; i++) { frame(); arrived = sceneManager.currentId === id; }
+      if (!arrived) failures.push(`${id}: go() never arrived`);
+    }
+    assert.equal(failures.length, 0, failures.join('\n      '));
+  });
+
   it('a gacha pull resolves end to end and persists before revealing', () => {
     // The anti-save-scum contract: the meta RNG position must be written to
     // storage BEFORE the caller can see a result.
