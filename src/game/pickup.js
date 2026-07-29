@@ -22,7 +22,7 @@ import { applySlow } from './statusEffects.js';
 
 export const PICKUP_KIND = {
   GEM: 0, GOLD: 1, HEART: 2, MAGNET: 3, BOMB: 4, BENTO: 5,
-  HOURGLASS: 6, CHEST: 7, GOLD_CHEST: 8, SHRINE: 9, RELIC: 10,
+  HOURGLASS: 6, CHEST: 7, GOLD_CHEST: 8, SHRINE: 9, RELIC: 10, WEAPON: 11,
 };
 
 function makePickup() {
@@ -124,6 +124,18 @@ export class PickupSystem {
   dropChest(x, y, gold) {
     const p = this.dropPickup(x, y, gold ? 'gold_chest' : 'chest');
     if (p) p.kind = gold ? PICKUP_KIND.GOLD_CHEST : PICKUP_KIND.CHEST;
+    return p;
+  }
+
+  /**
+   * A boss weapon crate. The PAYLOAD IS THE WEAPON DEFINITION ITSELF, not its
+   * id: draw() prints the weapon's icon and name above the crate every frame it
+   * is on screen, and a map lookup per crate per frame to recover something the
+   * caller already had in its hand would be a lookup for nothing.
+   */
+  dropWeapon(x, y, def) {
+    const p = this.dropPickup(x, y, 'weapon_crate', def);
+    if (p) particles.ring(x, y, 14, '#6ad8ff', 240);
     return p;
   }
 
@@ -359,6 +371,12 @@ export class PickupSystem {
       case PICKUP_KIND.RELIC:
         run.offerRelic(g.payload);
         break;
+      case PICKUP_KIND.WEAPON:
+        // run.takeWeaponDrop owns the "is this still worth anything" question
+        // and its own floater, because it is the only thing that knows whether
+        // the slot it was going to fill is still free.
+        run.takeWeaponDrop(g.payload);
+        break;
       case PICKUP_KIND.SHRINE:
         // Stationary interactable — handled by run.update proximity, not consumed.
         return;
@@ -380,10 +398,41 @@ export class PickupSystem {
       const pulse = 1 + Math.sin(g.bob) * 0.10;
       const yOff = g.kind >= PICKUP_KIND.HEART ? Math.sin(g.bob * 0.7) * 3 : 0;
       r.drawSprite(g.sprite, x, y + yOff, 0, g.scale * pulse, 1, false, 0);
+
+      // THE WEAPON CRATE NAMES ITSELF, IN THE WORLD, FOR AS LONG AS IT LIES
+      // THERE.
+      //
+      // Everything else on this list is a thing you already know from its
+      // colour: the red one heals, the purple one stops time. A weapon crate is
+      // a PERMANENT SLOT DECISION a boss just handed you, and "walk over the
+      // blue box and find out what was in it" is not a decision — it is a coin
+      // flip the player is not allowed to decline. So it prints the weapon's
+      // own icon and name above itself and lets them choose.
+      //
+      // drawText's docstring says never to call it per entity. That warning is
+      // about damage numbers — hundreds a second, which is why they have their
+      // own pre-rastered glyph path. A stage drops at most four or five crates
+      // in twenty minutes and rarely two at once, which is the same volume the
+      // floaters layer already spends this exact call on.
+      if (g.kind === PICKUP_KIND.WEAPON && g.payload) {
+        const ly = y + yOff - g.radius - 12;
+        r.drawText(g.payload.icon + ' ' + g.payload.name, x, ly, WEAPON_LABEL);
+        r.drawText('WEAPON DROP', x, ly - 15, WEAPON_LABEL_SUB);
+      }
     }
     r.setAlpha(1);
   }
 }
+
+// Per-frame option bags are module-level constants, never built inside draw().
+const WEAPON_LABEL = {
+  size: 15, weight: 800, color: '#cfefff', align: 'center', baseline: 'middle',
+  outline: true,
+};
+const WEAPON_LABEL_SUB = {
+  size: 11, weight: 800, color: '#6ad8ff', align: 'center', baseline: 'middle',
+  outline: true,
+};
 
 const GOLD_VISUAL = { shape: 'circle', color: '#ffd76a', accent: '#7a5200', size: 6, glow: true };
 const RELIC_VISUAL = { shape: 'star', color: '#ffd76a', accent: '#6b4200', size: 15, glow: true };
@@ -393,4 +442,5 @@ const KIND_FROM_ID = {
   coin_pile: PICKUP_KIND.GOLD, bento_box: PICKUP_KIND.BENTO,
   hourglass: PICKUP_KIND.HOURGLASS, chest: PICKUP_KIND.CHEST,
   gold_chest: PICKUP_KIND.GOLD_CHEST, shrine: PICKUP_KIND.SHRINE,
+  weapon_crate: PICKUP_KIND.WEAPON,
 };

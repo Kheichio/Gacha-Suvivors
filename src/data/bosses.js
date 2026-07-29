@@ -26,6 +26,29 @@
 // Mid-bosses sit at ~42% of their stage boss. Named elites at ~15%.
 // Implied single-target DPS to hit a 40s kill: 63 (S1) rising to 950 (S7).
 //
+// THE FINALE MULTIPLIER. Play report: "make final bosses two-three stages long,
+// make them have much more hp so its harder to kill them." `finaleHpMult` is
+// 2.5 on all seven stage bosses and on nothing else, and game/boss.js applies it
+// in spawn() ONLY when the boss walks on as its own stage's closer:
+//   S1 6,250  S2 10,000  S3 15,750  S4 24,500  S5 38,000  S6 60,000  S7 95,000
+// A 25-50s raw bar becomes 62-125s; each phase break hands back a stagger window
+// worth roughly 10-15% of the fight, so an average build now spends about 55-110
+// SECONDS on a finale instead of 25-50. The number in `hp` deliberately does not
+// move: it is what the Grand Finale's x8 elite pass multiplies (a x2.5 baked in
+// would make four roaming recap elites 300,000-HP roadblocks), it is what the
+// codex quotes, and it is the rung the mid-boss ladder is measured against.
+//
+// MID-BOSSES DO NOT CARRY THE FIELD, and must not. Their 1,100 -> 15,600
+// staircase is the carefully tuned 1.8x ladder documented in data/stages.js,
+// which borrows rungs across stages; moving one number there moves three fights.
+//
+// A PHASE IS A DIFFERENT FIGHT. Every final boss's phase list is now DISJOINT
+// from the phase before it — not the previous list plus one, which is the shape
+// that makes a long fight a repetitive one. A phase may call BACK to an earlier
+// one (the President's phase three reopens with the paperwork, at half the
+// spacing), and a weak-point WINDOW is allowed to span a boundary because it is
+// a mechanic rather than an attack. Those are the only two exceptions.
+//
 // STAR FRAGMENT AWARDS are fixed by DECISIONS.md §1 and are not tunable here:
 // final boss 20, mid-boss 10. Named elites award 0 (they pay in chests) so the
 // Stage 7 "Grand Finale" modifier — which respawns old bosses as elites every
@@ -33,6 +56,25 @@
 // states exactly what it becomes in that mode.
 //
 // SCHEMA EXTENSIONS used below, beyond the base fields:
+//   finaleHpMult    HP multiplier applied ONLY when this boss is its stage's
+//                   closer. See THE FINALE MULTIPLIER above for why it lives
+//                   here and not in `hp`.
+//   duration        seconds the ACTIVE half of an attack runs, after its
+//                   telegraph. Authored on the FINAL bosses only: without it an
+//                   attack resolves one tick after it fires, which is correct
+//                   for a slam and nonsense for a six-second sweeping laser.
+//   attackRateMult  per phase. Cooldowns are DIVIDED by it, so 1.45 means "the
+//                   gaps between moves shrink by a third".
+//   telegraphMult   per phase. Wind-ups are MULTIPLIED by it and then clamped at
+//                   `telegraphFloor`. A phase may hurry a boss; it may never
+//                   make one unreadable.
+//   transition      the BREAK on entering this phase: { stagger, vuln, vulnTail,
+//                   slowmo, slowmoT, recover }. The boss stops dead for
+//                   `stagger` seconds, takes `vuln`x damage for that plus
+//                   `vulnTail`, and the whole game drops to `slowmo` speed for a
+//                   beat while the grade, the shockwave and its bark land. That
+//                   free window is what stops 2.5x the health being 2.5x the
+//                   fight, and it is why the last phase can afford to be fast.
 //   telegraphFloor  Enrage may shorten cooldowns but never pushes a telegraph
 //                   under this. 0.8s is the spec's floor and it is load-bearing.
 //   safeColor       On an attack that leaves a gap or a safe island, the colour
@@ -77,6 +119,12 @@ export const ATTACK_KINDS = [
 
 // -----------------------------------------------------------------------------
 // STAGE 1 BOSS — CHERRY BLOSSOM ACADEMY
+//
+// The teaching finale, so its three phases are three lessons in order: read a
+// wind-up, then handle a crowd while you read a wind-up, then do both at speed
+// with the floor closing in. Nothing in phase three is new — phase three is
+// phases one and two on top of each other, which is the only honest way to end a
+// tutorial boss.
 // -----------------------------------------------------------------------------
 const STUDENT_COUNCIL_PRESIDENT = {
   id: 'student_council_president',
@@ -85,7 +133,7 @@ const STUDENT_COUNCIL_PRESIDENT = {
   kind: 'boss',
   stage: 'cherry_academy',
   quote: '"You are four minutes late. I have prepared a form for that."',
-  hp: 2500, damage: 0, speed: 40, weight: 99, xp: 300, size: 'large',
+  hp: 2500, finaleHpMult: 2.5, damage: 0, speed: 40, weight: 99, xp: 300, size: 'large',
   element: 'light',
   contactDamage: false,
   telegraphFloor: 0.8,
@@ -103,25 +151,35 @@ const STUDENT_COUNCIL_PRESIDENT = {
     death: 'Fine. Fine! I will... amend the schedule.',
   },
   phases: [
+    // LESSON ONE: two moves, wide spacing, nothing else on the roof.
     { name: 'Paperwork', hpFrom: 1.0, hpTo: 0.66, speedMult: 1.0,
+      attackRateMult: 1.0, telegraphMult: 1.0,
       attacks: ['paperwork_barrage', 'chalk_cleave'] },
-    { name: 'The Disciplinary Committee', hpFrom: 0.66, hpTo: 0.33, speedMult: 1.05,
-      attacks: ['paperwork_barrage', 'chalk_cleave', 'committee_summon'] },
-    { name: 'DETENTION', hpFrom: 0.33, hpTo: 0.0, speedMult: 1.25, enrage: true,
-      attacks: ['paperwork_barrage', 'roll_call_sweep', 'red_tape_ring', 'committee_summon'] },
+    // LESSON TWO: a completely different fight — the roof fills up, and every
+    // wind-up now has to be read through a crowd.
+    { name: 'The Disciplinary Committee', hpFrom: 0.66, hpTo: 0.33, speedMult: 1.08,
+      attackRateMult: 1.2, telegraphMult: 0.95,
+      transition: { stagger: 1.5, vuln: 2.2, vulnTail: 1.4, slowmo: 0.35, slowmoT: 0.45 },
+      attacks: ['committee_summon', 'filing_cabinet_drop', 'roll_call_sweep'] },
+    // LESSON THREE: everything from lesson one again, at two thirds the spacing,
+    // inside a ring that will not stop closing.
+    { name: 'DETENTION', hpFrom: 0.33, hpTo: 0.0, speedMult: 1.28, enrage: true,
+      attackRateMult: 1.45, telegraphMult: 0.85,
+      transition: { stagger: 1.8, vuln: 2.5, vulnTail: 1.6, slowmo: 0.25, slowmoT: 0.6 },
+      attacks: ['red_tape_ring', 'final_notice', 'paperwork_barrage', 'chalk_cleave'] },
   ],
   attacks: {
     paperwork_barrage: {
       name: 'Paperwork Barrage', kind: 'homingProjectile', telegraph: 0.9,
-      telegraphColor: 'yellow', cooldown: 5.0, damage: 14,
+      telegraphColor: 'yellow', cooldown: 5.0, damage: 14, color: '#ffe9b0',
       params: { count: 8, speed: 165, turnRate: 1.3, life: 5.5, spread: 1.4 },
       desc: 'Eight forms, in triplicate. They already know your name.',
     },
     chalk_cleave: {
-      name: 'Blackboard Cleave', kind: 'lineSweep', telegraph: 1.0,
+      name: 'Blackboard Cleave', kind: 'lineSweep', telegraph: 1.0, duration: 1.4,
       telegraphColor: 'red', cooldown: 7, damage: 22,
       params: { columns: 1, width: 150, sweepSpeed: 430, axis: 'horizontal' },
-      desc: 'One chalk-dust guillotine wipes the roof clean, left to right.',
+      desc: 'One chalk-dust guillotine wipes the roof clean, left to right, in 1.4s.',
     },
     committee_summon: {
       name: 'The Disciplinary Committee', kind: 'summonAdds', telegraph: 0.8,
@@ -132,20 +190,35 @@ const STUDENT_COUNCIL_PRESIDENT = {
       },
       desc: 'Ten students and three desks file in. Attendance is, of course, perfect.',
     },
+    // Phase two's own move, so the summon phase is a phase and not a pause.
+    filing_cabinet_drop: {
+      name: 'Filing Cabinet Drop', kind: 'aoeCircle', telegraph: 1.0,
+      telegraphColor: 'red', cooldown: 7, damage: 30,
+      params: { count: 5, radius: 155, spread: 400 },
+      desc: 'Five cabinets of everything you have ever been late for, dropped where you are standing.',
+    },
     roll_call_sweep: {
-      name: 'Roll Call', kind: 'rotatingSweep', telegraph: 1.0,
+      name: 'Roll Call', kind: 'rotatingSweep', telegraph: 1.0, duration: 5,
       telegraphColor: 'yellow', cooldown: 9, damage: 26,
-      params: { arms: 2, length: 520, angularSpeed: 1.5, duration: 5, width: 70 },
-      desc: 'Two clipboard beams sweep at 86 deg/s. Walk with them, not against them.',
+      params: { arms: 2, length: 520, angularSpeed: 1.5, width: 70 },
+      desc: 'Two clipboard beams sweep at 86 deg/s for 5s. Walk with them, not against them.',
     },
     red_tape_ring: {
-      name: 'Red Tape', kind: 'shrinkingRing', telegraph: 1.2,
+      name: 'Red Tape', kind: 'shrinkingRing', telegraph: 1.2, duration: 6,
       telegraphColor: 'red', safeColor: 'blue', cooldown: 18, damage: 34,
       params: {
         startRadius: 620, endRadius: 190, closeTime: 6, gapCount: 1, gapArc: 0.55,
         tickDamage: 34, tickRate: 0.5,
       },
       desc: 'Tape closes from 620px to 190px over 6s. Exactly one gap. Find it.',
+    },
+    // The enrage's signature: a fan wide enough that walking out of it is not an
+    // option, which is what makes the closing ring behind it a real decision.
+    final_notice: {
+      name: 'Final Notice', kind: 'projectileSpread', telegraph: 0.9,
+      telegraphColor: 'yellow', cooldown: 6.5, damage: 28, color: '#ff5f8f',
+      params: { count: 13, arc: 2.5, speed: 330, life: 3.0, waves: 2, waveDelay: 0.5, rotatePerWave: 0.12 },
+      desc: 'Thirteen slips a wave, twice, rotating 7 degrees. The gap does not stay where you found it.',
     },
   },
 };
@@ -160,7 +233,7 @@ const THE_ALGORITHM = {
   kind: 'boss',
   stage: 'neon_akiba',
   quote: '"Users who died to this also died to..."',
-  hp: 4000, damage: 0, speed: 34, weight: 99, xp: 400, size: 'large',
+  hp: 4000, finaleHpMult: 2.5, damage: 0, speed: 34, weight: 99, xp: 400, size: 'large',
   element: 'lightning',
   contactDamage: false,
   telegraphFloor: 0.8,
@@ -178,24 +251,32 @@ const THE_ALGORITHM = {
     death: 'Recommendation... withdrawn.',
   },
   phases: [
+    // THE FEED: everything comes down the screen at you in lanes.
     { name: 'Infinite Scroll', hpFrom: 1.0, hpTo: 0.66, speedMult: 1.0,
+      attackRateMult: 1.0, telegraphMult: 1.0,
       attacks: ['scroll_lasers', 'subscribe_popups'] },
-    { name: 'Recommended For You', hpFrom: 0.66, hpTo: 0.33, speedMult: 1.0,
-      attacks: ['scroll_lasers', 'subscribe_popups', 'mirror_build'] },
+    // THE PROFILE: it stops sending you things and starts sending you YOU.
+    { name: 'Recommended For You', hpFrom: 0.66, hpTo: 0.33, speedMult: 1.05,
+      attackRateMult: 1.25, telegraphMult: 0.92,
+      transition: { stagger: 1.4, vuln: 2.2, vulnTail: 1.4, slowmo: 0.35, slowmoT: 0.45 },
+      attacks: ['mirror_build', 'sponsored_break', 'doomscroll'] },
+    // THE METRIC: the interface stops pretending to be an interface.
     { name: 'ENGAGEMENT', hpFrom: 0.33, hpTo: 0.0, speedMult: 1.3, enrage: true,
-      attacks: ['scroll_lasers', 'subscribe_popups', 'mirror_build', 'feed_collapse'] },
+      attackRateMult: 1.5, telegraphMult: 0.85,
+      transition: { stagger: 1.8, vuln: 2.5, vulnTail: 1.6, slowmo: 0.25, slowmoT: 0.6 },
+      attacks: ['feed_collapse', 'watch_time', 'scroll_lasers', 'subscribe_popups'] },
   ],
   attacks: {
     scroll_lasers: {
-      name: 'Infinite Scroll', kind: 'lineSweep', telegraph: 1.0,
+      name: 'Infinite Scroll', kind: 'lineSweep', telegraph: 1.0, duration: 1.7,
       telegraphColor: 'red', cooldown: 6, damage: 38,
       params: { columns: 4, width: 110, sweepSpeed: 520, axis: 'vertical' },
-      desc: 'Four columns of feed sweep down the arena.',
+      desc: 'Four columns of feed sweep the whole arena top to bottom in 1.7s.',
     },
     subscribe_popups: {
       name: 'SUBSCRIBE', kind: 'homingProjectile', telegraph: 0.8,
       telegraphColor: 'yellow', cooldown: 4.5, damage: 26,
-      params: { count: 6, speed: 190, turnRate: 1.6, life: 6 },
+      params: { count: 6, speed: 190, turnRate: 1.6, life: 6, spread: 1.5 },
       desc: 'Six UI elements peel off the interface and come for you personally.',
     },
     mirror_build: {
@@ -204,11 +285,31 @@ const THE_ALGORITHM = {
       params: { powerMult: 0.7, duration: 8, source: 'autoAttack', copiesUpgrades: true, copiesRelics: false },
       desc: 'It fires your own auto-attack back at you for 8s at 70% power.',
     },
+    // Phase two's filler between mirrors, and the reason the phase has a pulse
+    // instead of a sixteen-second silence.
+    sponsored_break: {
+      name: 'Sponsored Break', kind: 'projectileSpread', telegraph: 0.9,
+      telegraphColor: 'yellow', cooldown: 5.5, damage: 28, color: '#ffd23f',
+      params: { count: 12, arc: 2.1, speed: 340, life: 3.2, waves: 2, waveDelay: 0.4, rotatePerWave: -0.13 },
+      desc: 'Twelve banners a wave, twice, rotating the other way each time.',
+    },
+    doomscroll: {
+      name: 'Doomscroll', kind: 'rotatingSweep', telegraph: 1.0, duration: 5,
+      telegraphColor: 'red', cooldown: 11, damage: 32,
+      params: { arms: 3, length: 600, angularSpeed: 1.4, width: 84 },
+      desc: 'Three columns of feed pinned to the boss and turning at 80 deg/s for 5s.',
+    },
     feed_collapse: {
       name: 'FEED COLLAPSE', kind: 'radialBurst', telegraph: 1.2,
-      telegraphColor: 'red', safeColor: 'blue', cooldown: 20, damage: 44,
-      params: { rings: 3, projectiles: 24, speed: 240, gapArc: 0.5, ringDelay: 0.8 },
-      desc: 'Three rings collapse inward, 0.8s apart. Each has one gap. They do not line up.',
+      telegraphColor: 'red', safeColor: 'blue', cooldown: 20, damage: 44, color: '#ff2d95',
+      params: { rings: 3, projectiles: 24, speed: 240, gapArc: 0.5, ringDelay: 0.8, life: 5 },
+      desc: 'Three rings, 0.8s apart. Each has one gap. They do not line up.',
+    },
+    watch_time: {
+      name: 'WATCH TIME', kind: 'beamContinuous', telegraph: 1.2, duration: 2.8,
+      telegraphColor: 'white', cooldown: 15, damage: 20, color: '#ff2d95',
+      params: { width: 170, length: 1700, turnRate: 0.55, tickRate: 0.2 },
+      desc: 'It looks straight at you for 2.8s and tracks at 32 deg/s. Sideways, and keep going.',
     },
   },
 };
@@ -225,7 +326,7 @@ const THE_COLOSSUS = {
   kind: 'boss',
   stage: 'wall_amaris',
   quote: '"It does not speak. The steam arrives first, and that is the warning."',
-  hp: 6300, damage: 0, speed: 26, weight: 99, xp: 560, size: 'large',
+  hp: 6300, finaleHpMult: 2.5, damage: 0, speed: 26, weight: 99, xp: 560, size: 'large',
   element: 'steel',
   contactDamage: false,
   telegraphFloor: 0.8,
@@ -256,42 +357,67 @@ const THE_COLOSSUS = {
     death: '(the steam stops. the quiet is the loudest part)',
   },
   phases: [
+    // GROUND LEVEL. Two hands, nothing above waist height, no way up yet.
     { name: 'The Hands', hpFrom: 1.0, hpTo: 0.66, speedMult: 1.0,
+      attackRateMult: 1.0, telegraphMult: 1.0,
       attacks: ['ground_slam', 'steam_blast'] },
-    { name: 'Steam Ascent', hpFrom: 0.66, hpTo: 0.33, speedMult: 1.1,
-      attacks: ['ground_slam', 'steam_blast', 'the_grab', 'nape_exposed'] },
-    { name: 'FULL PRESSURE', hpFrom: 0.33, hpTo: 0.0, speedMult: 1.2, enrage: true,
-      attacks: ['ground_slam', 'steam_blast', 'the_grab', 'heat_wave', 'nape_exposed'] },
+    // THE CLIMB. The whole phase is vertical: the grab is what it does when you
+    // are down, the rake is what it does when you are running for a vent, and
+    // the nape is what you get for arriving. `nape_exposed` is the one entry
+    // allowed to span a boundary — it is a mechanic, not an attack.
+    { name: 'Steam Ascent', hpFrom: 0.66, hpTo: 0.33, speedMult: 1.12,
+      attackRateMult: 1.15, telegraphMult: 0.95,
+      transition: { stagger: 1.6, vuln: 2.2, vulnTail: 1.5, slowmo: 0.35, slowmoT: 0.5 },
+      attacks: ['the_grab', 'piston_rake', 'nape_exposed'] },
+    // EVERY VENT AT ONCE. Back to the ground, and the ground is now on fire.
+    { name: 'FULL PRESSURE', hpFrom: 0.33, hpTo: 0.0, speedMult: 1.24, enrage: true,
+      attackRateMult: 1.4, telegraphMult: 0.85,
+      transition: { stagger: 2.0, vuln: 2.5, vulnTail: 1.6, slowmo: 0.22, slowmoT: 0.65 },
+      attacks: ['heat_wave', 'boiler_burst', 'ground_slam', 'steam_blast', 'nape_exposed'] },
   ],
   attacks: {
     ground_slam: {
       name: 'Palm Strike', kind: 'groundSlam', telegraph: 1.1,
       telegraphColor: 'red', cooldown: 6.5, damage: 36,
       params: { radius: 300, shockwaves: 2, waveSpeed: 420, waveWidth: 90, hand: 'alternating' },
-      desc: 'A palm the size of a house. Two shockwaves ripple out at 420px/s.',
+      desc: 'A palm the size of a house, then two shockwaves out of the crater 0.35s apart.',
     },
     steam_blast: {
       name: 'Steam Vent', kind: 'steamVent', telegraph: 1.0,
       telegraphColor: 'red', safeColor: 'blue', cooldown: 8, damage: 30,
-      params: { vents: 5, radius: 150, riseTime: 1.4, liftDuration: 2.0, climbable: true },
+      params: { vents: 5, radius: 150, distance: 300, riseTime: 1.4, liftDuration: 2.0, climbable: true },
       desc: 'Five vents blow. Stand in one AFTER it fires and the updraft carries you to the nape.',
     },
     the_grab: {
-      name: 'The Grab', kind: 'grabQte', telegraph: 1.2,
+      name: 'The Grab', kind: 'grabQte', telegraph: 1.2, duration: 2.6,
       telegraphColor: 'yellow', cooldown: 22, damage: 45,
       // DECISIONS.md §17: never a keyboard-only mash. Any ability key, any
       // gamepad face button, or a screen tap all count as one input.
       params: { mashCount: 8, window: 2.5, anyInput: true, reach: 340, crushDamage: 45 },
       desc: 'A fist closes around you. 8 inputs in 2.5s to break out — any key, any button, any tap.',
     },
+    // Phase two's own move. Low, wide and horizontal, so the answer to it is to
+    // keep moving toward a vent rather than to stand and trade.
+    piston_rake: {
+      name: 'Piston Rake', kind: 'lineSweep', telegraph: 1.0, duration: 1.6,
+      telegraphColor: 'red', cooldown: 8, damage: 34,
+      params: { columns: 3, width: 130, sweepSpeed: 460, axis: 'horizontal' },
+      desc: 'Three fingers drag across the ruin left to right over 1.6s. The gaps between them are the road.',
+    },
     heat_wave: {
-      name: 'Heat Wave', kind: 'coneBreath', telegraph: 1.0,
-      telegraphColor: 'red', cooldown: 10, damage: 34,
-      params: { angle: 1.1, range: 760, duration: 1.6, tickRate: 0.25 },
-      desc: 'Exposed muscle vents a 760px cone of live steam for 1.6s.',
+      name: 'Heat Wave', kind: 'coneBreath', telegraph: 1.0, duration: 1.8,
+      telegraphColor: 'red', cooldown: 10, damage: 34, color: '#ffb37a',
+      params: { arc: 1.1, range: 760, trackRate: 0.5, tickRate: 0.25 },
+      desc: 'Exposed muscle vents a 760px cone of live steam for 1.8s, tracking at 29 deg/s.',
+    },
+    boiler_burst: {
+      name: 'Boiler Burst', kind: 'radialBurst', telegraph: 1.1,
+      telegraphColor: 'red', safeColor: 'blue', cooldown: 12, damage: 36, color: '#ffd7a3',
+      params: { rings: 2, projectiles: 20, speed: 285, gapArc: 0.55, ringDelay: 0.7, life: 4 },
+      desc: 'Two rings of scale and boiling water, 0.7s apart. One gap each, and they are not the same gap.',
     },
     nape_exposed: {
-      name: 'Nape Exposed', kind: 'weakPoint', telegraph: 0,
+      name: 'Nape Exposed', kind: 'weakPoint', telegraph: 0, duration: 6,
       telegraphColor: 'blue', cooldown: 0, damage: 0,
       params: { multiplier: 3.0, window: 6, requires: 'steam_vent_lift', part: 'nape' },
       desc: 'Ride a vent up and the nape takes 3x for 6 seconds. This is the whole fight.',
@@ -312,7 +438,7 @@ const THE_SEALED_BEAST = {
   kind: 'boss',
   stage: 'hidden_ember',
   quote: '"CHAINS. AGAIN. YOU PEOPLE HAVE NO OTHER IDEAS."',
-  hp: 9800, damage: 0, speed: 30, weight: 99, xp: 760, size: 'large',
+  hp: 9800, finaleHpMult: 2.5, damage: 0, speed: 30, weight: 99, xp: 760, size: 'large',
   element: 'fire',
   contactDamage: false,
   telegraphFloor: 0.8,
@@ -367,31 +493,41 @@ const THE_SEALED_BEAST = {
     death: 'Hah. HAH! Fine. Keep the tails, kid.',
   },
   phases: [
+    // BOUND. It cannot leave the seal circle, so everything is melee-range and
+    // physical: a tail, then the whole body against the wards.
     { name: 'Bound', hpFrom: 1.0, hpTo: 0.66, speedMult: 1.0,
+      attackRateMult: 1.0, telegraphMult: 1.0,
       attacks: ['tail_sweep', 'seal_slam'] },
-    { name: 'Straining The Seals', hpFrom: 0.66, hpTo: 0.33, speedMult: 1.12,
-      attacks: ['tail_sweep', 'seal_slam', 'foxfire_beam', 'foxfire_summon'] },
-    { name: 'NINE TAILS UNBOUND', hpFrom: 0.33, hpTo: 0.0, speedMult: 1.3, enrage: true,
-      attacks: ['tail_sweep', 'seal_slam', 'foxfire_beam', 'foxfire_summon', 'chain_lash'] },
+    // STRAINING. The chains give it enough slack to work at RANGE — a completely
+    // different set of problems, and the phase where the arena stops being empty.
+    { name: 'Straining The Seals', hpFrom: 0.66, hpTo: 0.33, speedMult: 1.14,
+      attackRateMult: 1.2, telegraphMult: 0.95,
+      transition: { stagger: 1.6, vuln: 2.2, vulnTail: 1.5, slowmo: 0.35, slowmoT: 0.5 },
+      attacks: ['foxfire_beam', 'foxfire_summon', 'sealing_pillars'] },
+    // UNBOUND. Nine tails, four loose chains and no range it cannot reach.
+    { name: 'NINE TAILS UNBOUND', hpFrom: 0.33, hpTo: 0.0, speedMult: 1.32, enrage: true,
+      attackRateMult: 1.5, telegraphMult: 0.85,
+      transition: { stagger: 2.0, vuln: 2.5, vulnTail: 1.6, slowmo: 0.2, slowmoT: 0.7 },
+      attacks: ['chain_lash', 'nine_tailed_gale', 'tail_sweep', 'seal_slam'] },
   ],
   attacks: {
     tail_sweep: {
-      name: 'Tail Sweep', kind: 'tailSweep', telegraph: 1.0,
-      telegraphColor: 'red', cooldown: 6, damage: 32,
+      name: 'Tail Sweep', kind: 'tailSweep', telegraph: 1.0, duration: 0.9,
+      telegraphColor: 'red', cooldown: 6, damage: 32, color: '#ff6a1f',
       params: { tails: 3, arc: 2.4, reach: 560, sweepTime: 0.9, knockback: 520 },
-      desc: 'Three tails scythe a 560px arc. Heavy knockback — mind what is behind you.',
+      desc: 'Three tails scythe a 560px arc in 0.9s. Heavy knockback — mind what is behind you.',
     },
     seal_slam: {
       name: 'Seal Slam', kind: 'groundSlam', telegraph: 1.1,
       telegraphColor: 'red', cooldown: 8, damage: 38,
       params: { radius: 340, shockwaves: 3, waveSpeed: 460, waveWidth: 80 },
-      desc: 'It throws itself against the seals. Three rings at 460px/s.',
+      desc: 'It throws itself against the seals. Three rings out of the impact, 0.35s apart.',
     },
     foxfire_beam: {
-      name: 'Foxfire Beam', kind: 'beamContinuous', telegraph: 1.2,
-      telegraphColor: 'red', cooldown: 15, damage: 18,
-      params: { chargeTime: 1.2, width: 180, length: 1600, duration: 2.4, tickRate: 0.2, turnRate: 0.35 },
-      desc: 'A 1,600px beam that tracks at 20 deg/s. Outrun it sideways, never backwards.',
+      name: 'Foxfire Beam', kind: 'beamContinuous', telegraph: 1.2, duration: 2.4,
+      telegraphColor: 'red', cooldown: 15, damage: 18, color: '#ff9a3d',
+      params: { chargeTime: 1.2, width: 180, length: 1600, tickRate: 0.2, turnRate: 0.35 },
+      desc: 'A 1,600px beam that tracks at 20 deg/s for 2.4s. Outrun it sideways, never backwards.',
     },
     foxfire_summon: {
       name: 'Foxfire', kind: 'summonAdds', telegraph: 0.8,
@@ -401,13 +537,27 @@ const THE_SEALED_BEAST = {
         spawns: [{ enemy: 'paper_lantern_wisp', count: 3 }, { enemy: 'genin_shade', count: 6 }],
         radius: 300, pattern: 'ring',
       },
-      desc: 'It spits burning motes. They land, and they stand up.',
+      desc: 'It spits burning motes. Nine of them land, and they stand up.',
+    },
+    // Phase two's third move: the seals fighting BACK, which is the only thing in
+    // the fight that is not the beast's own doing.
+    sealing_pillars: {
+      name: 'Sealing Pillars', kind: 'aoeCircle', telegraph: 1.0,
+      telegraphColor: 'red', cooldown: 8, damage: 32,
+      params: { count: 6, radius: 165, spread: 460 },
+      desc: 'Six wards fire up out of the ground where you were standing a second ago.',
     },
     chain_lash: {
-      name: 'Chain Lash', kind: 'rotatingSweep', telegraph: 1.0,
+      name: 'Chain Lash', kind: 'rotatingSweep', telegraph: 1.0, duration: 6,
       telegraphColor: 'yellow', cooldown: 11, damage: 30,
-      params: { arms: 4, length: 600, angularSpeed: 1.2, duration: 6, width: 60 },
-      desc: 'The broken chains are still attached, and now they are weapons.',
+      params: { arms: 4, length: 600, angularSpeed: 1.2, width: 60 },
+      desc: 'Four broken chains at 69 deg/s for 6s. They are still attached and now they are weapons.',
+    },
+    nine_tailed_gale: {
+      name: 'Nine-Tailed Gale', kind: 'projectileSpread', telegraph: 0.9,
+      telegraphColor: 'yellow', cooldown: 6, damage: 30, color: '#ffb347',
+      params: { count: 15, arc: 2.9, speed: 360, life: 3.4, waves: 3, waveDelay: 0.38, rotatePerWave: 0.1 },
+      desc: 'Fifteen a wave, three waves, one per three tails. The lane rotates 6 degrees each time.',
     },
   },
 };
@@ -431,7 +581,7 @@ const KAGUTSUCHI = {
   kind: 'boss',
   stage: 'tatami_halls',
   quote: '"Four arms. Two blades. Two whips. Watch my eyes and none of it matters."',
-  hp: 15200, damage: 0, speed: 62, weight: 99, xp: 1000, size: 'large',
+  hp: 15200, finaleHpMult: 2.5, damage: 0, speed: 62, weight: 99, xp: 1000, size: 'large',
   element: 'fire',
   contactDamage: false,
   telegraphFloor: 0.8,
@@ -442,13 +592,17 @@ const KAGUTSUCHI = {
   reward: { starFragments: 20, relic: true, chest: 'gold' },
   death: { slowMoScale: 0.18, slowMoDuration: 2.0, shake: 'big' },
   asElite: { hpMult: 0.35, reward: { starFragments: 0, relic: false, chest: 'silver' } },
+  // Every attack in the table belongs to exactly one stance, and every phase's
+  // stance list is the union of the attacks it can actually throw. That was not
+  // true before: `severing_wheel` existed in two phases and in no stance at all,
+  // which made the eye a decoration rather than a readout.
   stances: [
     { id: 'red_eye', name: 'Red Eye — Rush', eyeColor: 'red', stanceIcon: 'blade',
       duration: 9, attacks: ['flame_rush', 'quad_cleave'] },
     { id: 'blue_eye', name: 'Blue Eye — Fan', eyeColor: 'blue', stanceIcon: 'fan',
-      duration: 9, attacks: ['crimson_fan', 'ember_rain'] },
+      duration: 9, attacks: ['crimson_fan', 'ember_rain', 'sun_breathing'] },
     { id: 'white_eye', name: 'White Eye — Severance', eyeColor: 'white', stanceIcon: 'moon',
-      duration: 6, attacks: ['world_severing_slash'] },
+      duration: 6, attacks: ['world_severing_slash', 'severing_wheel', 'rending_fan'] },
   ],
   mechanic: {
     kind: 'stanceCycle',
@@ -461,56 +615,81 @@ const KAGUTSUCHI = {
     death: 'Good. That was... good. Go on, then.',
   },
   phases: [
+    // TWO BLADES. Red eye only, and that is the point: one stance, learned
+    // properly, before the eye starts changing colour on you.
     { name: 'First Form — Two Blades', hpFrom: 1.0, hpTo: 0.66, speedMult: 1.0,
-      stances: ['red_eye', 'blue_eye'],
-      attacks: ['flame_rush', 'quad_cleave', 'crimson_fan', 'ember_rain'] },
-    { name: 'Second Form — Two Whips', hpFrom: 0.66, hpTo: 0.33, speedMult: 1.12,
-      stances: ['red_eye', 'blue_eye', 'white_eye'],
-      attacks: ['flame_rush', 'quad_cleave', 'crimson_fan', 'ember_rain',
-                'world_severing_slash', 'severing_wheel'] },
-    { name: 'FINAL FORM — ALL FOUR ARMS', hpFrom: 0.33, hpTo: 0.0, speedMult: 1.28, enrage: true,
+      attackRateMult: 1.0, telegraphMult: 1.0,
+      stances: ['red_eye'],
+      attacks: ['flame_rush', 'quad_cleave'] },
+    // TWO WHIPS. Blue and white — the whole fight moves to range and to arcs,
+    // and neither of the first form's two moves appears anywhere in it.
+    { name: 'Second Form — Two Whips', hpFrom: 0.66, hpTo: 0.33, speedMult: 1.14,
+      attackRateMult: 1.2, telegraphMult: 0.92,
+      transition: { stagger: 1.5, vuln: 2.2, vulnTail: 1.4, slowmo: 0.32, slowmoT: 0.5 },
+      stances: ['blue_eye', 'white_eye'],
+      attacks: ['crimson_fan', 'ember_rain', 'sun_breathing', 'severing_wheel'] },
+    // ALL FOUR ARMS. Every stance, at 60% of its duration, opening with the
+    // unavoidable one. Nothing from the second form survives into it.
+    { name: 'FINAL FORM — ALL FOUR ARMS', hpFrom: 0.33, hpTo: 0.0, speedMult: 1.3, enrage: true,
+      attackRateMult: 1.55, telegraphMult: 0.85,
+      transition: { stagger: 2.0, vuln: 2.4, vulnTail: 1.6, slowmo: 0.18, slowmoT: 0.8 },
       stances: ['red_eye', 'blue_eye', 'white_eye'], stanceDurationMult: 0.6,
-      attacks: ['flame_rush', 'quad_cleave', 'crimson_fan', 'ember_rain',
-                'world_severing_slash', 'severing_wheel'] },
+      attacks: ['world_severing_slash', 'rending_fan', 'flame_rush', 'quad_cleave'] },
   ],
   attacks: {
     flame_rush: {
-      name: 'Flame Rush', kind: 'chargeDash', telegraph: 0.9,
+      name: 'Flame Rush', kind: 'chargeDash', telegraph: 0.9, duration: 3.0,
       telegraphColor: 'yellow', cooldown: 4.5, damage: 40,
-      params: { dashes: 3, speed: 1150, distance: 620, turnBetween: true,
-                trail: 'burning', trailDps: 14, trailLife: 3 },
-      desc: 'Three dashes at 1,150px/s, re-aiming between each. The floor keeps burning for 3s.',
+      params: { dashes: 3, speed: 1150, distance: 620, turnBetween: true, width: 100,
+                recover: 0.7, trail: 'burning', trailDps: 14, trailLife: 3 },
+      desc: 'Three dashes at 1,150px/s, and it repaints the line before each one.',
     },
     quad_cleave: {
       name: 'Quad Cleave', kind: 'aoeCircle', telegraph: 0.9,
       telegraphColor: 'red', cooldown: 6, damage: 44,
-      params: { radius: 260, hits: 4, hitInterval: 0.18, followsBoss: true },
-      desc: 'Four arms, four overlapping cuts, 0.18s apart. Leaving late counts as staying.',
+      params: { count: 4, radius: 260, spread: 300, hits: 4, hitInterval: 0.18, followsBoss: true },
+      desc: 'Four arms, four overlapping cuts on top of each other. Leaving late counts as staying.',
     },
     crimson_fan: {
       name: 'Crimson Fan', kind: 'projectileSpread', telegraph: 1.0,
-      telegraphColor: 'yellow', cooldown: 5, damage: 26,
+      telegraphColor: 'yellow', cooldown: 5, damage: 26, color: '#ff5a3c',
       params: { count: 11, arc: 1.6, speed: 330, life: 3.2, waves: 3, waveDelay: 0.5, rotatePerWave: 0.14 },
       desc: 'Three waves of 11, each rotated 8 degrees. The safe lane moves every time.',
     },
     ember_rain: {
       name: 'Ember Rain', kind: 'spawnHazard', telegraph: 1.0,
-      telegraphColor: 'red', safeColor: 'blue', cooldown: 9, damage: 22,
-      params: { zones: 9, radius: 130, delay: 1.0, life: 4, tickDps: 22, safeFraction: 0.4 },
-      desc: 'Nine burning circles land 1s after they are painted. 40% of the floor stays clean.',
+      telegraphColor: 'red', safeColor: 'blue', cooldown: 9, damage: 22, color: '#ff7a3d',
+      params: { zones: 9, radius: 130, spread: 520, delay: 1.0, life: 4, tickDps: 22, safeFraction: 0.4 },
+      desc: 'Nine burning circles land where they were painted. 40% of the floor stays clean.',
+    },
+    // The blue eye's third move, and the one that punishes the standard answer
+    // to a fan, which is to back straight off.
+    sun_breathing: {
+      name: 'Sun Breathing', kind: 'coneBreath', telegraph: 1.0, duration: 1.9,
+      telegraphColor: 'red', cooldown: 10, damage: 30, color: '#ffb03a',
+      params: { arc: 1.05, range: 820, trackRate: 0.55, tickRate: 0.2 },
+      desc: 'An 820px cone held for 1.9s, tracking at 32 deg/s. Go around it, never away from it.',
     },
     world_severing_slash: {
-      name: 'World-Severing Slash', kind: 'lineSweep', telegraph: 1.2,
+      name: 'World-Severing Slash', kind: 'lineSweep', telegraph: 1.2, duration: 0.4,
       telegraphColor: 'white', cooldown: 20, damage: 90,
       params: { columns: 1, width: 4000, sweepSpeed: 0, axis: 'arena',
                 unavoidable: true, iframeWindow: 0.35 },
       desc: 'The whole hall is cut. There is no outside. Escape-move through it — 0.35s window.',
     },
     severing_wheel: {
-      name: 'Severing Wheel', kind: 'rotatingSweep', telegraph: 1.0,
+      name: 'Severing Wheel', kind: 'rotatingSweep', telegraph: 1.0, duration: 4,
       telegraphColor: 'red', cooldown: 12, damage: 38,
-      params: { arms: 4, length: 480, angularSpeed: 2.2, duration: 4, width: 64, reverses: true },
-      desc: 'Four whips at 126 deg/s, and halfway through they reverse.',
+      params: { arms: 4, length: 480, angularSpeed: 2.2, width: 64, reverses: true },
+      desc: 'Four whips at 126 deg/s for 4s, and halfway through they reverse.',
+    },
+    // The final form's own fan: wider, faster, and white, so the eye you have
+    // been reading for two phases still tells you which of the two it is.
+    rending_fan: {
+      name: 'Rending Fan', kind: 'projectileSpread', telegraph: 0.9,
+      telegraphColor: 'white', cooldown: 5.5, damage: 34, color: '#ffe9d0',
+      params: { count: 15, arc: 2.7, speed: 400, life: 3.0, waves: 3, waveDelay: 0.34, rotatePerWave: -0.16 },
+      desc: 'Fifteen a wave, three waves, rotating BACK 9 degrees each time. Two arms feeding two arms.',
     },
   },
 };
@@ -528,7 +707,7 @@ const THE_KRAKEN_PRODUCER = {
   kind: 'boss',
   stage: 'sunken_reef',
   quote: '"Take five, everyone! Not you. You I have notes for."',
-  hp: 24000, damage: 0, speed: 18, weight: 99, xp: 1300, size: 'large',
+  hp: 24000, finaleHpMult: 2.5, damage: 0, speed: 18, weight: 99, xp: 1300, size: 'large',
   element: 'water',
   contactDamage: false,
   telegraphFloor: 0.8,
@@ -565,47 +744,60 @@ const THE_KRAKEN_PRODUCER = {
   },
   barks: {
     intro: 'Places! PLACES! We are already behind!',
-    phase2: 'That was one of my ARMS. Do you know what those cost?',
+    phase2: 'House lights down. We are LIVE. Do not embarrass me.',
     phase3: 'Encore! ENCORE! Nobody leaves!',
+    // Four phases, four lines. The whirlpool used to enter in silence, which is
+    // the one transition in the fight that should be the loudest.
+    phase4: 'Strike the set. Strike the FLOOR. Strike everything.',
     death: 'Cut... cut the feed... and tell them it was... a triumph...',
   },
+  // FOUR PHASES, AND THEY ARE FOUR CUES ON A RUNNING ORDER. Each one is the show
+  // department that owns it — the arms, then the desk, then the pyro and the
+  // haze, then the venue itself — and no cue plays twice in a row. This is the
+  // one boss where the phase names were already a set list; the attack lists now
+  // match them instead of being the previous list plus two.
   phases: [
     { name: 'Soundcheck', hpFrom: 1.0, hpTo: 0.75, speedMult: 1.0,
-      attacks: ['monitor_slam', 'merch_barrage', 'feedback_wail', 'pyro_cue'] },
-    { name: 'The Set', hpFrom: 0.75, hpTo: 0.45, speedMult: 1.05,
-      attacks: ['monitor_slam', 'merch_barrage', 'feedback_wail', 'pyro_cue',
-                'spotlight_sweep', 'backing_track'] },
-    { name: 'Encore', hpFrom: 0.45, hpTo: 0.2, speedMult: 1.12,
-      attacks: ['monitor_slam', 'merch_barrage', 'feedback_wail', 'pyro_cue',
-                'spotlight_sweep', 'backing_track', 'ink_curtain', 'stage_dive'] },
-    { name: 'THE WHIRLPOOL', hpFrom: 0.2, hpTo: 0.0, speedMult: 1.2, enrage: true,
-      attacks: ['whirlpool_finale', 'monitor_slam', 'feedback_wail', 'stage_dive', 'core_exposed'] },
+      attackRateMult: 1.0, telegraphMult: 1.0,
+      attacks: ['monitor_slam', 'merch_barrage'] },
+    { name: 'The Set', hpFrom: 0.75, hpTo: 0.45, speedMult: 1.06,
+      attackRateMult: 1.15, telegraphMult: 0.96,
+      transition: { stagger: 1.5, vuln: 2.0, vulnTail: 1.4, slowmo: 0.35, slowmoT: 0.45 },
+      attacks: ['feedback_wail', 'spotlight_sweep', 'backing_track', 'pyro_cue'] },
+    { name: 'Encore', hpFrom: 0.45, hpTo: 0.2, speedMult: 1.14,
+      attackRateMult: 1.3, telegraphMult: 0.9,
+      transition: { stagger: 1.6, vuln: 2.2, vulnTail: 1.4, slowmo: 0.3, slowmoT: 0.5 },
+      attacks: ['ink_curtain', 'stage_dive', 'monitor_slam', 'merch_barrage'] },
+    { name: 'THE WHIRLPOOL', hpFrom: 0.2, hpTo: 0.0, speedMult: 1.22, enrage: true,
+      attackRateMult: 1.5, telegraphMult: 0.85,
+      transition: { stagger: 2.0, vuln: 2.4, vulnTail: 1.8, slowmo: 0.2, slowmoT: 0.7 },
+      attacks: ['whirlpool_finale', 'feedback_wail', 'spotlight_sweep', 'core_exposed'] },
   ],
   attacks: {
     monitor_slam: {
       name: 'Monitor Slam', kind: 'tentacleSlam', telegraph: 1.0,
       telegraphColor: 'red', cooldown: 5, damage: 34,
       params: { arms: 2, reach: 620, radius: 120, slamTime: 0.5 },
-      desc: 'Two arms come down at once, 620px out. The impact circles are 120px.',
+      desc: 'Two arms come down at once, up to 620px out. The impact circles are 120px.',
     },
     feedback_wail: {
       name: 'Feedback Wail', kind: 'radialBurst', telegraph: 1.0,
-      telegraphColor: 'red', safeColor: 'blue', cooldown: 8, damage: 30,
-      params: { rings: 2, projectiles: 18, speed: 260, gapArc: 0.6, ringDelay: 0.7 },
+      telegraphColor: 'red', safeColor: 'blue', cooldown: 8, damage: 30, color: '#c58cff',
+      params: { rings: 2, projectiles: 18, speed: 260, gapArc: 0.6, ringDelay: 0.7, life: 4.5 },
       desc: 'Two rings of sound, one gap each, 0.7s apart.',
     },
     spotlight_sweep: {
-      name: 'Lighting Cue', kind: 'beamContinuous', telegraph: 1.1,
-      telegraphColor: 'red', cooldown: 12, damage: 16,
-      params: { beams: 2, width: 140, length: 1400, duration: 3.0, tickRate: 0.2,
+      name: 'Lighting Cue', kind: 'beamContinuous', telegraph: 1.1, duration: 3.0,
+      telegraphColor: 'red', cooldown: 12, damage: 16, color: '#ffe9b0',
+      params: { beams: 2, width: 140, length: 1400, tickRate: 0.2,
                 turnRate: 0.5, chargeTime: 1.1 },
-      desc: 'Two follow-spots, 1,400px long, tracking at 29 deg/s for 3s.',
+      desc: 'A follow-spot 1,400px long, tracking at 29 deg/s for 3s. It has all night.',
     },
     pyro_cue: {
       name: 'Pyro Cue', kind: 'spawnHazard', telegraph: 1.0,
-      telegraphColor: 'red', safeColor: 'blue', cooldown: 9, damage: 28,
-      params: { zones: 8, radius: 150, delay: 1.0, life: 3.5, tickDps: 28 },
-      desc: 'Eight charges go off 1s after they are marked. They burn for 3.5s.',
+      telegraphColor: 'red', safeColor: 'blue', cooldown: 9, damage: 28, color: '#ff7a3d',
+      params: { zones: 8, radius: 150, spread: 540, delay: 1.0, life: 3.5, tickDps: 28 },
+      desc: 'Eight charges go off where they were marked. They burn for 3.5s.',
     },
     backing_track: {
       name: 'Backing Track', kind: 'summonAdds', telegraph: 0.8,
@@ -617,32 +809,36 @@ const THE_KRAKEN_PRODUCER = {
       desc: 'The backing band comes in on the two. Nobody told them the venue flooded.',
     },
     ink_curtain: {
-      name: 'Ink Curtain', kind: 'coneBreath', telegraph: 1.0,
-      telegraphColor: 'red', cooldown: 7, damage: 26,
-      params: { angle: 1.3, range: 900, duration: 1.8, tickRate: 0.3, visionRadius: 280 },
-      desc: 'A 900px cone of ink. Inside it you can see 280px and that is all.',
+      name: 'Ink Curtain', kind: 'coneBreath', telegraph: 1.0, duration: 1.8,
+      telegraphColor: 'red', cooldown: 7, damage: 26, color: '#8b3fd6',
+      params: { arc: 1.3, range: 900, trackRate: 0.6, tickRate: 0.3, visionRadius: 280 },
+      desc: 'A 900px cone of ink held for 1.8s. Inside it you can see 280px and that is all.',
     },
     merch_barrage: {
       name: 'Merch Barrage', kind: 'projectileSpread', telegraph: 0.9,
-      telegraphColor: 'yellow', cooldown: 6, damage: 22,
-      params: { count: 14, arc: 2.2, speed: 300, life: 3.4, waves: 2, waveDelay: 0.45 },
+      telegraphColor: 'yellow', cooldown: 6, damage: 22, color: '#ff9ec4',
+      params: { count: 14, arc: 2.2, speed: 300, life: 3.4, waves: 2, waveDelay: 0.45, rotatePerWave: 0.11 },
       desc: 'Fourteen tour shirts a wave, twice. They are not even your size.',
     },
     stage_dive: {
       name: 'Stage Dive', kind: 'groundSlam', telegraph: 1.1,
       telegraphColor: 'red', cooldown: 10, damage: 40,
       params: { radius: 380, shockwaves: 2, waveSpeed: 440, waveWidth: 100 },
-      desc: 'It goes up. It comes down. Two waves at 440px/s.',
+      desc: 'It goes up. It comes down. Two waves out of the landing, 0.35s apart.',
     },
+    // 45 seconds is how long the arena STAYS a platform in the fiction; as a
+    // single attack channel it is 14, because a boss that stands in one attack
+    // for three quarters of a minute is not a finale, it is a loading screen.
+    // It comes round again on a 6s cooldown and closes a little further each time.
     whirlpool_finale: {
-      name: 'THE WHIRLPOOL', kind: 'shrinkingRing', telegraph: 1.2,
-      telegraphColor: 'red', safeColor: 'blue', cooldown: 0, damage: 45,
+      name: 'THE WHIRLPOOL', kind: 'shrinkingRing', telegraph: 1.2, duration: 14,
+      telegraphColor: 'red', safeColor: 'blue', cooldown: 6, damage: 45,
       params: { startRadius: 900, endRadius: 260, closeTime: 45, tickDamage: 45,
                 tickRate: 0.5, pullForce: 180, platform: true },
-      desc: 'The arena becomes a platform and the platform shrinks 900px to 260px over 45s.',
+      desc: 'The arena becomes a platform, and the platform shrinks 900px to 260px while pulling you off it.',
     },
     core_exposed: {
-      name: 'Core Exposed', kind: 'weakPoint', telegraph: 0,
+      name: 'Core Exposed', kind: 'weakPoint', telegraph: 0, duration: 6,
       telegraphColor: 'blue', cooldown: 0, damage: 0,
       params: { multiplier: 2.5, part: 'core', requires: 'all_arms_destroyed' },
       desc: 'Every arm down means the headset comes off. 2.5x to the core.',
@@ -665,7 +861,7 @@ const THE_FINAL_FORM = {
   kind: 'boss',
   stage: 'zenith_stage',
   quote: '"You got this far by being you. Let us see how that goes when I am you too."',
-  hp: 38000, damage: 0, speed: 78, weight: 99, xp: 1800, size: 'large',
+  hp: 38000, finaleHpMult: 2.5, damage: 0, speed: 78, weight: 99, xp: 1800, size: 'large',
   element: 'shadow',
   contactDamage: false,
   telegraphFloor: 0.8,
@@ -695,26 +891,50 @@ const THE_FINAL_FORM = {
     phase7: 'Nice build. Mind if I borrow it?',
     death: 'Oh. That is how you were supposed to use it. Good. Good.',
   },
+  // SEVEN MOVEMENTS, AND THE BREAKS ARE SHORTER THAN ANYWHERE ELSE IN THE GAME.
+  // Six transitions at the three-phase bosses' generosity would hand back a
+  // quarter of a 95,000 bar and this fight would end sooner than the Kraken's.
+  // So the medley trades depth of break for NUMBER of breaks: 0.9s and 1.8x
+  // apiece instead of 2.0s and 2.5x, which still reads as an unmissable change
+  // of act every fourteen seconds. The last one is the exception — the moment it
+  // stops doing impressions is worth a full stop.
+  //
+  // Every list is disjoint from the one before it. The second movement used to
+  // reopen with the paperwork it had just finished throwing, which made the two
+  // longest-running gags in the fight into one gag.
   phases: [
     { name: 'Overture: The President', hpFrom: 1.0, hpTo: 0.857, speedMult: 1.0,
+      attackRateMult: 1.0, telegraphMult: 1.0,
       attacks: ['echo_paperwork', 'echo_committee'] },
     { name: 'Second Movement: The Feed', hpFrom: 0.857, hpTo: 0.714, speedMult: 1.03,
-      attacks: ['echo_scroll', 'echo_paperwork'] },
+      attackRateMult: 1.05, telegraphMult: 0.98,
+      transition: { stagger: 0.9, vuln: 1.8, vulnTail: 0.7, slowmo: 0.35, slowmoT: 0.32, recover: 0.7 },
+      attacks: ['echo_scroll', 'echo_recommended'] },
     { name: 'Third Movement: The Wall', hpFrom: 0.714, hpTo: 0.571, speedMult: 1.06,
+      attackRateMult: 1.1, telegraphMult: 0.96,
+      transition: { stagger: 0.9, vuln: 1.8, vulnTail: 0.7, slowmo: 0.35, slowmoT: 0.32, recover: 0.7 },
       attacks: ['echo_slam', 'echo_grab'] },
     { name: 'Fourth Movement: The Beast', hpFrom: 0.571, hpTo: 0.429, speedMult: 1.09,
+      attackRateMult: 1.16, telegraphMult: 0.94,
+      transition: { stagger: 0.9, vuln: 1.8, vulnTail: 0.7, slowmo: 0.35, slowmoT: 0.32, recover: 0.7 },
       attacks: ['echo_tails', 'echo_foxfire'] },
     { name: 'Fifth Movement: The Flame', hpFrom: 0.429, hpTo: 0.286, speedMult: 1.12,
+      attackRateMult: 1.24, telegraphMult: 0.9,
+      transition: { stagger: 0.9, vuln: 1.8, vulnTail: 0.7, slowmo: 0.35, slowmoT: 0.32, recover: 0.7 },
       attacks: ['echo_fan', 'echo_severance'] },
     { name: 'Sixth Movement: The Producer', hpFrom: 0.286, hpTo: 0.143, speedMult: 1.15,
+      attackRateMult: 1.32, telegraphMult: 0.86,
+      transition: { stagger: 0.9, vuln: 1.8, vulnTail: 0.7, slowmo: 0.35, slowmoT: 0.32, recover: 0.7 },
       attacks: ['echo_tentacles', 'echo_whirlpool'] },
     { name: 'FINALE: YOU', hpFrom: 0.143, hpTo: 0.0, speedMult: 1.2, enrage: true,
+      attackRateMult: 1.45, telegraphMult: 0.82,
+      transition: { stagger: 2.4, vuln: 2.2, vulnTail: 2.0, slowmo: 0.15, slowmoT: 1.0, recover: 1.2 },
       attacks: ['mirror_auto', 'mirror_special', 'mirror_escape', 'curtain_call'] },
   ],
   attacks: {
     echo_paperwork: {
       name: 'Echo: Paperwork', kind: 'homingProjectile', telegraph: 0.9,
-      telegraphColor: 'yellow', cooldown: 4.5, damage: 30,
+      telegraphColor: 'yellow', cooldown: 4.5, damage: 30, color: '#ffe9b0',
       params: { count: 10, speed: 200, turnRate: 1.4, life: 5, spread: 1.4 },
       desc: 'Ten forms. It got faster at this than she ever was.',
     },
@@ -729,43 +949,52 @@ const THE_FINAL_FORM = {
       desc: 'Everyone you have already killed, remembered slightly wrong.',
     },
     echo_scroll: {
-      name: 'Echo: Infinite Scroll', kind: 'lineSweep', telegraph: 1.0,
+      name: 'Echo: Infinite Scroll', kind: 'lineSweep', telegraph: 1.0, duration: 1.6,
       telegraphColor: 'red', cooldown: 5.5, damage: 42,
       params: { columns: 5, width: 110, sweepSpeed: 560, axis: 'vertical' },
-      desc: 'Five columns now. It added one.',
+      desc: 'Five columns now. It added one, and it runs them 20% faster.',
+    },
+    // The Feed's OTHER half, and the reason the second movement is not the first
+    // one again: the Algorithm's whole idea was that it watched you, so its
+    // movement is where this thing first admits it has been doing the same.
+    echo_recommended: {
+      name: 'Echo: Recommended For You', kind: 'mirrorPlayer', telegraph: 1.0,
+      telegraphColor: 'yellow', cooldown: 11, damage: 0,
+      params: { powerMult: 0.8, source: 'autoAttack', copiesUpgrades: true, copiesRelics: false },
+      desc: 'Your auto-attack at 80%, six movements before it plays the same card at 120%.',
     },
     echo_slam: {
       name: 'Echo: Palm Strike', kind: 'groundSlam', telegraph: 1.1,
       telegraphColor: 'red', cooldown: 6, damage: 46,
       params: { radius: 340, shockwaves: 3, waveSpeed: 470, waveWidth: 90 },
-      desc: 'Three shockwaves at 470px/s from a hand that is only pretending to be that big.',
+      desc: 'Three shockwaves out of the crater from a hand that is only pretending to be that big.',
     },
     echo_grab: {
-      name: 'Echo: The Grab', kind: 'grabQte', telegraph: 1.2,
+      name: 'Echo: The Grab', kind: 'grabQte', telegraph: 1.2, duration: 2.6,
       telegraphColor: 'yellow', cooldown: 24, damage: 55,
       params: { mashCount: 8, window: 2.5, anyInput: true, reach: 380, crushDamage: 55 },
       desc: 'You have done this before. 8 inputs, 2.5s, anything you can press.',
     },
     echo_tails: {
-      name: 'Echo: Nine Tails', kind: 'tailSweep', telegraph: 1.0,
-      telegraphColor: 'red', cooldown: 5.5, damage: 40,
+      name: 'Echo: Nine Tails', kind: 'tailSweep', telegraph: 1.0, duration: 0.85,
+      telegraphColor: 'red', cooldown: 5.5, damage: 40, color: '#ff6a1f',
       params: { tails: 9, arc: 2.6, reach: 640, sweepTime: 0.85, knockback: 560 },
-      desc: 'All nine at once. It never had to earn them.',
+      desc: 'All nine at once, through 149 degrees in 0.85s. It never had to earn them.',
     },
     echo_foxfire: {
-      name: 'Echo: Foxfire Beam', kind: 'beamContinuous', telegraph: 1.2,
-      telegraphColor: 'red', cooldown: 14, damage: 20,
-      params: { chargeTime: 1.2, width: 200, length: 1800, duration: 2.4, tickRate: 0.2, turnRate: 0.4 },
-      desc: '1,800px, tracking at 23 deg/s. Sideways. Always sideways.',
+      name: 'Echo: Foxfire Beam', kind: 'beamContinuous', telegraph: 1.2, duration: 2.4,
+      telegraphColor: 'red', cooldown: 14, damage: 20, color: '#ff9a3d',
+      params: { chargeTime: 1.2, width: 200, length: 1800, tickRate: 0.2, turnRate: 0.4 },
+      desc: '1,800px, tracking at 23 deg/s for 2.4s. Sideways. Always sideways.',
     },
     echo_fan: {
       name: 'Echo: Crimson Fan', kind: 'projectileSpread', telegraph: 1.0,
-      telegraphColor: 'yellow', cooldown: 5, damage: 30,
+      telegraphColor: 'yellow', cooldown: 5, damage: 30, color: '#ff5a3c',
       params: { count: 13, arc: 1.7, speed: 350, life: 3.2, waves: 3, waveDelay: 0.45, rotatePerWave: 0.14 },
       desc: 'Thirteen a wave, three waves, rotating. The lane still moves.',
     },
     echo_severance: {
-      name: 'Echo: World-Severing Slash', kind: 'lineSweep', telegraph: 1.2,
+      name: 'Echo: World-Severing Slash', kind: 'lineSweep', telegraph: 1.2, duration: 0.4,
       telegraphColor: 'white', cooldown: 16, damage: 96,
       params: { columns: 1, width: 4000, sweepSpeed: 0, axis: 'arena',
                 unavoidable: true, iframeWindow: 0.35 },
@@ -778,11 +1007,11 @@ const THE_FINAL_FORM = {
       desc: 'Four arms it does not have, reaching 700px anyway.',
     },
     echo_whirlpool: {
-      name: 'Echo: The Whirlpool', kind: 'shrinkingRing', telegraph: 1.2,
+      name: 'Echo: The Whirlpool', kind: 'shrinkingRing', telegraph: 1.2, duration: 8,
       telegraphColor: 'red', safeColor: 'blue', cooldown: 26, damage: 44,
       params: { startRadius: 880, endRadius: 300, closeTime: 8, gapCount: 2,
                 gapArc: 0.45, pullForce: 170 },
-      desc: '880px to 300px in 8 seconds. Two gaps, and they drift.',
+      desc: '880px to 300px in 8 seconds, pulling the whole way. Two gaps, and they drift.',
     },
     mirror_auto: {
       name: 'Your Auto-Attack', kind: 'mirrorPlayer', telegraph: 0.8,
@@ -804,8 +1033,8 @@ const THE_FINAL_FORM = {
     },
     curtain_call: {
       name: 'CURTAIN CALL', kind: 'radialBurst', telegraph: 1.2,
-      telegraphColor: 'white', cooldown: 22, damage: 70,
-      params: { rings: 4, projectiles: 26, speed: 330, gapArc: 0.4, ringDelay: 0.55 },
+      telegraphColor: 'white', cooldown: 22, damage: 70, color: '#ffffff',
+      params: { rings: 4, projectiles: 26, speed: 330, gapArc: 0.4, ringDelay: 0.55, life: 5 },
       desc: 'Four rings, 0.55s apart, gaps too tight to walk. This is what escape is for.',
     },
   },

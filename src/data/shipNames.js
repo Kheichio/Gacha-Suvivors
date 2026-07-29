@@ -119,6 +119,29 @@ export const SHIP_NAMES = {
   ordinary_offensive_magic: 'Common Attack Magic',
   mana_suppression: 'Presence Dampening',
 
+  // Usaki (registry id `pekora`) — DELIBERATELY EMPTY, and this block is the
+  // record of that, because "no entries" and "nobody checked" look identical in
+  // a table and only one of them is acceptable.
+  //
+  // Her five names were run through the INCLUSION TEST above one at a time:
+  //   Carrot Barrage      — original English, a vegetable and a volume word
+  //   THE GRAND SCHEME    — original English, and the joke rather than a quote
+  //   Panic Hop           — original English
+  //   It Backfired        — original English
+  //   The Contingency Plan (relic) — original English
+  // None is a proper noun and none is a coined technique title lifted from a
+  // source, so under this file's own rule every one of them stays. Her verbal
+  // tics — the staccato laugh, the panicked shriek, the fanbase name — ARE
+  // source material, and the way they are kept off the screen is that they were
+  // never written into an ability name or a bark in the first place; her voice
+  // is carried entirely by invented English. That is a stronger mitigation than
+  // a rename, because a rename still leaves the original in the file.
+  //
+  // The one thing here that is NOT safe by that standard is her registry id,
+  // and it cannot move: DECISIONS.md §36 binds four ability implementations to
+  // it. The id is never displayed — `displayName()` reads `name`, which is
+  // "Usaki" — so the exposure ends at the source tree.
+
   // Han
   masenko: 'Brow Blast',
   father_son_kamehameha: 'Father-Son Beam',

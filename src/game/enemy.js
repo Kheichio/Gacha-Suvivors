@@ -1,4 +1,4 @@
-// Enemies: the pooled entity, the 15 behaviour archetypes, and the scaling.
+// Enemies: the pooled entity, the 21 behaviour archetypes, and the scaling.
 //
 // SECTION 9's archetypes are reusable AI FUNCTIONS, not per-enemy code. Adding an
 // enemy is a data object; adding an archetype is one entry in BEHAVIORS.
@@ -6,7 +6,8 @@
 // Off-screen enemies (SECTION 1): rendering culled, AI cheapened to movement
 // only, and anything drifting more than 1.5 screens away is teleported to the
 // far side of the view (DECISIONS.md §19 — of the VIEW, not the arena, which is
-// what makes a 4000x4000 bounded arena feel endless).
+// what makes a 4000x4000 bounded arena feel endless). ONE archetype opts out of
+// both of those — see `thinksOffscreen`.
 
 import { CONFIG } from '../core/config.js';
 import { Pool } from '../core/pool.js';
@@ -18,7 +19,10 @@ import { events, EV } from '../core/events.js';
 import {
   clamp, dirTo, normalize, V, dist2, TAU, angleDelta, rotateToward, lerp,
 } from '../core/math.js';
-import { makeStatus, clearStatus, tickStatus, isStunned, speedMultiplier, MARK } from './statusEffects.js';
+import {
+  makeStatus, clearStatus, tickStatus, isStunned, speedMultiplier, MARK,
+  applyHaste, applyEmpower,
+} from './statusEffects.js';
 import { dealDamage, damagePlayer, areaDamage, SRC } from './damage.js';
 import { SCALING } from '../data/stages.js';
 
@@ -43,7 +47,11 @@ export function makeEnemy() {
     x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0,
     kbx: 0, kby: 0,                       // knockback impulse, decays
     hp: 0, maxHp: 0, armor: 0, weight: 1,
-    damage: 0, speed: 0, baseSpeed: 0,
+    // `baseDamage` is the statline; `damage` is what it hits for THIS tick. The
+    // two only differ while something is empowering it — which nothing could do
+    // before the Conductor, because `empower` was a player-only status and an
+    // enemy's contact damage was read straight off the spawn-time number.
+    damage: 0, baseDamage: 0, speed: 0, baseSpeed: 0,
     xp: 0, goldChance: 0,
     radius: 12, size: 'small',
     element: 'spirit',
@@ -65,6 +73,19 @@ export function makeEnemy() {
     affixes: null, affixT: 0, affixT2: 0,
     spawnT: 0,                            // spawn-in telegraph / fade
     offscreen: false,
+    /**
+     * Keep thinking, and never get recycled, while out of view.
+     *
+     * The default is the opposite for very good reasons — two thousand enemies
+     * cannot each run a state machine you are not looking at. But the Strafer's
+     * entire attack HAPPENS out there: it withdraws past the edge, lines up, and
+     * comes back down a telegraphed lane. Under the normal rules it would freeze
+     * into a plain chaser the instant it left the screen and then be teleported
+     * to a random bearing, which is precisely the two things it must not do.
+     * Set from the archetype at spawn so the hot loop reads a boolean, not a
+     * string.
+     */
+    thinksOffscreen: false,
     tier: 1,
     hpBarT: 0,
     // boss-only, present on every enemy so the shape never changes
@@ -82,6 +103,7 @@ function resetEnemy(e) {
   e.isElite = false; e.isBoss = false; e.isMidBoss = false;
   e.shieldArc = 0; e.shieldReduction = 0;
   e.knockbackImmune = false;
+  e.thinksOffscreen = false;
   e.kbx = 0; e.kby = 0;
   e.hpBarT = 0;
   e.phase = 0;
@@ -130,6 +152,7 @@ export class EnemySystem {
     e.x = e.px = x; e.y = e.py = y;
     e.vx = 0; e.vy = 0; e.kbx = 0; e.kby = 0;
     e.behavior = def.behavior || 'chaser';
+    e.thinksOffscreen = e.behavior === 'strafer';
     e.params = def.params || EMPTY;
     e.size = def.size || 'small';
     e.element = def.element || 'spirit';
@@ -179,6 +202,14 @@ export class EnemySystem {
     if (e.behavior === 'shielder') {
       e.shieldArc = e.params.shieldArc || 1.6;
       e.shieldReduction = e.params.shieldReduction || 0.9;
+    } else if (e.behavior === 'tethered') {
+      // The ward reuses the shielder's directional-mitigation path with the arc
+      // opened to the full circle — a ward has no front, and rather than add a
+      // second mitigation branch to damage.js (the one file every hit in the
+      // game passes through) the archetype simply sets `shieldArc` to TAU while
+      // the ward is up and back to 0 when it drops. The reduction is fixed here;
+      // the arc is owned by the behaviour because it is the state.
+      e.shieldReduction = e.params.wardReduction || 0.92;
     }
     if (e.size === 'large' || o.isBoss) e.knockbackImmune = o.isBoss || false;
 
@@ -190,6 +221,10 @@ export class EnemySystem {
         if (a.id === 'frenzied') e.aiF = 0;
       }
     }
+    // AFTER the affixes, deliberately: Colossal's doubling is part of the
+    // statline this enemy actually has, and snapshotting before it would have
+    // the first Conductor pulse quietly undo it.
+    e.baseDamage = e.damage;
 
     events.emit(EV.ENEMY_SPAWNED, e);
     return e;
@@ -240,8 +275,10 @@ export class EnemySystem {
           this._moveToward(e, p.x, p.y, dt, 1.6);
           continue;
         }
-        this._recycle(e, p, viewX, viewY);
-        continue;
+        // A Strafer that has withdrawn is exactly where it is supposed to be.
+        // Recycling it would drop it back in at a random bearing with a
+        // telegraphed lane already drawn somewhere else entirely.
+        if (!e.thinksOffscreen) { this._recycle(e, p, viewX, viewY); continue; }
       }
 
       // --- knockback ---------------------------------------------------------
@@ -262,6 +299,11 @@ export class EnemySystem {
       if (e.affixes && e.hp < e.maxHp * 0.5) {
         for (const a of e.affixes) if (a.id === 'frenzied') { e.speed *= 1.8; break; }
       }
+      // Empower on an enemy. Every attack in this file reads `e.damage` —
+      // contact, slams, blasts, projectiles — so recomputing it from the
+      // statline once per tick is the whole of the Conductor's damage buff, and
+      // it costs one compare on every enemy that is not being buffed.
+      e.damage = e.st.empowerT > 0 ? e.baseDamage * e.st.empowerMult : e.baseDamage;
 
       // --- pull (chum bucket, iron sand, whirlpool) --------------------------
       if (e.st.pullT > 0 && e.st.pullForce > 0) {
@@ -272,7 +314,7 @@ export class EnemySystem {
       }
 
       // --- behaviour ---------------------------------------------------------
-      if (e.offscreen) {
+      if (e.offscreen && !e.thinksOffscreen) {
         // Cheapened update: movement only, no AI targeting, no attacks.
         this._moveToward(e, p.x, p.y, dt, 1.0);
       } else {
@@ -419,7 +461,7 @@ export class EnemySystem {
 
     // exploder archetype detonates whether it died to you or to its own fuse
     if (e.behavior === 'exploder' && e.aiState === 1) {
-      areaDamage(run, e.x, e.y, e.params.blastRadius || 90, e.damage * 2, SRC.HAZARD, { falloff: 0.5, canCrit: false });
+      enemyBlast(run, e.x, e.y, e.params.blastRadius || 90, e.damage * 2);
     }
 
     this.release(e);
@@ -464,14 +506,85 @@ export class EnemySystem {
         // Gold outline + health bar + name plate (SECTION 9).
         r.strokeCircle(x, y, e.radius + 4, '#ffd76a', 2.5, 0.9);
       }
+
+      // THE WARD. A `tethered` mob takes 92% less damage while a neighbour is
+      // propping it up, and "your damage does almost nothing" has to be drawn or
+      // it reads as a bug in the damage numbers rather than as a rule. So: a
+      // ring on the warded mob and a line to whichever enemy is currently
+      // holding it. Kill along the line, or drag the fight away from it.
+      // The numeric test comes first deliberately — it is one compare that fails
+      // for every one of the two thousand things that are not this.
+      if (e.aiF === 1 && e.behavior === 'tethered') {
+        const c = e.visual.accent || '#8ce8ff';
+        r.drawLine(x, y, e.aiX, e.aiY, c, 2, 0.45);
+        r.strokeCircle(x, y, e.radius + 5, c, 2, 0.8);
+      }
     }
     r.setAlpha(1);
   }
 }
 
-// --- the 15 behaviour archetypes --------------------------------------------
+/**
+ * AN ENEMY'S AREA ATTACK — everything in the blast, INCLUDING THE PLAYER.
+ *
+ * `areaDamage` walks the enemy spatial hash and nothing else. That is exactly
+ * right for the player's novas and exactly wrong for an enemy's, and every enemy
+ * explosion in this file used to call it on its own: the Jellyfish Chorus
+ * detonated for 22 into an empty room, the Oni Bruiser's slam only ever hurt
+ * other oni, the Drowned Roadie's flight case landed on nobody, and a floor
+ * carpeted in Trap Scrolls was completely safe to stand on. Four of the loudest,
+ * reddest, most telegraphed attacks in the game did nothing whatsoever to the
+ * one thing they were aimed at, and because a telegraph still drew and particles
+ * still burst, it read as a balance problem rather than a missing call.
+ *
+ * game/hazards.js had the other half of this the whole time — `dropRubble` does
+ * the area damage AND the player check — which is why the collapsing walls were
+ * the only enemy-side AoE in the game that ever landed on anyone.
+ *
+ * The enemy-side damage keeps going out too. It is what the Jellyfish's chain
+ * has always been built on, and taking it away would change the kill economy of
+ * three stages for a fix that is about the player's half of the blast.
+ */
+function enemyBlast(run, x, y, radius, amount) {
+  areaDamage(run, x, y, radius, amount, SRC.HAZARD, BLAST_OPTS);
+  const p = run.player;
+  const r = radius + feel.playerHitRadius;
+  const d2 = dist2(x, y, p.x, p.y);
+  if (d2 > r * r) return;
+  // Same falloff the enemy side got, so standing at the lip of a telegraph is
+  // meaningfully better than standing on the mark.
+  const t = Math.sqrt(d2) / Math.max(1, radius);
+  BLAST_HIT.fromX = x; BLAST_HIT.fromY = y;
+  damagePlayer(run, amount * (1 - BLAST_OPTS.falloff * clamp(t, 0, 1)), SRC.HAZARD, BLAST_HIT);
+}
+
+/** Module-level, per house rule: a blast is not allowed to allocate its own bag. */
+const BLAST_OPTS = { falloff: 0.4, canCrit: false };
+/** Reused record in the shape of `lastHit` — read synchronously, never stored. */
+const BLAST_HIT = { fromX: 0, fromY: 0 };
+
+// --- the 21 behaviour archetypes --------------------------------------------
 // Every one is a pure function of (enemy, run, player, dt, system). None of them
 // allocates, and none of them knows which enemy id it is driving.
+//
+// DECISIONS.md §6 fixed the list at 15 because that was every archetype SECTION 9
+// implied plus the two it used without defining. Play report: "make more unique
+// mobs ... different ability types ... so that the gameplay feels more different
+// and more challenging specifically for the later levels." Six more, and every
+// one of them exists to pose a QUESTION the first fifteen never asked:
+//
+//   mortar      you are not safe at range, and standing where you are standing
+//               is a decision with a timer on it
+//   sower       the floor is a resource and it is being spent
+//   conductor   the crowd is only this fast because something in it is
+//   watcher     "hold this corner and out-DPS it" stops working
+//   tethered    this one cannot be killed until you have dealt with the others
+//   strafer     the danger is not on screen yet
+//
+// Every one of them telegraphs, without exception (game/hazards.js header): the
+// mortar and the watcher draw a red circle, the strafer draws a yellow lane, the
+// sower's ground is permanently visible, and neither the conductor nor the
+// tethered mob deals damage of its own at all.
 
 const BEHAVIORS = {
   chaser(e, run, p, dt, sys) {
@@ -535,8 +648,13 @@ const BEHAVIORS = {
     e.aiT -= dt;
     if (e.aiT <= 0 && d < range * 1.3) {
       e.aiT = e.params.fireInterval || 2.0;
-      const n = e.params.projectiles || 1;
-      const spread = e.params.spread || 0.35;
+      // data/enemies.js declares these as `projectileCount` and `spreadArc`, and
+      // this read them as `projectiles` and `spread`. Both fell through to the
+      // `||` default, so the Kunai Bat — whose entire statline is "throws THREE
+      // knives in a 0.5 rad fan" — threw one, forever, and nothing anywhere
+      // could report it. Both spellings are accepted; the data's wins.
+      const n = e.params.projectileCount || e.params.projectiles || 1;
+      const spread = e.params.spreadArc || e.params.spread || 0.35;
       for (let i = 0; i < n; i++) {
         const a = e.facingTarget + (n > 1 ? (i / (n - 1) - 0.5) * spread : 0);
         run.enemyProjectiles.spawn(e.x, e.y, a, e.params.projectileSpeed || 240,
@@ -567,7 +685,7 @@ const BEHAVIORS = {
         // checks the slot is still live before it touches `e` again.
         const puff = e.visual ? e.visual.color : '#ff6b3d';
         const bx = e.x, by = e.y;
-        areaDamage(run, e.x, e.y, blast, e.damage * 2, SRC.HAZARD, { falloff: 0.45, canCrit: false });
+        enemyBlast(run, e.x, e.y, blast, e.damage * 2);
         particles.ring(bx, by, 16, puff, blast * 3);
         if (!e.active) return;
         // Jellyfish Chorus chains: the blast can set off neighbours.
@@ -662,7 +780,13 @@ const BEHAVIORS = {
           run.hazards.telegraph(e.x, e.y, e.params.slamRadius || 130, e.aiT, 'red', 'circle');
         } else {
           e.aiState = 0; e.aiT = e.params.slamInterval;
-          areaDamage(run, e.x, e.y, e.params.slamRadius || 130, e.damage * 1.6, SRC.HAZARD, { falloff: 0.3, canCrit: false });
+          // `slamDamage` is authored as a BASE number sitting next to the
+          // enemy's base `damage`, so the only honest way to spend it is as the
+          // RATIO between the two — using it raw would hand minute twenty a slam
+          // that still hits for 34. It had never been read at all.
+          const slamMult = e.params.slamDamage && e.def && e.def.damage
+            ? e.params.slamDamage / e.def.damage : 1.6;
+          enemyBlast(run, e.x, e.y, e.params.slamRadius || 130, e.damage * slamMult);
           particles.ring(e.x, e.y, 14, '#ff9a3d', 300);
         }
       }
@@ -740,6 +864,292 @@ const BEHAVIORS = {
     }
   },
 
+  /**
+   * MORTAR — indirect fire, and the answer to "just stand at max range".
+   *
+   * A `ranged` mob throws a thing AT you and you sidestep the thing. A mortar
+   * throws a thing at where you WILL BE and draws the impact on the floor a full
+   * second early, so the dodge is a decision about the next second rather than a
+   * reaction to a sprite. It also outranges everything: kiting is not a build,
+   * it is a habit, and this is the mob that charges rent on it.
+   */
+  mortar(e, run, p, dt, sys) {
+    const range = e.params.range || 520;
+    const d2p = dist2(e.x, e.y, p.x, p.y);
+    const near = range * 0.62;
+    if (d2p > range * range) sys._moveToward(e, p.x, p.y, dt, 1);
+    else if (d2p < near * near) {
+      // Backing off is the whole point of the archetype; it never brawls.
+      if (dirTo(p.x, p.y, e.x, e.y) > 1) { e.x += V.x * e.speed * dt; e.y += V.y * e.speed * dt; }
+    } else {
+      const a = Math.atan2(p.y - e.y, p.x - e.x) + Math.PI / 2 * (e.uid & 1 ? 1 : -1);
+      e.x += Math.cos(a) * e.speed * 0.45 * dt;
+      e.y += Math.sin(a) * e.speed * 0.45 * dt;
+    }
+    e.facingTarget = Math.atan2(p.y - e.y, p.x - e.x);
+
+    e.aiT -= dt;
+    const blast = e.params.blastRadius || 130;
+    if (e.aiState === 0) {
+      const fire = range * 1.25;
+      if (e.aiT <= 0 && d2p < fire * fire) {
+        // LEAD THE SHOT. Aiming at the player's feet means a moving player is
+        // never hit and a stationary one always is, which is the same enemy
+        // twice; leading by half a second means running in a straight line is
+        // the thing that gets punished and cutting is the thing that works.
+        const lead = e.params.lead || 0.5;
+        e.aiX = clamp(p.x + p.vx * lead, run.bounds.minX, run.bounds.maxX);
+        e.aiY = clamp(p.y + p.vy * lead, run.bounds.minY, run.bounds.maxY);
+        e.aiState = 1;
+        e.aiT = e.params.telegraph || feel.telegraphLethal;
+        run.hazards.telegraph(e.aiX, e.aiY, blast, e.aiT, 'red', 'x');
+      }
+    } else if (e.aiT <= 0) {
+      // A shell can land on the thing that fired it — the player kites a mortar
+      // backwards into its own impact mark all the time — and the enemy half of
+      // the blast is real, so `release()` can null `visual` on this very slot
+      // before the next line runs. Exactly the failure the exploder's comment
+      // documents: read the colour and the mark FIRST, and check the slot is
+      // still live before touching `e` again.
+      const puff = e.visual ? e.visual.color : '#ff9a3d';
+      const bx = e.aiX, by = e.aiY;
+      enemyBlast(run, bx, by, blast, e.damage * (e.params.shellMult || 1.5));
+      particles.ring(bx, by, 12, puff, blast * 2.6);
+      if (!e.active) return;
+      e.aiState = 0;
+      e.aiT = e.params.fireInterval || 4.5;
+    }
+  },
+
+  /**
+   * SOWER — ground denial. It does not chase you; it takes the floor away.
+   *
+   * Everything else in the horde is a thing to be killed. This one converts the
+   * arena into something you have to route around, and it keeps doing it while
+   * you decide whether it is worth the detour. Its own contact damage is low on
+   * purpose: the mob is not the threat, the trail is, and killing it does not
+   * clean up what it already put down.
+   *
+   * The field is PERMANENTLY VISIBLE (hazards.js draws it under the entities), so
+   * this is telegraph-compliant without a countdown: there is nothing to warn
+   * about, it is simply there.
+   */
+  sower(e, run, p, dt, sys) {
+    sys._moveToward(e, p.x, p.y, dt, 0.8);
+    e.aiT -= dt;
+    if (e.aiT > 0) return;
+    e.aiT = e.params.sowInterval || 2.2;
+    // Only ever at its own feet. A sower that placed ground under the PLAYER
+    // would be an untelegraphed attack wearing a hazard's clothes.
+    run.hazards.spawnField(e.x, e.y, e.params.fieldRadius || 62,
+                           e.params.fieldLife || 6,
+                           e.params.fieldKind || 'damage',
+                           e.damage * (e.params.fieldDps || 0.55),
+                           e.visual.color, SOW_OPTS);
+  },
+
+  /**
+   * CONDUCTOR — the reason the crowd is suddenly a problem.
+   *
+   * The healer taught "kill that one first" with a green beam you can see. This
+   * teaches the same lesson without a beam: a screen of ordinary fodder that is
+   * moving 35% faster and hitting 30% harder than it was ten seconds ago, and
+   * one thing in the middle of it keeping time. It has no attack of its own and
+   * the lowest contact damage of its tier — every point of threat it represents
+   * is borrowed from the enemies around it, which is exactly the read.
+   *
+   * `applyHaste`/`applyEmpower` take the STRONGER of the incoming and existing
+   * effect, so two conductors overlapping is not 1.35 x 1.35.
+   */
+  conductor(e, run, p, dt, sys) {
+    // Hangs back like the healer: it wants to be inside its own crowd, not
+    // ahead of it.
+    const d = Math.sqrt(dist2(e.x, e.y, p.x, p.y));
+    if (d < 240) { if (dirTo(p.x, p.y, e.x, e.y) > 1) { e.x += V.x * e.speed * dt; e.y += V.y * e.speed * dt; } }
+    else sys._moveToward(e, p.x, p.y, dt, 0.6);
+
+    e.aiT -= dt;
+    if (e.aiT > 0) return;
+    e.aiT = 0.5;
+    const rad = e.params.rallyRadius || 260;
+    const haste = e.params.hasteMult || 1.35;
+    const power = e.params.empowerMult || 1.3;
+    // 0.9s of buff refreshed every 0.5s: killing the conductor does not undo the
+    // crowd instantly, it lets the crowd fall back to normal over half a second,
+    // which is long enough to feel like a consequence and short enough to read.
+    const hash = run.enemyHash;
+    const items = run.enemies.items;
+    const n = hash.query(e.x, e.y, rad);
+    for (let k = 0; k < n; k++) {
+      const o = items[hash.resultAt(k)];
+      if (!o || !o.active || o === e || o.hp <= 0) continue;
+      applyHaste(o.st, haste, 0.9);
+      applyEmpower(o.st, power, 0.9);
+    }
+    particles.drift(e.x, e.y, e.visual.accent || e.visual.color, RALLY_FX);
+  },
+
+  /**
+   * WATCHER — it only attacks people who are not going anywhere.
+   *
+   * The tier-2 comment in data/enemies.js has claimed since the first build that
+   * "every one of them punishes standing still", and none of them did: a chaser
+   * walking at you is not a clock. This is. It measures DISPLACEMENT, not input,
+   * so shuffling on the spot and orbiting a 40px circle both count as standing
+   * still — and a player who genuinely relocates resets it for free.
+   *
+   * It never moves onto you and it strikes the ANCHOR, not the player, so the
+   * counter-play is always the same one word: leave.
+   */
+  watcher(e, run, p, dt, sys) {
+    const stand = e.params.standRadius || 96;
+    const strike = e.params.strikeRadius || 118;
+
+    // Loiters at reading distance. It is a threat you are supposed to be able to
+    // see and ignore until you cannot.
+    const d = Math.sqrt(dist2(e.x, e.y, p.x, p.y));
+    if (d > 300) sys._moveToward(e, p.x, p.y, dt, 1);
+    else if (d < 190) { if (dirTo(p.x, p.y, e.x, e.y) > 1) { e.x += V.x * e.speed * 0.7 * dt; e.y += V.y * e.speed * 0.7 * dt; } }
+    e.facingTarget = Math.atan2(p.y - e.y, p.x - e.x);
+
+    e.aiT -= dt;
+    if (e.aiState === 1) {
+      if (e.aiT <= 0) {
+        // Same rule as the mortar and the exploder: the strike lands on an
+        // anchor the watcher may itself be standing next to, and the blast is
+        // free to kill it. Colour and mark are read before the damage, and the
+        // slot is re-checked before anything else on `e` is written.
+        const puff = e.visual ? e.visual.color : '#ff9a3d';
+        const bx = e.aiX, by = e.aiY;
+        enemyBlast(run, bx, by, strike, e.damage * (e.params.strikeMult || 1.8));
+        particles.ring(bx, by, 14, puff, strike * 2.4);
+        if (!e.active) return;
+        e.aiState = 0;
+        e.aiT2 = 0;
+        e.aiT = e.params.cooldown || 2.5;
+        e.aiX = p.x; e.aiY = p.y;
+      }
+      return;
+    }
+    if (e.aiT > 0) return;              // cooling down; not watching yet
+
+    if (dist2(e.aiX, e.aiY, p.x, p.y) > stand * stand) {
+      // Moved. Re-anchor and start the count again from nothing.
+      e.aiX = p.x; e.aiY = p.y;
+      e.aiT2 = 0;
+      return;
+    }
+    e.aiT2 += dt;
+    if (e.aiT2 >= (e.params.patience || 2.2)) {
+      e.aiState = 1;
+      e.aiT = e.params.telegraph || feel.telegraphLethal;
+      run.hazards.telegraph(e.aiX, e.aiY, strike, e.aiT, 'red', 'x');
+    }
+  },
+
+  /**
+   * TETHERED — cannot be killed the way everything else is killed.
+   *
+   * While ANY other enemy is inside `wardRadius` it takes 92% less damage and
+   * draws a tether to whichever one is holding the ward up. Alone, it is a
+   * slightly slow tier-3 chaser you delete in a second. So the horde around it
+   * is not chaff any more, it is the fight — and on a covered screen at minute
+   * fifteen that is a genuine problem to solve rather than a bigger number.
+   *
+   * TWO answers, on purpose, because one answer is a puzzle and two is a
+   * mechanic: clear a bubble around it, or burn it — damage.js exempts DoTs from
+   * the mitigation path, so bleed/burn/poison builds bypass the ward entirely
+   * and pay for it in time instead of positioning.
+   */
+  tethered(e, run, p, dt, sys) {
+    sys._moveToward(e, p.x, p.y, dt, 1);
+    e.aiT -= dt;
+    if (e.aiT > 0) return;
+    // Four checks a second. The ward is a state, not a per-hit query — putting
+    // this in damage.js would mean a spatial-hash lookup on every one of the
+    // twenty thousand hits a built player lands in a minute.
+    e.aiT = 0.25;
+    const rad = e.params.wardRadius || 150;
+    const hash = run.enemyHash;
+    const items = run.enemies.items;
+    const n = hash.query(e.x, e.y, rad);
+    for (let k = 0; k < n; k++) {
+      const o = items[hash.resultAt(k)];
+      if (!o || !o.active || o === e || o.hp <= 0 || o.spawnT > 0) continue;
+      // A WARD MAY NOT BE HELD BY ANOTHER WARDED THING. Without this line a
+      // cluster of Mask Bearers holds itself up: every one of them is somebody
+      // else's escort, none of them can be killed first, and the only way out is
+      // a DoT — which is a deadlock, not a mechanic. Caught by driving 24 of
+      // them into one run and watching all 24 survive an hour. The escort has to
+      // be ordinary horde, which is also the read the tether is meant to give.
+      if (o.behavior === 'tethered') continue;
+      if (dist2(e.x, e.y, o.x, o.y) > rad * rad) continue;
+      e.aiF = 1;                        // warded
+      e.aiX = o.x; e.aiY = o.y;         // where the tether is drawn to
+      e.shieldArc = TAU;
+      return;
+    }
+    e.aiF = 0;
+    e.shieldArc = 0;
+  },
+
+  /**
+   * STRAFER — the thing that is not on screen yet.
+   *
+   * Everything else in this file is a problem you can see and choose to walk
+   * away from. This one leaves, and comes back on a timer, down a lane it drew
+   * across the whole arena a second before it arrives — so the question stops
+   * being "what is near me" and starts being "where will I be in a second".
+   *
+   * It is the one archetype that runs while off-screen (`thinksOffscreen`),
+   * because the withdrawal and the line-up ARE the attack. It does no damage
+   * out there: the update loop only tests contact for enemies inside the view.
+   */
+  strafer(e, run, p, dt, sys) {
+    e.aiT -= dt;
+    switch (e.aiState) {
+      case 0:                            // PROWL — an ordinary fast chaser
+        sys._moveToward(e, p.x, p.y, dt, 1);
+        if (e.aiT <= 0) {
+          const tel = e.params.telegraph || feel.telegraphLethal;
+          const rx = run.camera.viewHalfW(0) * 1.25;
+          const ry = run.camera.viewHalfH(0) * 1.25;
+          e.aiF = runRng.angle();
+          e.aiX = p.x - Math.cos(e.aiF) * rx;
+          e.aiY = p.y - Math.sin(e.aiF) * ry;
+          e.aiState = 1; e.aiT = tel;
+          // The lane, drawn the full width of the run so the safe side of it is
+          // unambiguous. Yellow + arrow is the "wind-up, from this way" pair.
+          run.hazards.telegraphLine(e.aiX, e.aiY,
+                                    e.aiX + Math.cos(e.aiF) * rx * 2.6,
+                                    e.aiY + Math.sin(e.aiF) * ry * 2.6,
+                                    e.radius * 2.4, tel, 'yellow', 'arrow');
+        }
+        break;
+      case 1:                            // LINE UP, out past the edge of the view
+        sys._moveToward(e, e.aiX, e.aiY, dt, 3.2);
+        if (e.aiT <= 0) {
+          // Snapped onto the mark rather than merely near it: the lane is
+          // already drawn and a strafer that runs parallel to its own telegraph
+          // is a lie. It is well outside the view, so nothing pops.
+          e.x = e.aiX; e.y = e.aiY; e.px = e.x; e.py = e.y;
+          e.aiState = 2; e.aiT = e.params.runTime || 1.7;
+        }
+        break;
+      case 2: {                          // THE RUN
+        const s = (e.params.dashSpeed || 660) * dt;
+        e.x += Math.cos(e.aiF) * s;
+        e.y += Math.sin(e.aiF) * s;
+        e.facingTarget = e.aiF;
+        if (e.aiT <= 0) { e.aiState = 3; e.aiT = e.params.recover || 0.9; }
+        break;
+      }
+      default:                           // RECOVER, then go around again
+        sys._moveToward(e, p.x, p.y, dt, 0.45);
+        if (e.aiT <= 0) { e.aiState = 0; e.aiT = e.params.runInterval || 6; }
+    }
+  },
+
   /** DECISIONS.md §6 — declared by Trap Scroll, never defined in the spec. */
   static(e, run, p, dt, sys) {
     // A visible, avoidable mine. It never moves; it detonates on proximity after
@@ -754,7 +1164,7 @@ const BEHAVIORS = {
     } else {
       e.aiT -= dt;
       if (e.aiT <= 0) {
-        areaDamage(run, e.x, e.y, e.params.blastRadius || 110, e.damage, SRC.HAZARD, { falloff: 0.3, canCrit: false });
+        enemyBlast(run, e.x, e.y, e.params.blastRadius || 110, e.damage);
         particles.ring(e.x, e.y, 18, '#ffd23f', 420);
         dealDamage(run, e, e.maxHp * 10, SRC.HAZARD, { canCrit: false, noNumber: true });
       }
@@ -763,4 +1173,15 @@ const BEHAVIORS = {
 };
 
 const EMPTY = {};
+
+/**
+ * The Sower's field, as a module-level constant (house rule: no options bag is
+ * built inside a tick). `hitsEnemies:false` is deliberate — an enemy hazard that
+ * mowed down the crowd it was standing in would be a gift, not a threat.
+ */
+const SOW_OPTS = { hitsPlayer: true, hitsEnemies: false };
+
+/** Same rule, one line up: the Conductor's beat is drawn twice a second. */
+const RALLY_FX = { life: 0.6, size: 0.45 };
+
 export { BEHAVIORS };

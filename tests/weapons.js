@@ -612,12 +612,27 @@ describe('weapons / the level-up offer', () => {
     run.dispose();
   });
 
-  it('a maxed weapon is always offered its evolution', () => {
+  it('a maxed weapon is offered its evolution once the requirement is paid', () => {
     freshSave();
     const run = makeRun();
     const def = W.WEAPONS[1];
     run.weapons.add(def.id);
-    run.weapons.get(def.id).level = 8;
+    const w = run.weapons.get(def.id);
+    w.level = 8;
+
+    // MAXED IS NO LONGER SUFFICIENT. Every weapon now names a generic upgrade it
+    // has to be built into before it can evolve, which is the whole point of the
+    // change — the evolve card is a reward for a committed build rather than an
+    // automatic consequence of levelling. So the un-paid case is asserted first:
+    // a maxed weapon whose requirement is unmet must NOT produce an evolve card.
+    const req = run.weapons.evoRequirement(w);
+    if (req) {
+      const early = run.rollUpgradeChoices();
+      assert.ok(!early.some((c) => c.kind === 'weaponEvo'),
+                'an evolve card appeared before its required upgrade was taken');
+      for (let i = 0; i < req.level; i++) run.player.addUpgrade(req.upgrade);
+    }
+
     const choices = run.rollUpgradeChoices();
     assert.equal(choices[0].kind, 'weaponEvo', 'the evolve card must take the first slot');
     assert.equal(choices[0].w.id, def.id);

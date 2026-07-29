@@ -580,14 +580,14 @@ export const hubScene = {
     r.drawRect(x + 12, y + lift, w - 24, focused ? 4 : 3, color, focused ? 1 : 0.75);
     r.drawRect(x + 12, y + lift + (focused ? 4 : 3), w - 24, 1, '#ffffff', 0.10);
     r.strokeRect(x, y + lift, w, h, focused ? PALETTE.borderHot : 'rgba(150,170,225,0.22)',
-                 focused ? 2.5 : 1.5, 1);
+                 focused ? 1.75 : 1.5, 1);
     if (focused) {
       // A wash of the card's own colour, breathing. 0.29Hz — an order of
       // magnitude under the 3Hz accessibility floor in core/feel.js, so this is
       // one of the few animations in the game that needs no reduceFlashing gate.
       const glow = 0.5 + 0.5 * Math.sin(this.t * 1.8);
       r.drawRoundRect(x, y + lift, w, h, 12, color, 0.05 + glow * 0.05);
-      ui.brackets(x, y + lift, w, h, PALETTE.borderHot, Math.min(22, w * 0.16), 3);
+      ui.brackets(x, y + lift, w, h, PALETTE.borderHot, Math.min(22, w * 0.16), 2);
     }
     return lift;
   },
@@ -681,11 +681,24 @@ export const hubScene = {
     r.drawLine(sx + h * 0.18, yy + h + 20, sx + h * 0.73, yy - 20, '#ffe9c4', 3, 0.16);
     r.unclip();
 
+    // THE FOCUS TREATMENT, AT A THIRD OF THE WEIGHT IT SHIPPED WITH.
+    //
+    // Verbatim from a player: "yellow box around play button is extremely thick
+    // when hovering over it". It was — a 3px gold rule around the whole card
+    // plus four 4px brackets thirty pixels long at the corners, on the largest
+    // object on the screen, all of it in the same #ffd76a as the card's own top
+    // edge. Together they read as one continuous eight-pixel gold frame, which
+    // is not a focus state, it is a highlighter.
+    //
+    // What actually communicates focus here was never the outline: the card
+    // lifts, casts a shadow, brightens its top edge, and the ignition disc spins
+    // up and blooms. The rule only has to say "this one" — so it is 2px, the
+    // brackets are 2px and shorter, and every other cue is untouched.
     r.drawRect(x + 14, yy, w - 28, focused ? 5 : 4, n.color, focused ? 1 : 0.85);
     r.drawRect(x + 14, yy + (focused ? 5 : 4), w - 28, 1, '#ffffff', 0.14);
     r.strokeRect(x, yy, w, h, focused ? PALETTE.borderHot : 'rgba(255,215,106,0.35)',
-                 focused ? 3 : 1.5, 1);
-    if (focused) ui.brackets(x, yy, w, h, PALETTE.borderHot, Math.min(30, w * 0.14), 4);
+                 focused ? 2 : 1.5, 1);
+    if (focused) ui.brackets(x, yy, w, h, PALETTE.borderHot, Math.min(24, w * 0.11), 2);
 
     // --- the ignition disc ---------------------------------------------------
     const discR = Math.round(clamp(Math.min(w, h) * (stacked ? 0.24 : 0.34), 24, 84));
@@ -925,9 +938,9 @@ export const hubScene = {
     if (focused) r.drawRoundRect(x + 2, y + 4, w - 4, h, 10, 'rgba(3,2,8,0.5)', 1);
     r.drawRoundRect(x, yy, w, h, 10, 'rgba(16,12,28,0.78)', 1);
     r.strokeRect(x, yy, w, h, focused ? PALETTE.borderHot : 'rgba(150,170,225,0.18)',
-                 focused ? 2.5 : 1.5, 1);
+                 focused ? 1.75 : 1.5, 1);
     r.drawRect(x, yy + 8, 3, h - 16, n.color, focused ? 1 : 0.6);
-    if (focused) ui.brackets(x, yy, w, h, PALETTE.borderHot, Math.min(20, w * 0.06), 3);
+    if (focused) ui.brackets(x, yy, w, h, PALETTE.borderHot, Math.min(20, w * 0.06), 2);
 
     ui.text(n.icon, x + Math.round(28 * L.S), yy + h / 2, {
       size: Math.round(clamp(h * 0.42, 16, 26)), align: 'center', baseline: 'middle',

@@ -55,6 +55,7 @@ import './star5a.js';
 import './star5b.js';
 import './star6.js';
 import './star7.js';
+import './star8.js';
 import './evolutionEffects.js';
 
 // ---------------------------------------------------------------------------

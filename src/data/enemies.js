@@ -1,10 +1,37 @@
-// ENEMIES — 35 types + the 8 elite affixes.
+// ENEMIES — 51 types + the 8 elite affixes.
 //
 // SECTION 9 stats 23 of these; their stat lines are reproduced VERBATIM
 // (hp / damage / speed / behavior). Nine more are named in stage mob tables with
 // no stats anywhere and three are split-children that only ever appear on a
 // parent's death — all twelve are authored here in full (DECISIONS.md §5),
 // interpolated to sit inside the range their tier already occupies.
+//
+// SIXTEEN ARE NEW, and none of them is a recolour.
+// -----------------------------------------------
+// Play report: "make more unique mobs, quicker ones, different ability types,
+// smaller ones, bigger ones, etc so that the gameplay feels more different and
+// more challenging specifically for the later levels."
+//
+// So the additions are organised along the three axes that report names, and
+// every one of them is gated LATE — every new row in a stage mob table opens
+// after minute seven at the earliest, and most of them after minute ten, so the
+// back half of a run stops being the front half with bigger numbers:
+//
+//   SPEED    Four tier-1 harassers at 124-142 base speed, which is faster than
+//            anything below tier 3 was, and three tier-3 heavies at 22-36 —
+//            slower than any existing threat. Both ends are new; the middle of
+//            the roster was already crowded.
+//   SIZE     Four mobs well UNDER the fodder grid (visual size 7-8 against the
+//            old floor of 9) and four LARGE ones at 26-28. `size` drives the
+//            sprite grid AND the hitbox, and on Stage 3 it also decides whether
+//            "Titan's Shadow" doubles the HP — so it is never decoration.
+//   ABILITY  Six new archetypes, in game/enemy.js: mortar, sower, conductor,
+//            watcher, tethered, strafer. The reasoning for each is on the
+//            BEHAVIORS block there; the short version is that the first fifteen
+//            were all answers to "how does it come at you", and these six are
+//            answers to "what does it take away" — range, floor, the crowd's
+//            tempo, the option to stand still, the option to kill it first, and
+//            the assumption that the screen shows you everything dangerous.
 //
 // FIELD CONVENTIONS
 //   hp / damage / speed  base values at t=0. SECTION 8 scaling (enemyHp k=0.115,
@@ -132,6 +159,83 @@ export const ENEMIES = [
     // with the highest gold chance in the tier — Stage 2's crowd is the payday.
     params: { packSize: 14 },
     codex: 'Six bags of merch, zero peripheral vision.',
+  },
+
+  // --------------------------------------------------------------------------
+  // TIER 1 — THE SMALL FAST ONES
+  //
+  // Four mobs that are deliberately BELOW the fodder floor in every dimension
+  // except speed. `visual.size` 7-8 against tier 1's old floor of 9, and 124-142
+  // base speed against its old ceiling of 95 — so they are the first thing in
+  // the game that outruns the player's 165 once SECTION 8's speed scaling has
+  // had ten minutes to work on them.
+  //
+  // They exist for the late game even though they are tier 1: every stage table
+  // gates them past minute eight (see the `from` values in stages.js), where
+  // their job is not damage but ATTENTION. A player at minute fourteen has one
+  // build and four screens of things to look at, and a pack of these is the one
+  // that arrives before you have finished looking at the others.
+  //
+  // Priced as fodder because they die as fodder: one hit each, xp 1, and a gold
+  // chance at the bottom of the tier. A late mob should threaten, not pay.
+  // --------------------------------------------------------------------------
+
+  {
+    id: 'eraser_gremlin', name: 'Eraser Gremlin', tier: 1,
+    size: 'small',
+    hp: 11, damage: 5, speed: 124, weight: 1, xp: 1, goldChance: 0.03,
+    behavior: 'swarmer',
+    element: 'spirit',
+    visual: { shape: 'square', color: '#f2e9dc', accent: '#6a5f52', emoji: '🩹', size: 8 },
+    // Tighter, faster wobble than the Chibi Ghost's: at this speed the ghost's
+    // 2.2Hz weave reads as a wide arc and the pack stops looking like a pack.
+    params: { packSize: 24, sineAmp: 10, sineFreq: 3.6 },
+    codex: 'Removes what you wrote, then what you meant, then you.',
+  },
+
+  {
+    id: 'splinter_husk', name: 'Splinter Husk', tier: 1,
+    size: 'small',
+    hp: 16, damage: 7, speed: 136, weight: 1, xp: 1, goldChance: 0.04,
+    behavior: 'swarmer',
+    element: 'spirit',
+    visual: { shape: 'triangle', color: '#d0bda4', accent: '#5c4230', emoji: '😬', size: 8 },
+    // The deliberate counterweight to Stage 3's entire thesis. That stage is
+    // built out of 26-to-40 speed walls of Husk Wanderers and Crawler Husks; a
+    // knee-high one at 136 is the same silhouette family arriving four times
+    // sooner, which is a much nastier surprise than a new silhouette would be.
+    params: { packSize: 26 },
+    codex: 'Knee-high, mouth first, and it got here before the tall ones.',
+  },
+
+  {
+    id: 'ember_sprite', name: 'Ember Sprite', tier: 1,
+    size: 'small',
+    hp: 10, damage: 9, speed: 130, weight: 1, xp: 2, goldChance: 0.05,
+    behavior: 'exploder',
+    element: 'fire',
+    visual: { shape: 'diamond', color: '#ffb03d', accent: '#7a2f10', emoji: '🔥', size: 8, glow: true },
+    // A Jellyfish Chorus costs 25 HP, 3 seconds of fuse and a 90px blast. This
+    // costs 10 HP, half the fuse and a 56px blast, and it CANNOT chain — a fast
+    // chaining exploder on a covered screen is a screen-wide detonation with a
+    // 0.35s warning, which is the exact thing DECISIONS.md §25 keeps saying no
+    // to. Small blast, short fuse, no chain: it is a mine that runs at you.
+    params: { fuse: 1.6, blastRadius: 56, blastDamage: 9, chains: false },
+    codex: 'Small, bright, and briefly very close to your face.',
+  },
+
+  {
+    id: 'bait_ball', name: 'Bait Ball', tier: 1,
+    size: 'small',
+    hp: 9, damage: 5, speed: 142, weight: 1, xp: 1, goldChance: 0.03,
+    behavior: 'swarmer',
+    element: 'water',
+    visual: { shape: 'circle', color: '#9fe8ff', accent: '#0d4a63', emoji: '🐠', size: 7, glow: true },
+    // The fastest and smallest thing in the game. Stage 6's high tide takes 20%
+    // off everything's move speed, so this is tuned to still be a harasser at
+    // 114 — the trough is when it becomes genuinely difficult to leave behind.
+    params: { packSize: 34, sineAmp: 22, sineFreq: 3.0 },
+    codex: 'Not a fish. Four hundred fish agreeing about a direction.',
   },
 
   // ==========================================================================
@@ -289,6 +393,107 @@ export const ENEMIES = [
     // Stage 5 opens with these so the bruiser's silhouette already means danger.
     params: {},
     codex: 'Too small for the drum, too fast for your positioning.',
+  },
+
+  // --------------------------------------------------------------------------
+  // TIER 2 — WHERE THE FIVE NEW BEHAVIOURS ARE TAUGHT
+  //
+  // Every new archetype gets a cheap, legible, single-idea introduction here
+  // before its tier-3 version turns up and means it. That is the same courtesy
+  // the roster already extends to the Lesser Oni before the Oni Bruiser and to
+  // the Chalk Wraith's slow before the Chilling affix's — you learn the shape
+  // while it costs you 14 HP, not 30.
+  // --------------------------------------------------------------------------
+
+  {
+    id: 'hall_monitor', name: 'Hall Monitor', tier: 2,
+    size: 'medium',
+    hp: 58, damage: 14, speed: 44, weight: 4, xp: 5, goldChance: 0.10,
+    behavior: 'watcher',
+    element: 'spirit',
+    visual: { shape: 'capsule', color: '#dfe4ee', accent: '#3a4a7a', emoji: '📋', size: 16 },
+    // The teaching stage's version, and the numbers are the teaching version's:
+    // 2.4s of patience is long enough to notice, a 96px stand radius is one
+    // comfortable sidestep, and 1.5x on a 14-damage statline is a scare rather
+    // than a third of a health bar. Stage 1's tier-2 comment has claimed since
+    // the first build that "every one of them punishes standing still" — this is
+    // the first one that literally does.
+    params: {
+      standRadius: 96, patience: 2.4, telegraph: 1.0,
+      strikeRadius: 112, strikeMult: 1.5, cooldown: 3.0,
+    },
+    codex: 'Writing your name down. Has been for a while now. Move.',
+  },
+
+  {
+    id: 'courier_scooter', name: 'Courier Scooter', tier: 2,
+    size: 'medium',
+    hp: 48, damage: 15, speed: 72, weight: 3, xp: 6, goldChance: 0.12,
+    behavior: 'strafer',
+    element: 'lightning',
+    visual: { shape: 'triangle', color: '#ffd23f', accent: '#2a1140', emoji: '🛵', size: 15 },
+    // Deliberately on the stage that already owns a lane hazard: by the time
+    // this arrives the player has spent twelve minutes learning that a yellow
+    // line across the street means MOVE, and the Courier borrows that alphabet
+    // instead of inventing one. Its dash is 620 against the truck's 900, so the
+    // lane it draws is the same idea at a speed you can still contest.
+    params: {
+      runInterval: 6, telegraph: 1.0, dashSpeed: 620, runTime: 1.7, recover: 0.9,
+    },
+    codex: 'Thirty seconds late. Taking the pavement. The pavement is where you are.',
+  },
+
+  {
+    id: 'hype_marshal', name: 'Hype Marshal', tier: 2,
+    size: 'medium',
+    hp: 72, damage: 8, speed: 50, weight: 3, xp: 7, goldChance: 0.14,
+    behavior: 'conductor',
+    element: 'lightning',
+    visual: { shape: 'capsule', color: '#ff7de3', accent: '#2a1140', emoji: '📣', size: 16 },
+    // The lowest contact damage of any tier-2 that is not a swarm mote, on
+    // purpose: nothing this thing does to you is done by this thing. Its whole
+    // threat is the 40-strong Akiba crowd around it moving 30% faster and
+    // hitting 25% harder, and the moment it dies that goes away over half a
+    // second — which is the cleanest "kill that one first" lesson in the game
+    // that does not involve a healing beam.
+    params: { rallyRadius: 250, hasteMult: 1.30, empowerMult: 1.25 },
+    codex: 'Has never once been in the fight. Is the reason the fight is like this.',
+  },
+
+  {
+    id: 'censer_shade', name: 'Censer Shade', tier: 2,
+    size: 'medium',
+    hp: 62, damage: 10, speed: 40, weight: 4, xp: 6, goldChance: 0.11,
+    behavior: 'sower',
+    element: 'fire',
+    visual: { shape: 'hex', color: '#c8a24a', accent: '#3a2417', emoji: '🕯️', size: 16 },
+    // fieldDps is a FRACTION of the mob's scaled damage, not a flat number, so
+    // the trail keeps pace with SECTION 8 without a second scaling curve. 0.55
+    // of a 10-damage statline is 5.5/s: standing in one is a mistake you can
+    // walk out of, and standing in three is not.
+    params: {
+      sowInterval: 2.4, fieldRadius: 60, fieldLife: 6,
+      fieldKind: 'damage', fieldDps: 0.55,
+    },
+    codex: 'Walks the perimeter, swinging. The smoke stays exactly where it is put.',
+  },
+
+  {
+    id: 'roofline_runner', name: 'Roofline Runner', tier: 2,
+    size: 'small',
+    hp: 44, damage: 16, speed: 84, weight: 2, xp: 6, goldChance: 0.10,
+    behavior: 'strafer',
+    element: 'shadow',
+    visual: { shape: 'capsule', color: '#2f3a52', accent: '#8fa2c9', emoji: '🏃', size: 13 },
+    // Faster and shorter-fused than the Courier: 700 down the lane on a 0.9s
+    // telegraph. Stage 4's whole thesis is "nothing comes from where you are
+    // looking", and this is the version of that which announces itself and is
+    // still hard to be elsewhere for — which is the difference between a stage
+    // that is unfair and a stage that is difficult.
+    params: {
+      runInterval: 5.5, telegraph: 0.9, dashSpeed: 700, runTime: 1.6, recover: 0.8,
+    },
+    codex: 'Uses the roofs as roads. There is no roof here. It has not noticed.',
   },
 
   // ==========================================================================
@@ -452,6 +657,149 @@ export const ENEMIES = [
     codex: 'Still loading in. The case weighs more than you do.',
   },
 
+  // --------------------------------------------------------------------------
+  // TIER 3 — THE LATE ROSTER
+  //
+  // Every one of these is gated past minute ten in its stage's mob table and
+  // every one of them asks the player to change something rather than to do more
+  // of what they were already doing. Priced against the tier's existing shape:
+  // 115-235 HP against the Oni Bruiser's 220 and the Blood Doll's 80, 20-30
+  // damage against a tier that runs 8-40, 13-17 XP against 6-16. Nothing here
+  // out-stats the Oni Bruiser; what they have instead is a rule.
+  //
+  // The three LARGE ones are 22-34 speed — slower than any existing threat and
+  // slower than the Rubble Golem's 30 in two cases. That is the "slow heavies
+  // that force routing around them" half of the request: they are not chasing
+  // you down, they are occupying somewhere you wanted to be.
+  // --------------------------------------------------------------------------
+
+  {
+    id: 'siege_husk', name: 'Siege Husk', tier: 3,
+    size: 'large',
+    hp: 210, damage: 24, speed: 22, weight: 15, xp: 16, goldChance: 0.22,
+    behavior: 'mortar',
+    element: 'steel',
+    visual: { shape: 'hex', color: '#7d848f', accent: '#241f1a', emoji: '🪨', size: 27 },
+    // The slowest thing in the game that still moves — 4 under the Crawler Husk,
+    // which held that title — and the longest reach, at 560 against the Kunai
+    // Bat's 350. Together those are the entire design: it cannot catch you and
+    // it does not have to, and the safe distance you have been playing at for
+    // three stages is inside its range. Weight 15 is a rung under the Rubble
+    // Golem, so a knockback build shifts it and does not clear it.
+    params: {
+      range: 560, fireInterval: 4.6, telegraph: 1.1,
+      blastRadius: 145, shellMult: 1.5, lead: 0.55,
+    },
+    codex: 'Too slow to catch anybody. Has not needed to catch anybody in years.',
+  },
+
+  {
+    id: 'mask_bearer', name: 'Mask Bearer', tier: 3,
+    size: 'medium',
+    hp: 115, damage: 26, speed: 66, weight: 4, xp: 14, goldChance: 0.20,
+    behavior: 'tethered',
+    element: 'shadow',
+    visual: { shape: 'diamond', color: '#b0a0d8', accent: '#8ce8ff', emoji: '🎭', size: 17 },
+    // 115 HP is soft for tier 3 and that is the point: alone it dies in a
+    // second, and it is never alone. The 150px ward radius is deliberately
+    // TIGHT — on Stage 5's covered screen a 250px ward would simply never drop
+    // and the mob would read as invulnerable, which is a bug, not a mechanic.
+    // 150px is roughly one nova, so the answer is a thing the player already
+    // owns rather than a thing they have to go and get.
+    params: { wardRadius: 150, wardReduction: 0.92 },
+    codex: 'The mask is not on its face. The mask is what is holding the crowd together.',
+  },
+
+  {
+    id: 'brazier_oni', name: 'Brazier Oni', tier: 3,
+    size: 'large',
+    hp: 235, damage: 20, speed: 34, weight: 13, xp: 16, goldChance: 0.21,
+    behavior: 'sower',
+    element: 'fire',
+    visual: { shape: 'capsule', color: '#e0764a', accent: '#4d1410', emoji: '🔥', size: 26 },
+    // The Censer Shade's idea at three times the size and half again the rate:
+    // a 74px pool every 1.9s at 0.7x damage, live for 7 seconds, which means one
+    // of these walking a straight line leaves roughly four pools of standing
+    // fire behind it at all times. On the stage whose corridors move every 45
+    // seconds, the floor it takes away is floor you were counting on.
+    params: {
+      sowInterval: 1.9, fieldRadius: 74, fieldLife: 7,
+      fieldKind: 'damage', fieldDps: 0.7,
+    },
+    codex: 'Carries the coals in its hands. Puts them down wherever it likes.',
+  },
+
+  {
+    id: 'sutra_chanter', name: 'Sutra Chanter', tier: 3,
+    size: 'medium',
+    hp: 150, damage: 9, speed: 34, weight: 4, xp: 15, goldChance: 0.21,
+    behavior: 'conductor',
+    element: 'spirit',
+    visual: { shape: 'capsule', color: '#e8dcc0', accent: '#6a3a10', emoji: '📿', size: 17, glow: true },
+    // Sits at 150 HP next to the Encore Siren's 160 on purpose: they are the
+    // same job description from two directions — the Siren gives the crowd its
+    // health back, this gives the crowd its tempo — and a player who has learned
+    // to hunt one should recognise the priority of the other on sight. Under
+    // "Demon Moon" the pair together is the hardest target-priority problem in
+    // the game, which is exactly what a four-star stage is for.
+    params: { rallyRadius: 280, hasteMult: 1.40, empowerMult: 1.35 },
+    codex: 'One voice, forty demons, and not one of them tiring.',
+  },
+
+  {
+    id: 'deep_watcher', name: 'Deep Watcher', tier: 3,
+    size: 'medium',
+    hp: 145, damage: 30, speed: 36, weight: 5, xp: 14, goldChance: 0.20,
+    behavior: 'watcher',
+    element: 'water',
+    visual: { shape: 'circle', color: '#1e3346', accent: '#7de0c4', emoji: '👁️', size: 17, glow: true },
+    // The Hall Monitor's lesson with the training wheels off: 2.0s of patience
+    // instead of 2.4, an 88px stand radius instead of 96, and 1.6x off a
+    // 30-damage statline. High tide slows the player 20%, so the reposition it
+    // demands costs more on the crest than in the trough — which is how a stage
+    // hazard is supposed to interact with a mob rather than just coexist.
+    params: {
+      standRadius: 88, patience: 2.0, telegraph: 1.0,
+      strikeRadius: 128, strikeMult: 1.6, cooldown: 2.6,
+    },
+    codex: 'Ambush predators do not chase. They wait for you to stop being interesting.',
+  },
+
+  {
+    id: 'spine_urchin', name: 'Spine Urchin', tier: 3,
+    size: 'medium',
+    hp: 125, damage: 22, speed: 28, weight: 6, xp: 13, goldChance: 0.19,
+    behavior: 'mortar',
+    element: 'water',
+    visual: { shape: 'star', color: '#6a4a8f', accent: '#1a0d2a', emoji: '🦔', size: 16 },
+    // The Siege Husk's shell at reef scale: shorter range, tighter blast,
+    // quicker cycle. Two of them cross-covering a stretch of seabed is the
+    // reason this stage's ring waves stopped being free, and unlike the Husk it
+    // is soft enough (weight 6) that knockback genuinely relocates the problem.
+    params: {
+      range: 460, fireInterval: 4.0, telegraph: 1.0,
+      blastRadius: 118, shellMult: 1.4, lead: 0.45,
+    },
+    codex: 'Sits perfectly still. Redecorates everywhere you were thinking of standing.',
+  },
+
+  {
+    id: 'reef_bulwark', name: 'Reef Bulwark', tier: 3,
+    size: 'large',
+    hp: 230, damage: 28, speed: 30, weight: 16, xp: 17, goldChance: 0.22,
+    behavior: 'tethered',
+    element: 'steel',
+    visual: { shape: 'hex', color: '#3c8f8a', accent: '#ffd76a', emoji: '🪸', size: 28 },
+    // The Mask Bearer's rule on a body that can afford it: 230 HP, weight 16 —
+    // tied with the Rubble Golem for the heaviest thing in the game — and a
+    // 190px ward, because a large mob is genuinely harder to isolate and the
+    // radius has to be worth clearing rather than trivial to leave. Reef high
+    // tide doubles knockback, which is the one window where shoving its escort
+    // out of the ward is easier than killing them.
+    params: { wardRadius: 190, wardReduction: 0.94 },
+    codex: 'Forty years of small things growing on it, and every one of them load-bearing.',
+  },
+
   // ==========================================================================
   // SPLIT CHILDREN — spawnable:false
   // Never in a mob table, never rolled by the Splitting affix. They exist so a
@@ -579,13 +927,19 @@ export const ELITE_AFFIX_MAX = 3;
  */
 export const KAMIGE_AFFIXES = AFFIXES.filter(a => !a.cascading);
 
-/** id -> enemy. All 35, children included. */
+/** id -> enemy. All 51, children included. */
 export const ENEMIES_BY_ID = Object.fromEntries(ENEMIES.map(e => [e.id, e]));
 
 /**
- * Wave-spawnable enemies grouped by tier — 8 / 12 / 12. The three split
+ * Wave-spawnable enemies grouped by tier — 12 / 17 / 19. The three split
  * children are excluded (spawnable:false) so no wave event and no Splitting
  * affix can roll a child that is only meant to appear on a parent's death.
+ *
+ * The Splitting affix rolls from tier 1, so everything added to that bucket is
+ * something an elite may now shed four of every five seconds. All four of the
+ * new tier-1 mobs are fodder-priced with no spawn behaviour of their own, which
+ * is the property that bucket actually needs (DECISIONS.md §25) — an exploder
+ * with `chains` or a summoner in there would be an unbounded cascade.
  */
 export const ENEMIES_BY_TIER = {
   1: ENEMIES.filter(e => e.tier === 1 && e.spawnable !== false),

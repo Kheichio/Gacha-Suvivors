@@ -152,11 +152,15 @@ export const MILESTONE_LETTERS = { everyPulls: 50, universalLetters: 25 };
 
 const POOL_3 = ['mochi', 'alto'];
 const POOL_4 = ['hoshino_rei', 'yamikage', 'uzu', 'captain_yuli', 'kagura', 'unit_09'];
-const POOL_5 = ['rin', 'niten', 'shiro_same', 'reika', 'nekromina', 'hikari', 'akane', 'kira',
+// Ten, not eleven: Akane was promoted to ★6 and left this pool entirely. A
+// character in two rarity pools at once is not a rarer character, it is a bug —
+// she would roll off both the 8% band and the 1% band and the pull screen would
+// print two different beam colours for the same result.
+const POOL_5 = ['rin', 'niten', 'shiro_same', 'reika', 'nekromina', 'hikari', 'kira',
                 'yukine', 'wren', 'brant'];
 
 /**
- * The full ★6 roster, shared by both rate-up banners.
+ * The full ★6 roster, shared by every rate-up banner.
  *
  * It has to be the FULL roster, not just the featured one, for three reasons —
  * each of which was a live bug when the two rate-ups carried a single-entry pool:
@@ -170,8 +174,14 @@ const POOL_5 = ['rin', 'niten', 'shiro_same', 'reika', 'nekromina', 'hikari', 'a
  *
  * `featured6` still does the rate-up work: half of all ★6s are the featured one,
  * the other half roll this list. Which is what the banner copy already promised.
+ *
+ * Seven now. Akane joins Han as a ★6 with no rate-up banner of her own, and that
+ * is a deliberate, safe state precisely BECAUSE of reason 1 above: this list is
+ * the whole roster, so every rate-up banner in rotation can already hand her to
+ * you off the losing half of the coin flip. Featuring is a scheduling dial the
+ * owner turns; obtainability is a pool invariant, and the pool is correct.
  */
-const POOL_6 = ['sovereign_alicia', 'sora', 'han', 'aoi', 'mirel'];
+const POOL_6 = ['sovereign_alicia', 'sora', 'han', 'aoi', 'mirel', 'akane', 'pekora'];
 
 // -----------------------------------------------------------------------------
 // BANNERS
@@ -234,16 +244,21 @@ export const BANNERS = [
 
   {
     // The second half of the rotation. Its featured5 list is disjoint from
-    // Sovereign of Cinders on purpose — with eight ★5s, two non-overlapping
-    // rate-ups is exactly what the roster supports, and a player who wants a
-    // specific ★5 always has one banner that favours it.
+    // Sovereign of Cinders on purpose — a player who wants a specific ★5 always
+    // has one banner that favours it, and never two.
+    //
+    // Akane was the third name here until her promotion. She could not stay: a
+    // ★6 in a featured5 list is unreachable code — the ★5 branch never draws her
+    // — and the banner copy would be promising a character the roll cannot
+    // return. Removing her is what freed the room to close the last gap in the
+    // rotation (see Best Laid Plans below).
     id: 'banner_tournament_arc',
     name: 'Tournament Arc',
     type: 'rateup',
-    desc: 'Rate-up: ★6 Sora. Half of every ★5 you pull here is Niten, Shiro-Same or Akane.',
+    desc: 'Rate-up: ★6 Sora. Half of every ★5 you pull here is Niten or Shiro-Same.',
     subDesc: 'Guaranteed ★6 by pull 80, guaranteed ★5 by pull 50. The counters stay on screen.',
     featured6: 'sora',
-    featured5: ['niten', 'shiro_same', 'akane'],
+    featured5: ['niten', 'shiro_same'],
     pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: POOL_6 },
     costSingle: 15,
     costTen: 135,
@@ -260,11 +275,14 @@ export const BANNERS = [
   },
 
   {
-    // Rate-up three. The featured5 lists on all four rate-ups stay DISJOINT for
+    // Rate-up three. The featured5 lists on all five rate-ups stay DISJOINT for
     // the reason the Tournament Arc comment gives: a player who wants one
-    // specific ★5 must always have exactly one banner that favours it. With
-    // eleven ★5s and four rate-ups that still works — this one and the fantasy
-    // banner below simply feature the three ★5s the first two never did.
+    // specific ★5 must always have exactly one banner that favours it. Ten ★5s
+    // across five rate-ups divides exactly — this one and the fantasy banner
+    // below take the three the first two never did, and Best Laid Plans closes
+    // the last pair. (Eleven and four before Akane left the bracket; the counts
+    // are written down here because the disjointness claim is only checkable
+    // against them.)
     id: 'banner_late_night',
     name: 'Late Night, Live',
     type: 'rateup',
@@ -308,6 +326,39 @@ export const BANNERS = [
     tenPullGuarantee: 4,
     inRotation: true,
     art: { color: '#8fe6a8', accent: '#16241c' },
+  },
+
+  {
+    // Rate-up five, and the debut banner for the newest ★6.
+    //
+    // Its featured5 pair is the point. Nekromina and Kira were the only two ★5s
+    // that NO rate-up favoured — the four banners above cover eight of the ten,
+    // and those two fell through the gap the whole time. The disjointness rule
+    // ("exactly one banner favours each ★5") was being half-kept: no ★5 was
+    // featured twice, but two were featured zero times, which is the same defect
+    // seen from the other side. With Akane out of the Tournament Arc's list
+    // there is finally room, and after this banner every ★5 in the game is
+    // favoured on exactly one banner. That is the invariant, now actually true.
+    id: 'banner_best_laid_plans',
+    name: 'Best Laid Plans',
+    type: 'rateup',
+    desc: 'Rate-up: ★6 Usaki. Half of every ★5 you pull here is Nekromina or Kira.',
+    subDesc: 'Guaranteed ★6 by pull 80, guaranteed ★5 by pull 50. She insists the counters were her idea.',
+    featured6: 'pekora',
+    featured5: ['nekromina', 'kira'],
+    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: POOL_6 },
+    costSingle: 15,
+    costTen: 135,
+    currency: 'starFragments',
+    normalizeRates: false,
+    rateUpChance: 0.5,
+    guaranteedOnLoss: true,
+    rateUp5Chance: 0.5,
+    pity5Key: 'shared',
+    pity6Key: 'banner',
+    tenPullGuarantee: 4,
+    inRotation: true,
+    art: { color: '#5b8fe0', accent: '#101c33' },
   },
 
   {
@@ -355,7 +406,7 @@ export const BANNERS = [
     featured5: [],
     pool: {
       relics: [
-        // 24 signature relics, one per character.
+        // 25 signature relics, one per character.
         'secret_technique_109',
         'dual_blades',
         'hoshiyomi_penlight',
@@ -380,6 +431,7 @@ export const BANNERS = [
         'chipped_greataxe',
         'cracked_teacup',
         'field_of_flowers',
+        'the_contingency_plan',
         // 5 stage relics.
         'neon_visor',
         'anchor_gear',
@@ -395,8 +447,11 @@ export const BANNERS = [
     /** Draws uniformly from relics not yet banked, so there are no dud pulls
      *  and no refund currency to invent. */
     preferUnbanked: true,
-    /** All 29 banked = the banner has nothing left to sell and retires itself. */
-    completesAt: 29,
+    /** All 30 banked = the banner has nothing left to sell and retires itself.
+     *  This number must equal `pool.relics.length` — data/index.js validate()
+     *  now checks it, because a stale count retires the banner one relic early
+     *  and the last one becomes unbankable with no error anywhere. */
+    completesAt: 30,
     // Premium against the character banners: a bank is permanent and stacks
     // across every future run, where a character dupe is 40 letters.
     costSingle: 25,
@@ -417,10 +472,35 @@ export const BANNERS = [
 // DUPLICATES & STAR LEVELS
 // -----------------------------------------------------------------------------
 
-/** Fan Letters paid out by a duplicate, by rarity (SECTION 6). */
+/**
+ * Fan Letters paid out by a duplicate, by RARITY (SECTION 6).
+ *
+ * Keyed by rarity and read off the character at payout time, which is why
+ * Akane's ★5 -> ★6 promotion needed no edit here and must not get one: her
+ * dupes went from 40 letters to 100 the moment her `rarity` changed, and any
+ * per-character override added alongside it would immediately disagree with
+ * this table for exactly one character.
+ *
+ * What the promotion actually did to her economy, since it is not obvious from
+ * two tables that both stayed still: a dupe pays 2.5x more and arrives roughly
+ * 4x less often (0.08/10 of a pull as a ★5 against 0.01/7 as a ★6, before any
+ * rate-up), so she is materially SLOWER to star up, not faster. That is the
+ * intended shape of a ★6 and the reason the promotion is a real cost to the
+ * player rather than a gift.
+ */
 export const DUPE_LETTERS = { 3: 5, 4: 15, 5: 40, 6: 100 };
 
-/** Letters to reach a star level: 2 = S1->S2, 3 = S2->S3, and so on. */
+/**
+ * Letters to reach a star level: 2 = S1->S2, 3 = S2->S3, and so on.
+ *
+ * Flat across every rarity ON PURPOSE. The rarity dial is DUPE_LETTERS (how
+ * much a copy is worth) and the pull rate (how often one arrives); making the
+ * ladder itself rarity-scaled would double-count both and mean a ★6 needed
+ * ~925 letters at 100 a copy — nine-plus copies of a 1% character — which is
+ * not a progression curve, it is a wall. 370 total, so a ★6 reaches S5 on four
+ * dupes and a ★3 on 74 of them, and FIX C below is what stops that ★3 tail
+ * becoming dead currency.
+ */
 export const STAR_COSTS = { 2: 20, 3: 50, 4: 100, 5: 200 };
 
 /** Universal Fan Letters substitute for character-specific ones at 2:1. */

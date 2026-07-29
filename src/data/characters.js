@@ -1,4 +1,4 @@
-// All 24 playable characters. SECTION 4 of the design spec.
+// All 25 playable characters. SECTION 4 of the design spec.
 //
 // This file is PURE DATA. No functions, no logic, no branching — the ability
 // registry (src/game/abilities/) owns behaviour, keyed by the ids declared here.
@@ -10,13 +10,16 @@
 // time (DECISIONS.md §22). A ship build deletes that file and displayName()
 // no-ops cleanly. tests/refs.test.js fails the build if one leaks into this file.
 //
-// Character-specific HUD needs are DECLARED, never branched on:
-//   - `resourceBar`  Han only  — the RAGE meter the HUD renders generically.
-//   - `metric`       Kira only — the balance harness measures him on kills/sec
+// Character-specific presentation needs are DECLARED, never branched on:
+//   - `resourceBar`  Han only    — the RAGE meter the HUD renders generically.
+//   - `metric`       Kira only   — the balance harness measures him on kills/sec
 //                    instead of DPS, because his timers ignore enemy HP
 //                    entirely (spec line 1664).
+//   - `altForm`      Alicia only — the second silhouette she wears for the eight
+//                    seconds APOTHEOSIS runs. The renderer draws whatever the
+//                    active form declares and never learns whose it is.
 // DECISIONS.md §36 greps every file outside src/data/ for a character id
-// literal, so these two fields are the only sanctioned escape hatch.
+// literal, so these three fields are the only sanctioned escape hatch.
 //
 // Special cooldowns run 12-35s (DECISIONS.md §15 — the spec's "12-30s" is wrong;
 // Sora 32 / Han 34 / Alicia 35 are the three most powerful specials in the game
@@ -883,66 +886,7 @@ const HIKARI = {
   ],
 };
 
-const AKANE = {
-  id: 'akane',
-  name: 'Akane',
-  epithet: 'Captain of the Treasure Ship',
-  rarity: 5,
-  archetype: 'Pirate Captain',
-  // Fire by way of gunpowder — the flintlock, the broadside and the rum all burn.
-  element: 'fire',
-  visual: { shape: 'capsule', color: '#d62b3a', accent: '#e8c34a', emoji: '🏴‍☠️', size: 16 },
-  stats: {
-    hp: 110, armor: 0, moveSpeed: 172, pickupRadius: 56,
-    damageMult: 1.0, attackSpeedMult: 1.0, areaMult: 1.0,
-    critChance: 0.05, critMult: 2.0, cooldownMult: 1.0, luck: 2,
-  },
-  autoAttack: {
-    id: 'buccaneers_cutlass', name: "Buccaneer's Cutlass",
-    desc: 'A wide 140° cutlass arc, 24 damage, 100px reach, every 0.65s. Every 3rd ' +
-          'swing is a hitscan FLINTLOCK shot instead: 45 damage, pierces 4, ' +
-          'enormous puff of smoke.',
-    interval: 0.65, damage: 24, targeting: { mode: 'facing' },
-  },
-  special: {
-    id: 'broadside', name: 'BROADSIDE!', cooldown: 27,
-    desc: 'A ghost galleon fades in along one edge and runs out its guns: 14 ' +
-          'cannonballs over 2.5s, each exploding for 70 damage in a 110px radius. ' +
-          'Every impact point is telegraphed, so it is aimable chaos.',
-  },
-  escape: {
-    id: 'barrel_roll', name: 'Barrel Roll', cooldown: 6, iframes: 0.7,
-    desc: 'Dives into a rum barrel and rolls 220px, fully invulnerable, dealing 30 ' +
-          'to anything rolled over. The barrel shatters into a rum puddle that ' +
-          'ignites on any fire contact for 60 damage and a 4s burn.',
-  },
-  passive: {
-    id: 'treasure_sense', name: 'Treasure Sense',
-    desc: 'Chests and Treasure Carriers spawn 50% more often and are permanently ' +
-          'marked with a compass arrow at the edge of the screen. She is the best ' +
-          'character in the game to farm on and she knows it.',
-  },
-  starUpgrades: {
-    s3: 'Broadside fires 22 cannonballs and the galleon stays for a second volley.',
-    s5: 'Barrel Roll can be held to keep rolling up to 1.5s, and the rum puddle ' +
-        'ignites on its own.',
-  },
-  signatureRelic: 'captains_rum',
-  barks: {
-    spawn: 'Ahoy! Now, which one of ye is the treasure?',
-    levelUp: 'Yer captain grows mightier! ...Ow. My back.',
-    lowHp: 'Ahoy! ...no, wait. HELP. Somebody HELP.',
-    kill: 'Down ye go! Ahaha! ...bit much. Sorry.',
-    boss: 'A big one! Crew, behind me! Well behind me!',
-    idle: "I'm seventeen, by the way. Forever. Don't check.",
-  },
-  buildPaths: [
-    'Loot run — Cursed Coin + Four-Leaf + Lodestone; Treasure Sense plus luck turns ' +
-    'a single run into three chests and a gold pile',
-    'Powder magazine — Wide Reach + Sharp Edge + Quick Recovery; the flintlock, the ' +
-    'broadside and the burning rum puddle all scale on area and all set fire',
-  ],
-};
+// AKANE MOVED TO THE 6-STAR BLOCK — see the promotion note down there.
 
 const KIRA = {
   id: 'kira',
@@ -1198,6 +1142,18 @@ const BRANT = {
 
 // ---------------------------------------------------------------------------
 //                      6-STAR ROSTER (Limited / UR)
+//
+// Seven, not five. Akane was promoted out of the ★5 bracket and Usaki was
+// authored straight into this one; both sit at the BOTTOM of the block rather
+// than in alphabetical or thematic order, because the five above them are the
+// launch ★6s and keeping their order stable keeps every banner, save file and
+// screenshot that already exists honest.
+//
+// The ★6 floor this bracket is priced against, read off the five below:
+//   130-150 HP, 1 armor, at least one stat multiplier above 1.0, and a passive
+//   that COMPOUNDS over a run rather than paying a flat bonus. Aoi is the one
+//   ★6 with no armour and her own card says so out loud, so a promotion has to
+//   buy the plate rather than borrow her exception.
 // ---------------------------------------------------------------------------
 
 const SOVEREIGN_ALICIA = {
@@ -1253,6 +1209,37 @@ const SOVEREIGN_ALICIA = {
     kill: "Breaking news: it's dead. More after the break.",
     boss: 'Big guest on the show tonight! Roll the fire!',
     victory: "Show's over! Hit subscribe. I said HIT IT.",
+  },
+  /**
+   * THE DRAGON. `special` says what APOTHEOSIS DOES; this says what she IS while
+   * it runs, and it is a declared field for exactly the reason Han's RAGE bar
+   * and Kira's balance metric are: nothing outside src/data/ may know her id, so
+   * the renderer has to be handed the second silhouette rather than look it up.
+   *
+   * She is the only character in the game who becomes a different creature, and
+   * until this field existed there was nowhere for that to live — the form was
+   * her own 17px capsule at `sizeMult` 2.2, which reads as a large woman rather
+   * than as a dragon. Her card promised a transformation the art could not keep.
+   *
+   * Three things are deliberately NOT here. Duration, size and the damage
+   * numbers stay in the ability: they are balance, they already exist there, and
+   * a second copy of 2.2 in a content file is a number that will eventually
+   * disagree with the one that actually applies. Only the appearance is data.
+   *
+   * `visual.pixel` is joined at boot from sprites.js keyed on `spriteId` — not
+   * on her own id, because the atlas keys sprites on the descriptor id and
+   * reusing hers would silently hand back the human. index.js publishes this
+   * visual through allVisuals(), which is load-bearing rather than tidy: the
+   * alternative is rasterising a 2.2x sprite on the single frame the screen is
+   * already whiting out, dimming the arena and pulling the camera to 0.9.
+   */
+  altForm: {
+    // The ability whose duration this form lasts for. The join is by id in both
+    // directions so neither half can be renamed without the other noticing.
+    id: 'apotheosis',
+    name: 'Dragon Form',
+    spriteId: 'sovereign_alicia_dragon',
+    visual: { shape: 'capsule', color: '#e0452c', accent: '#ffd76a', emoji: '🐲', size: 17, glow: true },
   },
   buildPaths: [
     'Greed dragon — Cursed Coin + Four-Leaf + Lodestone; Hoard converts gold into ' +
@@ -1525,17 +1512,204 @@ const MIREL = {
   ],
 };
 
-/** All 24 playable characters, in canonical roster order (rarity ascending). */
+/**
+ * PROMOTED FROM ★5. She kept her id, her four pillar ids, her relic, her
+ * element and every word of her voice; what changed is the price.
+ *
+ * A promotion that only edits `rarity` is a lie the pull screen tells: she
+ * would sit in the rainbow beam with a 110 HP ★5 statline and lose every
+ * comparison a player makes the moment they own two ★6s. So the whole card was
+ * re-pitched against the five launch ★6s rather than against the ★5s she left:
+ *
+ *   HP     110 -> 142  (★6 band is 130-150; Sora 150, Han 145, Alicia 140)
+ *   armor    0 -> 1    (every ★6 but Aoi, and Aoi's card explains why she is not)
+ *   damage 1.00 -> 1.05, area 1.00 -> 1.05  (Alicia and Mirel both carry 1.05)
+ *   luck     2 -> 3    (the highest number on the roster, and the actual point)
+ *
+ * Luck is the promotion. Treasure Sense was already the best farming passive in
+ * the game at ★5 and the character is built entirely around going and getting
+ * the thing; ★6 is where nobody out-farms her, so the stat that says so goes to
+ * a number no one else has. Her damage numbers moved the least, on purpose —
+ * she is not being promoted into a damage dealer.
+ */
+const AKANE = {
+  id: 'akane',
+  name: 'Akane',
+  epithet: 'Captain of the Treasure Ship',
+  rarity: 6,
+  archetype: 'Pirate Captain',
+  // Fire by way of gunpowder — the flintlock, the broadside and the rum all burn.
+  element: 'fire',
+  visual: { shape: 'capsule', color: '#d62b3a', accent: '#e8c34a', emoji: '🏴‍☠️', size: 16, glow: true },
+  stats: {
+    hp: 142, armor: 1, moveSpeed: 174, pickupRadius: 60,
+    damageMult: 1.05, attackSpeedMult: 1.0, areaMult: 1.05,
+    critChance: 0.05, critMult: 2.0, cooldownMult: 1.0, luck: 3,
+  },
+  autoAttack: {
+    id: 'buccaneers_cutlass', name: "Buccaneer's Cutlass",
+    desc: 'A wide 140° cutlass arc, 30 damage, 105px reach, every 0.65s. Every 3rd ' +
+          'swing is a hitscan FLINTLOCK shot instead: 62 damage, pierces 5, ' +
+          'enormous puff of smoke.',
+    interval: 0.65, damage: 30, targeting: { mode: 'facing' },
+  },
+  special: {
+    id: 'broadside', name: 'BROADSIDE!', cooldown: 30,
+    // 27s -> 30s. The volley grew by 700 damage; a ★6 special the size of Aoi's
+    // ceiling collapse is priced at Aoi's cooldown, not at a ★5's.
+    desc: 'A ghost galleon fades in along one edge and runs out its guns: 18 ' +
+          'cannonballs over 2.5s, each exploding for 95 damage in a 120px radius. ' +
+          'Every impact point is telegraphed, so it is aimable chaos.',
+  },
+  escape: {
+    id: 'barrel_roll', name: 'Barrel Roll', cooldown: 6, iframes: 0.9,
+    desc: 'Dives into a rum barrel and rolls 240px, fully invulnerable, dealing 55 ' +
+          'to anything rolled over. The barrel shatters into a rum puddle that ' +
+          'ignites on any fire contact for 90 damage and a 5s burn.',
+  },
+  passive: {
+    id: 'treasure_sense', name: 'Treasure Sense',
+    // The compounding half is what makes this a ★6 passive, and it is
+    // deliberately NOT Alicia's Hoard. Hoard is a trickle you cannot miss —
+    // gold arrives whether you want it or not. This is a lump you have to cross
+    // the arena for, through whatever is standing between you and the chest.
+    desc: 'Chests and Treasure Carriers spawn 65% more often and are permanently ' +
+          'marked with a compass arrow at the edge of the screen. Every chest you ' +
+          'crack is a permanent +6% damage and +6% pickup radius for the rest of ' +
+          'the run, uncapped. She is the best character in the game to farm on ' +
+          'and she knows it.',
+  },
+  starUpgrades: {
+    s3: 'Broadside fires 28 cannonballs and the galleon stays for a second volley.',
+    s5: 'Barrel Roll can be held to keep rolling up to 1.5s, and the rum puddle ' +
+        'ignites on its own for 90 damage and a 5s burn.',
+  },
+  signatureRelic: 'captains_rum',
+  barks: {
+    spawn: 'Ahoy! Now, which one of ye is the treasure?',
+    levelUp: 'Yer captain grows mightier! ...Ow. My back.',
+    lowHp: 'Ahoy! ...no, wait. HELP. Somebody HELP.',
+    kill: 'Down ye go! Ahaha! ...bit much. Sorry.',
+    boss: 'A big one! Crew, behind me! Well behind me!',
+    idle: "I'm seventeen, by the way. Forever. Don't check.",
+  },
+  buildPaths: [
+    'Loot run — Cursed Coin + Four-Leaf + Lodestone; luck 3 and Treasure Sense ' +
+    'stack into three chests a run, and every chest is another permanent +6%',
+    'Powder magazine — Wide Reach + Sharp Edge + Quick Recovery; the flintlock, the ' +
+    'broadside and the burning rum puddle all scale on area and all set fire',
+  ],
+};
+
+/**
+ * The id and the display name do not match, which happens nowhere else on this
+ * roster. That is deliberate and it is not a typo.
+ *
+ * `pekora` is the REGISTRY KEY. DECISIONS.md §36 binds behaviour to ids and
+ * never to names, and her four pillar files were written against these ids
+ * before the display name was settled; renaming the key later would silently
+ * unbind four abilities and no test outside abilityCoverage would notice. So
+ * the key stayed put and the name moved. `name` is the string a player reads,
+ * and spec line 333 requires that one to be safe to display on its own.
+ */
+const PEKORA = {
+  id: 'pekora',
+  name: 'Usaki',
+  epithet: 'The Flawless Plan',
+  rarity: 6,
+  archetype: 'Trap Schemer',
+  // The only steel ★6. The bracket was fire, fire, light, light, water, spirit
+  // before her, and steel is genuinely the right read rather than the leftover
+  // one: everything she uses is ordnance she left lying on the floor earlier.
+  // Mines are hardware. Under the ring (fire > steel > lightning) that also
+  // hands her a real weakness the other ★6s do not share, which is the trade
+  // for a kit that fights the arena instead of the enemy in front of her.
+  element: 'steel',
+  visual: { shape: 'capsule', color: '#5b8fe0', accent: '#ff8f2e', emoji: '🥕', size: 16, glow: true },
+  stats: {
+    // Lightest ★6 that still carries armour, and the second fastest character in
+    // the game behind Aoi. She has to outrun her own ordnance, so the speed is
+    // load-bearing rather than flavour. areaMult 1.10 ties Brant for the highest
+    // on the roster because every single thing in the kit is a radius.
+    hp: 132, armor: 1, moveSpeed: 182, pickupRadius: 48,
+    damageMult: 1.0, attackSpeedMult: 1.0, areaMult: 1.10,
+    critChance: 0.05, critMult: 2.0, cooldownMult: 1.0, luck: 1,
+  },
+  autoAttack: {
+    id: 'carrot_barrage', name: 'Carrot Barrage',
+    // `damage` is ONE carrot, and it is the same number whether it lands on the
+    // floor or on a face — the ability never carries two damage values for one
+    // projectile, which is the mistake the first pass made.
+    desc: '4 carrots lobbed in a fan. Each sticks point-down where it lands and ' +
+          'pops 1.2s later for 24 damage in a 70px burst; one that lands ON ' +
+          'something pops immediately instead. Every 0.95s. Nothing she throws ' +
+          'hurts on the frame she throws it.',
+    interval: 0.95, damage: 24, targeting: { mode: 'densestCluster' },
+  },
+  special: {
+    id: 'grand_scheme', name: 'THE GRAND SCHEME', cooldown: 31,
+    desc: 'She takes a full 1.0s to lay it out properly: 8 numbered charges in a ' +
+          '340px ring with tripwire strung between every pair. Then it goes ' +
+          'wrong all at once. Every charge detonates for 150 damage in 120px, ' +
+          'the wires whip inward and drag everything to the middle, and the last ' +
+          'charge — the one that was never in the plan — goes off directly under ' +
+          'HER for 200 damage in 260px. She is immune to it. Nothing else is.',
+  },
+  escape: {
+    id: 'panic_hop', name: 'Panic Hop', cooldown: 6, iframes: 0.9,
+    desc: 'Three enormous rabbit hops covering 260px in 0.9s, fully invulnerable, ' +
+          'dropping a carrot mine at each launch point: 80 damage in a 110px ' +
+          'blast, armed after 0.5s, live for 8s. She maintains this was the plan.',
+  },
+  passive: {
+    id: 'it_backfired', name: 'It Backfired',
+    // The ★6 compounding passive, and the joke and the mechanic are the same
+    // thing: it pays when the trap DOESN'T work. Priced at +1% rather than the
+    // +6% Akane gets per chest because a full Panic Hop can retire three mines
+    // at once, six seconds later.
+    desc: 'Nothing she leaves lying around is wasted. A trap or mine that expires ' +
+          'without anything stepping on it goes off anyway out of pure spite: ' +
+          '60 damage in 100px where it sat, 1.5s off every cooldown, and a ' +
+          'permanent +1% damage for the rest of the run. Uncapped. The plan ' +
+          'failing IS the plan, and she will say so afterwards, at length.',
+  },
+  starUpgrades: {
+    s3: 'THE GRAND SCHEME lays 12 charges instead of 8 and the tripwires drag ' +
+        'from 460px out.',
+    s5: 'Panic Hop drops 5 mines instead of 3, and they arm instantly.',
+  },
+  signatureRelic: 'the_contingency_plan',
+  barks: {
+    spawn: 'Step one of forty. Ehehe~! You lot are step two.',
+    levelUp: 'Stronger. On schedule. It was in the plan. Page nine.',
+    lowHp: 'This is a trap! ...for me. I walked into my own. Ignore that.',
+    kill: 'Ehehe! Exactly as pla— fine, wrong trap, but it COUNTED.',
+    boss: 'A big one! I prepared forty contingencies! ...for a small one.',
+    victory: 'Flawless. Textbook. Do not go back and watch the footage.',
+    defeat: 'That was a FEINT. I meant that. I absolutely meant that.',
+    idle: 'Plan thirty-one is going brilliantly. One through thirty are sealed.',
+  },
+  buildPaths: [
+    'Minefield — Wide Reach + Quick Recovery + The Contingency Plan; every single ' +
+    'thing in the kit is something she left on the floor, so widen all of it and ' +
+    'leave more of it more often',
+    'Spite scaling — Swift Boots + Sharp Edge + Long Haul; It Backfired pays a ' +
+    'permanent +1% for every trap nobody stepped on, so outrun your own ordnance ' +
+    'on purpose and let the arena pay you for it',
+  ],
+};
+
+/** All 25 playable characters, in canonical roster order (rarity ascending). */
 export const CHARACTERS = [
   // 3-star
   MOCHI, ALTO,
   // 4-star
   HOSHINO_REI, YAMIKAGE, UZU, CAPTAIN_YULI, KAGURA, UNIT_09,
   // 5-star
-  RIN, NITEN, SHIRO_SAME, REIKA, NEKROMINA, HIKARI, AKANE, KIRA,
+  RIN, NITEN, SHIRO_SAME, REIKA, NEKROMINA, HIKARI, KIRA,
   YUKINE, WREN, BRANT,
   // 6-star
-  SOVEREIGN_ALICIA, SORA, HAN, AOI, MIREL,
+  SOVEREIGN_ALICIA, SORA, HAN, AOI, MIREL, AKANE, PEKORA,
 ];
 
 /** id -> character. Written literally so no lookup logic lives in a data file. */
@@ -1554,7 +1728,6 @@ export const CHARACTERS_BY_ID = {
   reika: REIKA,
   nekromina: NEKROMINA,
   hikari: HIKARI,
-  akane: AKANE,
   kira: KIRA,
   yukine: YUKINE,
   wren: WREN,
@@ -1564,18 +1737,26 @@ export const CHARACTERS_BY_ID = {
   han: HAN,
   aoi: AOI,
   mirel: MIREL,
+  akane: AKANE,
+  pekora: PEKORA,
 };
 
 /**
- * Gacha pools by rarity: 2 / 6 / 11 / 5 = 24 (SECTION 15).
+ * Gacha pools by rarity: 2 / 6 / 10 / 7 = 25 (SECTION 15).
  * The ★3 pool is deliberately thin — DECISIONS.md §3 takes FIX B and rebalances
  * the pull rates (35/48/16/1) rather than inventing two unapproved characters.
  * Switching to FIX A later means adding two objects above and two ids here.
+ *
+ * These lists are the ONLY place rarity membership is written down; nothing
+ * derives them from `rarity` at runtime, so moving a character between brackets
+ * means editing here AND the character's own `rarity`, and data/index.js
+ * validate() fails the boot if the two ever disagree. That check exists because
+ * Akane's ★5 -> ★6 promotion is exactly the edit that forgets one of them.
  */
 export const CHARACTERS_BY_RARITY = {
   3: ['mochi', 'alto'],
   4: ['hoshino_rei', 'yamikage', 'uzu', 'captain_yuli', 'kagura', 'unit_09'],
-  5: ['rin', 'niten', 'shiro_same', 'reika', 'nekromina', 'hikari', 'akane', 'kira',
+  5: ['rin', 'niten', 'shiro_same', 'reika', 'nekromina', 'hikari', 'kira',
       'yukine', 'wren', 'brant'],
-  6: ['sovereign_alicia', 'sora', 'han', 'aoi', 'mirel'],
+  6: ['sovereign_alicia', 'sora', 'han', 'aoi', 'mirel', 'akane', 'pekora'],
 };

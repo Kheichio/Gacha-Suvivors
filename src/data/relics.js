@@ -1,5 +1,5 @@
 // src/data/relics.js
-// GACHA SURVIVORS — the 29 relics (24 signature + 5 stage).
+// GACHA SURVIVORS — the 30 relics (25 signature + 5 stage).
 //
 // SECTION 11 rules that are load-bearing here:
 //   - Every relic is tied to a character but usable by ANYONE.
@@ -65,7 +65,7 @@ export const RESONANCE_DIRECTION = {
 //   rare 220 | epic 140 | legendary 100
 
 // ---------------------------------------------------------------------------
-// SIGNATURE RELICS (24)
+// SIGNATURE RELICS (25)
 // ---------------------------------------------------------------------------
 
 const SECRET_TECHNIQUE_109 = {
@@ -544,6 +544,28 @@ const FIELD_OF_FLOWERS = {
   codex: 'It does nothing but flowers. She learned it anyway. That took eleven years.',
 };
 
+const THE_CONTINGENCY_PLAN = {
+  id: 'the_contingency_plan',
+  name: 'The Contingency Plan',
+  shipName: null,
+  owner: 'pekora',
+  stageOwner: null,
+  rarity: 'legendary',
+  icon: '🥕',
+  desc: 'Once every 40s the next hit that lands on you does not: it is copied straight back onto whatever threw it at 300%, and a mine drops where you were standing for 100 damage in a 130px blast. You cannot choose when it spends — you choose what you are standing next to.',
+  resonanceDesc: 'RESONANCE: every 27s — the hit comes back at 450%, and the mine deals 150 in a 195px blast.',
+  hooks: ['onDamageTaken'],
+  // `cooldown`, not `interval`, and for the same reason The Cell Games uses one:
+  // this is a gate on the worst moment of a run rather than a metronome, and the
+  // player is never told which hit will be the one it eats. It resonates DOWN —
+  // 40/1.5 = 26.67, rounded to 27 so the card can print a whole second.
+  params: { cooldown: 40, reflect: 3.0, damage: 100, radius: 130 },
+  resonance: { cooldown: 27, reflect: 4.5, damage: 150, radius: 195 },
+  visual: { shape: 'shard', color: '#ff8f2e', accent: '#1e2f5c', size: 13, glow: true },
+  dropWeight: 100,
+  codex: 'Plan A was better. Plan A is always better. Plan A has never once been attempted.',
+};
+
 // ---------------------------------------------------------------------------
 // STAGE RELICS (5) — first-clear rewards.
 // owner: null + stageOwner. No resonance: a place cannot be your main.
@@ -671,6 +693,7 @@ export const RELICS = [
   CHIPPED_GREATAXE,
   CRACKED_TEACUP,
   FIELD_OF_FLOWERS,
+  THE_CONTINGENCY_PLAN,
   NEON_VISOR,
   ANCHOR_GEAR,
   NINE_SEAL_WARD,
@@ -704,6 +727,7 @@ export const RELICS_BY_ID = {
   chipped_greataxe: CHIPPED_GREATAXE,
   cracked_teacup: CRACKED_TEACUP,
   field_of_flowers: FIELD_OF_FLOWERS,
+  the_contingency_plan: THE_CONTINGENCY_PLAN,
   neon_visor: NEON_VISOR,
   anchor_gear: ANCHOR_GEAR,
   nine_seal_ward: NINE_SEAL_WARD,
@@ -711,7 +735,10 @@ export const RELICS_BY_ID = {
   abyssal_setlist: ABYSSAL_SETLIST,
 };
 
-// 24 signature relics, in roster order (3★ -> 6★).
+// 25 signature relics, in roster order (3★ -> 6★). Captain's Rum sits in the
+// ★6 run now rather than the ★5 one — the relic did not change, its owner's
+// rarity did, and this list is ordered by owner so that a reader can check the
+// one-to-one rule by counting rows against the roster.
 export const SIGNATURE_RELICS = [
   'secret_technique_109',
   'dual_blades',
@@ -727,7 +754,6 @@ export const SIGNATURE_RELICS = [
   'level_5_clearance',
   'grave_idol_mic',
   'ashes_of_the_eternal_encore',
-  'captains_rum',
   'potato_chip_gambit',
   'exclusive_contract',
   'annotated_manual',
@@ -737,6 +763,8 @@ export const SIGNATURE_RELICS = [
   'the_cell_games',
   'cracked_teacup',
   'field_of_flowers',
+  'captains_rum',
+  'the_contingency_plan',
 ];
 
 // 5 stage relics, in stage order (stages 2-6; stages 1 and 7 award no relic).

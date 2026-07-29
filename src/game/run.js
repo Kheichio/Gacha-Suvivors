@@ -156,6 +156,25 @@ export class Run {
     this.pendingLevelUps = 0;
     this.pendingChests = [];
     this.levelUpChoices = null;
+    /**
+     * WHICH LEVEL-UP SCREEN THIS IS, counted from zero. The weapon cadence in
+     * rollUpgradeChoices() is a pure function of it, which is the entire reason
+     * it is a counter of SCREENS SHOWN and not `stats.levelUps`: a reroll rolls
+     * the same screen again, and if the cadence moved underneath it a reroll
+     * could conjure a weapon card out of a screen that was not allowed one, or
+     * delete the one the player was about to take.
+     *
+     * IT ADVANCES WHEN THE SCREEN IS DISMISSED, NOT WHEN IT OPENS — chooseUpgrade
+     * and skipUpgrade, the only two ways out. It used to advance immediately
+     * after the opening roll, which meant it named the NEXT screen for the entire
+     * time the current one was on-screen, and that is the exact failure the
+     * paragraph above warns about: every reroll and every banish re-rolled at a
+     * cadence position one ahead of the screen the player was looking at, so a
+     * reroll on screen 2 could hand out a weapon card that screen 2 was never
+     * entitled to. The level-up screen's "next weapon offer in N levels" hint was
+     * reading the same field and was off by one in both directions because of it.
+     */
+    this.levelUpIndex = 0;
     this.rerollsLeft = 0;
     this.banishesLeft = 0;
     this.banished = [];
@@ -708,6 +727,15 @@ export class Run {
       this.pendingFragments = (this.pendingFragments || 0) + frag;
       save.data.stats.bossKills++;
       floaters.spawn(e.x, e.y, '+' + frag + '💎', '#ffd76a', 26, 2.0);
+
+      // AND IT MAY HAVE BEEN CARRYING A WEAPON. Rolled on the same ladder as
+      // everything else this branch pays out — mob < elite < mini-boss <
+      // mid-boss < boss — and dropped to the LEFT of the chest so the two
+      // rewards do not land on top of each other and read as one pickup.
+      const D = this.data.upgrades.BOSS_WEAPON_DROP;
+      const chance = (e.isBoss ? D.boss : mini ? D.miniBoss : D.midBoss) *
+                     (1 + p.stats.luck * D.luckPerPoint);
+      if (runRng.chance(chance)) this._dropWeaponCrate(e.x - 90, e.y + 20);
     }
 
     // Random world-pickup drops.
@@ -877,21 +905,40 @@ export class Run {
    *   weapon      a level on a weapon you do own.
    *   upgrade     a generic stat card.
    *
-   * Weapons are deliberately weighted ABOVE stat cards: a weapon level visibly
-   * changes what is on screen, and a run where the arsenal never grows is the
-   * run this whole system exists to stop happening.
+   * ONE WEAPON CARD PER SCREEN AT MOST, AND NOT ON MOST SCREENS.
+   *
+   * Weapons used to be weighted ABOVE stat cards and an empty slot reserved a
+   * card outright, which meant two of the three cards were routinely weapons
+   * and the arsenal was finished by minute six. WEAPON_OFFERS in
+   * data/upgrades.js now owns that rhythm and the reasoning behind both of its
+   * numbers; the shape of it here is:
+   *
+   *   - an evolve card, when one exists, IS this screen's weapon card
+   *   - otherwise, every `everyNth` screen gets one weapon card
+   *   - of those, only every `newEveryNth` may be a weapon you do not own
+   *   - every other card on every screen is a generic stat upgrade
+   *
+   * The one exception is the very end of a run, where the stat pool has nothing
+   * left in it: a screen with two blank spaces on it is worse than a screen
+   * with two weapon levels on it, so the tail tops up from the weapon pool. The
+   * cadence exists to stop weapons INTERRUPTING the stat pool, and by then
+   * there is no stat pool left to interrupt.
    */
   rollUpgradeChoices() {
     const p = this.player;
     const n = p.flags.upgradeChoices || this.data.upgrades.LEVELUP.choices;
     const B = this.data.upgrades.BUILD_SLOTS;
+    const WO = this.data.upgrades.WEAPON_OFFERS;
     const slots = this.buildSlots();
     const out = [];
 
     // 1. A maxed weapon waiting to evolve takes the first card, every time.
+    //    ONE of them, not all of them: two evolve cards on one screen is two
+    //    weapon cards, and the second one will still be there next level.
     const evolvable = this.weapons.evolvable();
-    for (const w of evolvable) {
-      if (out.length >= n) break;
+    let hasWeaponCard = evolvable.length > 0;
+    if (hasWeaponCard) {
+      const w = evolvable[0];
       out.push({ kind: 'weaponEvo', w, evo: this.weapons.evolutionOf(w) });
     }
 
@@ -899,41 +946,19 @@ export class Run {
     const evo = this._availableEvolution();
     if (evo && out.length < n) out.push({ kind: 'evolution', evo });
 
-    // 3. AN EMPTY WEAPON SLOT ALWAYS RESERVES A CARD.
-    //
-    // This is not generosity, it is the thing that makes the signature nerf
-    // survivable. The balance harness was blunt about it: with the nerf in and
-    // weapons merely competing in the pool, a ★3 starter died at 111s having
-    // reached level 3 — the opening was thin, so the levels came slowly, so the
-    // weapons that fix the opening never arrived. Reserving one card guarantees
-    // the arsenal is filling from the very first level-up, which is where every
-    // game in this genre puts it anyway.
+    // 3. THE CADENCE. Screen 0 is both a weapon screen and an expansion screen,
+    //    which is what keeps the level-1 signature nerf survivable — see
+    //    WEAPON_OFFERS for the run that proved a thin opening feeds itself.
+    if (!hasWeaponCard && out.length < n && this.levelUpIndex % WO.everyNth === 0) {
+      const card = this._rollWeaponCard(this.mayExpandArsenal(), out);
+      if (card) { out.push(card); hasWeaponCard = true; }
+    }
+
+    // 4. Everything else is a generic stat card, and they are the only things
+    //    in this pool.
     const pool = [];
     const weights = [];
     const luck = 1 + p.stats.luck * 0.02;
-
-    const fresh = [], freshW = [];
-    if (!this.weapons.full) {
-      for (const def of this.data.weapons.WEAPONS) {
-        if (this.weapons.has(def.id)) continue;
-        if (this.banished.indexOf(def.id) >= 0) continue;
-        fresh.push({ kind: 'newWeapon', def });
-        freshW.push((def.weight || 100) * luck);
-      }
-      if (fresh.length && out.length < n) {
-        const i = runRng.weightedIndex(freshW);
-        if (i >= 0) { out.push(fresh[i]); fresh.splice(i, 1); freshW.splice(i, 1); }
-      }
-    }
-
-    // 4-6. Everything else competes in one weighted pool.
-    for (const w of this.weapons.slots) {
-      if (this.weapons.isMaxed(w) || w.evolved) continue;
-      pool.push({ kind: 'weapon', w, level: w.level + 1 });
-      // A weapon you already carry is the most reliably useful card there is.
-      weights.push(150 * luck);
-    }
-    for (let i = 0; i < fresh.length; i++) { pool.push(fresh[i]); weights.push(freshW[i] * 1.35); }
     for (const up of this.data.upgrades.UPGRADES) {
       if (this.banished.indexOf(up.id) >= 0) continue;
       if (p.isMaxed(up.id)) continue;
@@ -954,9 +979,109 @@ export class Run {
       out.push(pool[i]);
       pool.splice(i, 1); weights.splice(i, 1);
     }
+
+    // 5. The stat pool ran dry. Fill the rest of the screen with weapons rather
+    //    than hand back a short one. `n` is 3 or 4, so the guard is generous.
+    //
+    //    IT STILL OBEYS THE ARSENAL BUDGET, and that is not a detail. This path
+    //    used to pass `true` outright, on the reasoning that a dry stat pool
+    //    means the run is effectively over anyway. That was true at six and six
+    //    and stopped being true the moment BUILD_SLOTS went to three and three:
+    //    the pool now holds six upgrades total, so it runs dry once four of them
+    //    are maxed — somewhere past level-up 30 of a run that reaches 40, with a
+    //    quarter of the run still to play. The harness caught it. Full-length
+    //    runs were finishing on 3.7 weapons against a cadence that permitted 3,
+    //    because this loop was quietly handing out the fourth and fifth slots
+    //    outside it — the new build cap had silently dismantled the new weapon
+    //    cadence. A dry screen may still offer to LEVEL what you carry, forever.
+    //    It may not widen the rack.
+    const expand = this.mayExpandArsenal();
+    while (out.length < n) {
+      const card = this._rollWeaponCard(expand, out);
+      if (!card) break;
+      out.push(card);
+    }
+
     // If literally everything is maxed, offer gold instead of a dead screen.
     if (out.length === 0) out.push({ kind: 'gold', amount: 120 });
     return out;
+  }
+
+  /**
+   * MAY THE ARSENAL GET WIDER YET? A budget, not a birthday.
+   *
+   * This was `levelUpIndex % newEveryNth === 0` — a screen either landed exactly
+   * on an expansion turn or it did not, and three separate things could eat the
+   * one turn it got:
+   *
+   *   - a maxed weapon waiting to evolve takes the screen's weapon card, so a
+   *     player sitting on an un-taken evolve card lost EVERY expansion turn it
+   *     covered. With newEveryNth at 21 and a median run of 40 level-ups that
+   *     is not an edge case, it is the difference between three weapons and two.
+   *   - the weighted roll inside _rollWeaponCard can legitimately return a level
+   *     on a weapon you own instead. Fine on its own — but the turn was spent.
+   *   - a Gold Chest rolls up to five screens without ever advancing
+   *     levelUpIndex, so a chest opened on an expansion turn granted five new
+   *     weapons and one opened a level later granted none.
+   *
+   * Counting instead of scheduling fixes all three at once: the run is allowed
+   * one weapon per `newEveryNth` level-ups plus the signature plus the one that
+   * opens the run, and it stays allowed until it is claimed. Nothing can be
+   * silently forfeited, and the chest self-limits because `weapons.count` moves
+   * as it grants.
+   *
+   * A BOSS CRATE COUNTS AGAINST THIS, deliberately. The crate's reward is that
+   * the weapon arrives NOW rather than at level-up 21 — it buys you time, not
+   * width. Letting it stack on top would make the rack fill fastest exactly for
+   * the players already killing bosses quickest, which is the runaway the whole
+   * cadence exists to stop.
+   */
+  mayExpandArsenal() {
+    const WO = this.data.upgrades.WEAPON_OFFERS;
+    return this.weapons.count < 2 + Math.floor(this.levelUpIndex / WO.newEveryNth);
+  }
+
+  /**
+   * ONE weapon card, or null when there is no weapon worth offering.
+   *
+   * @param allowNew  may this card be a weapon the player does not own yet?
+   *                  False on an ordinary weapon screen, true on an expansion
+   *                  screen and on the end-of-run top-up.
+   * @param onScreen  the cards already chosen for this screen. The top-up path
+   *                  calls this more than once and must not offer the same
+   *                  weapon twice.
+   *
+   * An expansion screen with nothing left to expand into — every weapon owned,
+   * or every one of them banished — falls through to a level rather than
+   * wasting the screen's one weapon card on nothing.
+   */
+  _rollWeaponCard(allowNew, onScreen) {
+    const pool = [];
+    const weights = [];
+    const luck = 1 + this.player.stats.luck * 0.02;
+    const WO = this.data.upgrades.WEAPON_OFFERS;
+
+    if (allowNew && !this.weapons.full) {
+      for (const def of this.data.weapons.WEAPONS) {
+        if (this.weapons.has(def.id)) continue;
+        if (this.banished.indexOf(def.id) >= 0) continue;
+        if (weaponOnScreen(onScreen, def.id)) continue;
+        pool.push({ kind: 'newWeapon', def });
+        weights.push((def.weight || 100) * luck);
+      }
+    }
+    // Levels are always in the pool on an expansion screen too, at a weight
+    // that loses most of the time. A fifth weapon at level 1 is not always
+    // better than your third at level 5, and the roll should be able to say so.
+    for (const w of this.weapons.slots) {
+      if (this.weapons.isMaxed(w) || w.evolved) continue;
+      if (weaponOnScreen(onScreen, w.id)) continue;
+      pool.push({ kind: 'weapon', w, level: w.level + 1 });
+      weights.push(WO.levelWeight * luck);
+    }
+
+    const i = runRng.weightedIndex(weights);
+    return i >= 0 ? pool[i] : null;
   }
 
   _availableEvolution() {
@@ -980,6 +1105,7 @@ export class Run {
     else if (c.kind === 'weaponEvo') this.evolveWeapon(c.w.id);
     else if (c.kind === 'gold') this.grantGold(c.amount);
     this.levelUpChoices = null;
+    this.levelUpIndex++;
     this.state = RUN_STATE.PLAYING;
     audio.play('uiConfirm');
     this.relicHooks.fire('onLevelUp');
@@ -1022,6 +1148,75 @@ export class Run {
     return true;
   }
 
+  // --- boss weapon drops --------------------------------------------------------
+  /**
+   * Put a weapon crate on the floor. Returns false when there is no weapon left
+   * worth crating, in which case the boss simply pays its other rewards.
+   */
+  _dropWeaponCrate(x, y) {
+    const def = this._rollWeaponDrop();
+    if (!def) return false;
+    this.pickups.dropWeapon(x, y, def);
+    floaters.spawn(x, y - 46, 'WEAPON DROP', '#6ad8ff', 24, 2.4);
+    audio.play('relic');
+    return true;
+  }
+
+  /**
+   * Which weapon a boss was carrying.
+   *
+   * TWO RULES, BOTH OF THEM THE POINT OF THE FEATURE:
+   *
+   *   - a weapon the player does not own is only eligible while a SLOT IS FREE.
+   *     The crate is a reward, not a way around the five-slot cap.
+   *   - a weapon the player DOES own is eligible only while it still has a
+   *     level left in it. A crate carrying something already maxed or already
+   *     evolved is a crate that does nothing, and the player would walk across
+   *     an arena for it.
+   *
+   * Owned weapons are weighted below un-owned ones but not out of the running:
+   * late in a run, with the rack full, they are the only thing a crate can be,
+   * and a level on the weapon you actually built around is a real prize.
+   */
+  _rollWeaponDrop() {
+    const all = this.data.weapons.WEAPONS;
+    const weights = [];
+    const luck = 1 + this.player.stats.luck * 0.02;
+    for (const def of all) {
+      if (this.banished.indexOf(def.id) >= 0) { weights.push(0); continue; }
+      const w = this.weapons.get(def.id);
+      if (!w) { weights.push(this.weapons.full ? 0 : (def.weight || 100) * luck); continue; }
+      const spent = this.weapons.isMaxed(w) || w.evolved;
+      weights.push(spent ? 0 : (def.weight || 100) * 0.6 * luck);
+    }
+    const i = runRng.weightedIndex(weights);
+    return i >= 0 ? all[i] : null;
+  }
+
+  /**
+   * The player walked onto a crate.
+   *
+   * The crate was rolled when the boss died and is collected some time later,
+   * so the run can have moved underneath it: the free slot it was going to take
+   * got taken, or the weapon it was going to level got maxed off a level-up
+   * screen. Rather than eat the pickup and leave the player with a shrug, an
+   * obsolete crate pays gold and says so.
+   */
+  takeWeaponDrop(def) {
+    if (!def) return false;
+    const w = this.weapons.get(def.id);
+    if (!w) {
+      if (!this.weapons.full && this.grantWeapon(def.id)) return true;
+    } else if (!this.weapons.isMaxed(w) && !w.evolved) {
+      if (this.levelWeapon(def.id)) return true;
+    }
+    const gold = this.data.upgrades.BOSS_WEAPON_DROP.consolationGold;
+    this.grantGold(gold);
+    floaters.spawn(this.player.x, this.player.y - 64,
+                   'NO ROOM  +' + gold + ' ⭐', '#ffd76a', 20, 1.8);
+    return false;
+  }
+
   rerollUpgrades() {
     if (this.rerollsLeft <= 0) return false;
     this.rerollsLeft--;
@@ -1047,6 +1242,7 @@ export class Run {
   skipUpgrade() {
     this.grantGold(this.data.upgrades.LEVELUP.skipGold);
     this.levelUpChoices = null;
+    this.levelUpIndex++;
     this.state = RUN_STATE.PLAYING;
   }
 
@@ -1087,14 +1283,20 @@ export class Run {
       if (relicId) { this.offerRelic(relicId); return; }
     }
 
-    // A chest takes the first thing it is offered that it can actually grant.
-    // It used to insist on `kind === 'upgrade'`, which would have made weapons
-    // the one reward a chest could never contain.
+    // A chest takes the best thing it is offered that it can actually grant,
+    // and it PREFERS A STAT CARD.
+    //
+    // It used to take whichever of the three came first, which was fine while
+    // every screen led with a weapon. Now that weapons are on a cadence, a Gold
+    // Chest rolling five screens on one cadence position would have handed out
+    // five weapon cards in a row and undone the whole rhythm in a single pickup
+    // — the chest rolls five screens, but it is still ONE moment in the run.
+    // A weapon is still perfectly reachable here; it just has to be the only
+    // thing on offer, which at the end of a run it frequently is.
     const granted = [];
     for (let i = 0; i < count; i++) {
       const choices = this.rollUpgradeChoices();
-      const pick = choices.find((x) => x.kind === 'upgrade' || x.kind === 'weapon' ||
-                                       x.kind === 'newWeapon') || choices[0];
+      const pick = choices.find(IS_STAT_CARD) || choices.find(IS_WEAPON_CARD) || choices[0];
       if (!pick) break;
       if (pick.kind === 'upgrade') { this.player.addUpgrade(pick.up.id); granted.push(pick.up); }
       else if (pick.kind === 'newWeapon') {
@@ -1361,6 +1563,25 @@ export class Run {
 function chestRow(icon, name, line) {
   return { icon, name, tier: 'rare', perLevel: 0, unit: 'flat', fmt: line };
 }
+
+/**
+ * Is this weapon already on the screen being built? Guards the one path that
+ * fills more than one weapon card at a time (the end-of-run top-up in
+ * rollUpgradeChoices) from offering the same weapon twice.
+ */
+function weaponOnScreen(cards, id) {
+  if (!cards) return false;
+  for (const c of cards) {
+    if (c.kind === 'newWeapon') { if (c.def.id === id) return true; }
+    else if (c.kind === 'weapon' || c.kind === 'weaponEvo') { if (c.w.id === id) return true; }
+  }
+  return false;
+}
+
+// Chest reveal predicates. Module-level so the chest path allocates no closures,
+// and so the ORDER of preference is stated once, in one readable place.
+const IS_STAT_CARD = (c) => c.kind === 'upgrade';
+const IS_WEAPON_CARD = (c) => c.kind === 'weapon' || c.kind === 'newWeapon';
 
 /** Death slow-mo, expressed through the run's own time scale (deterministic). */
 function setTimeoutLikeSlowmo(run) {

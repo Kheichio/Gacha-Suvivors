@@ -13,8 +13,8 @@
 //   (a) every CHARACTER's `ref` names exactly one person — never a blend,
 //       never a list;
 //   (b) no two characters share a `ref`.
-// `refSource` deliberately DOES repeat (Hololive EN x3, Hololive JP x3,
-// Naruto x2, Dragon Ball x2). Spec lines 56-66 state outright that same-series
+// `refSource` deliberately DOES repeat (Hololive JP x6, Hololive EN x3,
+// Frieren x3, Naruto x2, Dragon Ball x2). Spec lines 56-66 state outright that same-series
 // pairs are fine and that the constraint is on the ref, not the series;
 // SECTION 17's stray "no source appears on two characters" contradicts the
 // document's own roster and loses.
@@ -33,7 +33,7 @@
 export const REFS = {
 
   // ===========================================================================
-  // CHARACTERS (24) — refNotes is the full SECTION 4 art-direction paragraph.
+  // CHARACTERS (25) — refNotes is the full SECTION 4 art-direction paragraph.
   // This is what an artist works from; do not trim it.
   // ===========================================================================
 
@@ -198,17 +198,7 @@ export const REFS = {
               "feathers everywhere.",
   },
 
-  akane: {
-    ref: 'Houshou Marine',
-    refSource: 'Hololive JP',
-    refNotes: "Everything is RED. Long black twin-tails with red ribbons, a red " +
-              "pirate captain's coat worn open over a red-and-white outfit, a " +
-              "huge red tricorn hat with a plume, gold trim, an eyepatch motif, " +
-              "a cutlass at the hip. Enormous personality — loud, theatrical, " +
-              "filthy-minded, immediately switches to an over-the-top pirate " +
-              "voice. Greets everyone with \"Ahoy!\". Her fanbase are her crew. " +
-              "Her hub idle should be her sprawled on a treasure pile.",
-  },
+  // akane MOVED TO THE 6-STAR BLOCK with the character herself.
 
   kira: {
     ref: 'Light Yagami',
@@ -319,6 +309,55 @@ export const REFS = {
               "white-gold aura that flares when he charges. His three moves are " +
               "all his own: hand-to-hand rush, the Spirit Bomb, and Ultra " +
               "Instinct's silver-eyed auto-dodge.",
+  },
+
+  akane: {
+    ref: 'Houshou Marine',
+    refSource: 'Hololive JP',
+    refNotes: "Everything is RED. Long black twin-tails with red ribbons, a red " +
+              "pirate captain's coat worn open over a red-and-white outfit, a " +
+              "huge red tricorn hat with a plume, gold trim, an eyepatch motif, " +
+              "a cutlass at the hip. Enormous personality — loud, theatrical, " +
+              "filthy-minded, immediately switches to an over-the-top pirate " +
+              "voice. Greets everyone with \"Ahoy!\". Her fanbase are her crew. " +
+              "Her hub idle should be her sprawled on a treasure pile. Promoted " +
+              "from 5-star to 6-star: nothing about the art direction changes, " +
+              "but the rainbow ★6 beam and the held silent beat are now hers, " +
+              "so the pull splash needs the biggest version of that hat.",
+  },
+
+  pekora: {
+    ref: 'Usada Pekora',
+    refSource: 'Hololive JP',
+    refNotes: "A rabbit girl in a military dress uniform. ENORMOUSLY long ears " +
+              "— longer than her own body, drawn hanging down past the waist " +
+              "with a slight kink, and they are the silhouette; if the ears are " +
+              "not immediately readable from across an arena the design has " +
+              "failed. Blue-white hair worn in twin tails held with wide dark " +
+              "blue ribbons, red eyes, a small white military cap or beret set " +
+              "at an angle. The outfit is a short blue-and-white officer's dress " +
+              "with gold buttons in a double row, a high collar, a cape or short " +
+              "shoulder cloak, white gloves, and long boots. She carries carrots " +
+              "the way another character carries a weapon: tucked in a belt " +
+              "pouch, thrown, planted point-down in the ground, used as a " +
+              "pointer over a hand-drawn battle map. " +
+              "PERSONALITY IS THE WHOLE BRIEF. She is a scheming prankster who " +
+              "builds elaborate multi-stage plans, announces them with total " +
+              "confidence, and then watches them detonate on her personally. " +
+              "The comic beat is always the same two-parter: cocky setup, " +
+              "instant deflation. She has a signature staccato laugh she uses " +
+              "the moment a plan appears to be working, and a signature panicked " +
+              "shriek for the half-second afterwards. Both are HERS and neither " +
+              "may be written down anywhere outside this file — the barks are " +
+              "voiced entirely through invented English, not through her verbal " +
+              "tic. Her fanbase are wild rabbits. " +
+              "KIT DIRECTION. Everything she does is placed in advance and goes " +
+              "off later: carrots that stick in the floor and pop, mines dropped " +
+              "while fleeing, a ringed demolition rig with tripwires. The last " +
+              "charge of the special always goes off under her, on purpose, " +
+              "because the joke and the mechanic have to be the same object. " +
+              "Draw her mid-plan, not mid-fight: crouched over a diagram, " +
+              "chalk in hand, one ear already on fire.",
   },
 
   han: {
@@ -1011,6 +1050,166 @@ export const REFS = {
               "and hi-vis yellow against the reef bioluminescence.",
   },
 
+  // --- ENEMY-VARIETY PASS (16) — every one an original design --------------
+  // Play report: "make more unique mobs, quicker ones, different ability types,
+  // smaller ones, bigger ones". Nothing here descends from a source property, so
+  // every refSource is 'original' and every `ref` describes the creature rather
+  // than pointing at one. The refNotes are still the art brief, line by line.
+
+  eraser_gremlin: {
+    ref: 'Stationery imp',
+    refSource: 'original',
+    refNotes: "A chalk-dusted rubber the size of a fist that has grown stubby " +
+              "limbs and a grin. Bone-white body, grey scuff marks worn into one " +
+              "corner, no eyes — just the grin. Drawn at roughly half a fodder " +
+              "enemy's height, because the whole read is 'that is much too small " +
+              "and much too fast'.",
+  },
+
+  splinter_husk: {
+    ref: 'Knee-high husk',
+    refSource: 'original',
+    refNotes: "The Husk Wanderer's doughy palette and vacant smile on something " +
+              "that comes up to your knee and sprints. Same skin tone, same " +
+              "barefoot, same too-cheerful mouth — the point is that the player " +
+              "recognises the family and mis-reads the speed.",
+  },
+
+  ember_sprite: {
+    ref: 'Running ember',
+    refSource: 'original',
+    refNotes: "A single live coal with a face, trailing sparks, burning brighter " +
+              "the closer it gets. Orange core, dark ashen rim that cracks open as " +
+              "the fuse runs down. Must read as SMALLER and BRIGHTER than the " +
+              "Jellyfish Chorus: a shorter fuse and a much smaller blast.",
+  },
+
+  bait_ball: {
+    ref: 'Baitfish shoal',
+    refSource: 'original',
+    refNotes: "Not one fish — a knot of tiny silver fish moving as one body, which " +
+              "is why it is drawn as a single rounded shape with scale glints " +
+              "rather than as a creature. Pale cyan, faintly luminous. The " +
+              "smallest thing in the game and the fastest.",
+  },
+
+  hall_monitor: {
+    ref: 'Prefect with a clipboard',
+    refSource: 'original',
+    refNotes: "A school prefect in a pressed blazer and a tie, holding a clipboard " +
+              "at chest height and writing without looking down. Bowl cut, no " +
+              "expression, armband. Nothing about the design should look like it " +
+              "fights; the threat is entirely the clipboard and the fact that it " +
+              "has stopped walking.",
+  },
+
+  courier_scooter: {
+    ref: 'Delivery moped',
+    refSource: 'original',
+    refNotes: "A delivery moped with an insulated box on the back and nobody " +
+              "visible on it. Signage-yellow bodywork, one headlight that is " +
+              "always on, a stack of receipts fluttering off the handlebars. It " +
+              "is drawn nose-on when it runs its lane, so the headlight is the " +
+              "read.",
+  },
+
+  hype_marshal: {
+    ref: 'Crowd hype man',
+    refSource: 'original',
+    refNotes: "Event staff who never stopped working the queue: hi-vis over a " +
+              "tour tee, a megaphone in one hand and a light stick in the other, " +
+              "mirrored glasses so there are no eyes. Every colour on it is a " +
+              "signage colour. It should look like it is facing the CROWD, not " +
+              "the player.",
+  },
+
+  censer_shade: {
+    ref: 'Censer bearer',
+    refSource: 'original',
+    refNotes: "A hooded figure with no body under the robe, swinging a brass " +
+              "censer on a long chain. Aged brass and soot; the coals inside show " +
+              "as one hot point of light through the pierced lid. The smoke it " +
+              "leaves is the attack, so the smoke reads warmer and brighter than " +
+              "the figure does.",
+  },
+
+  roofline_runner: {
+    ref: 'Rooftop courier ninja',
+    refSource: 'original',
+    refNotes: "A masked runner in dark indigo built entirely for horizontal " +
+              "motion: wrapped forearms, a scarf that is always streaming, one " +
+              "arm forward. Almost no colour on it except the scarf. It is only " +
+              "ever seen from the side, at speed.",
+  },
+
+  siege_husk: {
+    ref: 'Walking siege engine',
+    refSource: 'original',
+    refNotes: "Something enormous, grey and mineral that has stood still so long " +
+              "it has weathered: a hunched slab of a body with a hollow shoulder " +
+              "that it loads out of. Colours are all stone — no warm accent " +
+              "anywhere except the moment it fires. It should read as ARCHITECTURE " +
+              "that has decided to move, which is this stage's whole thesis.",
+  },
+
+  mask_bearer: {
+    ref: 'Warded mask carrier',
+    refSource: 'original',
+    refNotes: "A slight figure in dark robes carrying a lacquered mask on a pole " +
+              "rather than wearing it. The mask is pale and the ward-light comes " +
+              "OFF THE MASK, not off the body — that light is the whole mechanic, " +
+              "so it must be the brightest thing on the design and it must " +
+              "visibly connect to whatever is standing near it.",
+  },
+
+  brazier_oni: {
+    ref: 'Coal-carrying oni',
+    refSource: 'original',
+    refNotes: "A heavy folklore oni — horned, red-skinned, bare-chested — carrying " +
+              "an iron brazier in both hands the way a person carries something " +
+              "much too hot. Coals visible over the rim. Explicitly the FOLKLORE " +
+              "build, matching the Oni Bruiser's family rather than the Lesser " +
+              "Oni's human one.",
+  },
+
+  sutra_chanter: {
+    ref: 'Chanting monk',
+    refSource: 'original',
+    refNotes: "A shaven-headed figure in undyed robes, eyes closed, a bead string " +
+              "turning in one hand and its mouth open mid-syllable. Warm off-white " +
+              "against a stage of reds and blacks. It never looks at the player, " +
+              "which is the entire characterisation — it is not fighting you, it " +
+              "is keeping time for everything that is.",
+  },
+
+  deep_watcher: {
+    ref: 'Deep ambush predator',
+    refSource: 'original',
+    refNotes: "Almost invisible: a dark rounded mass with ONE large pale eye and a " +
+              "faint outline of jaw below it. Nearly black-blue so it disappears " +
+              "against the reef floor, with the eye doing all the work. The eye " +
+              "should brighten as it decides.",
+  },
+
+  spine_urchin: {
+    ref: 'Spine-lobbing urchin',
+    refSource: 'original',
+    refNotes: "A deep-violet urchin the size of a barrel whose spines are visibly " +
+              "loaded rather than defensive — a few pulled back and ready to " +
+              "launch. Dark body, pale spine tips. It never chases, so the whole " +
+              "silhouette is squat and planted.",
+  },
+
+  reef_bulwark: {
+    ref: 'Coral-crusted bulwark',
+    refSource: 'original',
+    refNotes: "Something armoured that has been on the seabed long enough to " +
+              "become part of it: a plated shell under forty years of coral, " +
+              "anemones and growth. Teal and bone with gold-orange polyps. The " +
+              "growth is not decoration — it is what holds its ward up — so it " +
+              "has to read as a living crust rather than as texture.",
+  },
+
   // --- SPLIT CHILDREN (3) — spawned only, never in a mob table -------------
   tiny_slime: {
     ref: 'Split slime',
@@ -1042,7 +1241,7 @@ export const REFS = {
   },
 
   // ===========================================================================
-  // RELICS (29) — SECTION 11's "RELIC NAME ORIGINS" block, all of it.
+  // RELICS (30) — SECTION 11's "RELIC NAME ORIGINS" block, all of it.
   // Spec lines 1524-1525: every signature relic comes from ITS OWN character's
   // source, never someone else's. So a signature relic's `ref` is deliberately
   // the same person as its owner character's `ref` — that duplication is the
@@ -1051,7 +1250,7 @@ export const REFS = {
   // The 5 stage relics reference their stage's series, not a person.
   // ===========================================================================
 
-  // --- 24 signature relics --------------------------------------------------
+  // --- 25 signature relics --------------------------------------------------
   secret_technique_109: {
     ref: 'Mokona',
     refSource: 'Magic Knight Rayearth',
@@ -1242,6 +1441,17 @@ export const REFS = {
     refNotes: "The maid idol's signature disaster, frozen into an object: a good " +
               "cup with one hairline crack, still full, already tipping. Owner: " +
               "Aoi, and it comes from her source alone.",
+  },
+
+  the_contingency_plan: {
+    ref: 'Usada Pekora',
+    refSource: 'Hololive JP',
+    refNotes: "The rabbit's running gag made into an object: there is always a " +
+              "plan, the plan is always elaborate, and the part of it that " +
+              "actually fires is always the part she did not mean to leave " +
+              "armed. Draw it as a folded, much-annotated diagram with a carrot " +
+              "used as a paperweight and one corner already scorched. Owner: " +
+              "Usaki, and it comes from her source alone.",
   },
 
   field_of_flowers: {

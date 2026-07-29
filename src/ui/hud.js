@@ -14,6 +14,20 @@
 //   BOTTOM-RIGHT   relic icons (max 3) + active buff timers
 //   BOSS           a health bar that drops from the top with name and epithet
 //
+// The centre is clear DURING NORMAL PLAY, which is not the same as always. Two
+// things claim it, both of them transient and both of them decisions rather
+// than status: the kill-streak callout, and the ability duration bars — the one
+// read on the HUD that has to be found without looking away from your own
+// character. See _centerDurations.
+//
+// ON TOUCH the bottom half of that layout rearranges itself, because a HUD you
+// cannot see past your own thumbs is not a HUD. The stick owns the bottom-left
+// quadrant, so the ability radials move to the two buttons that cast them in
+// the bottom-right; the relic row lifts above those; a PAUSE button takes the
+// top-right corner and the level/kills column drops below it. All of it is
+// _layoutTouch, and it is also the map the input layer resolves touches
+// against — screen geometry is the HUD's business, not input's.
+//
 // The HUD is also where the generic hooks live that keep character-specific UI
 // out of the engine: `resourceBar` (the rage meter) and `metric` (the
 // kills-per-second read-out) are DECLARED IN CHARACTER DATA and rendered
@@ -45,10 +59,13 @@ class Hud {
      * nothing afterwards, so it never allocates inside a frame.
      */
     this._buffPeak = Object.create(null);
+    /** Top edge of the build strip, published by _buildStrip for the duration bars. */
+    this._stripTop = 0;
   }
 
   reset() {
     this.hpGhost = 1; this.bossBarT = 0; this.introT = 0; this._portraitSprite = null;
+    this._stripTop = 0;
     // Durations do not carry between runs: a 30s stage buff whose peak was
     // learned last run must not be the denominator for a 6s one this run.
     this._buffPeak = Object.create(null);
@@ -101,19 +118,35 @@ class Hud {
     const s = save.data.settings.uiScale || 1;
     const p = run.player;
 
+    // THE TOUCH CONTROL MAP IS PART OF THE HUD, and only of a HUD that is
+    // actually being played through. It is resolved first because three other
+    // blocks have to get out of its way, and _layoutTouch hands it to the input
+    // layer — which owns no screen geometry of its own — in the same breath.
+    // PAUSED and LEVEL_UP deliberately publish NOTHING: those states draw menus
+    // over the HUD, and a stick zone still live underneath a menu is exactly the
+    // bug this whole pass exists to remove.
+    const touching = IS_TOUCH && run.state === RUN_STATE.PLAYING;
+    TOUCH_L.live = touching;
+    if (touching) this._layoutTouch(W, H);
+
     this._lowHpVignette(r, run);
     this._topLeft(r, run, s);
     this._topCenter(r, run, W, s);
     this._topRight(r, run, W, s);
     this._buildStrip(r, run, W, H, s);
     this._bottomCenter(r, run, W, H, s);
-    this._bottomLeft(r, run, H, s);
+    // On touch the two ability radials move to the thumb that presses them; the
+    // bottom-left corner is where the movement stick lives, and a cooldown read
+    // underneath a thumb is a cooldown read nobody has ever seen.
+    if (!IS_TOUCH) this._bottomLeft(r, run, H, s);
     this._bottomRight(r, run, W, H, s);
+    // After the build strip, which is what it has to stay clear of.
+    this._centerDurations(r, run, W, H, s);
     if (this.bossBarT > 0.01) this._bossBar(r, run, W, s);
     if (run.qte) this._qte(r, run, W, H);
     this._killStreak(r, run, W, H);
     if (run.stageManager && run.stageManager.active) this._stageManager(r, run, W, H);
-    if (IS_TOUCH) this._touchControls(r, W, H);
+    if (touching) this._touchControls(r, run, W, H, s);
     if (input.held(ACT.STATS)) this._statSheet(r, run, W, H);
   }
 
@@ -242,20 +275,24 @@ class Hud {
   // --- kills, gold, level ----------------------------------------------------
   _topRight(r, run, W, s) {
     const x = W - 18;
-    ui.text('LV ' + run.player.level, x, 26 * s, {
+    // The pause button owns the top-right corner on touch, so this column
+    // starts below it. Overlapping them would be worse than either placement:
+    // a semi-transparent "LV 14" printed across the only way out of a run.
+    const y0 = TOUCH_L.live ? TOUCH_L.topClear : 0;
+    ui.text('LV ' + run.player.level, x, y0 + 26 * s, {
       size: 22 * s, color: PALETTE.accent, align: 'right', weight: 800, mono: true, outline: true,
     });
-    ui.text('☠ ' + formatNumber(run.stats.kills), x, 48 * s, {
+    ui.text('☠ ' + formatNumber(run.stats.kills), x, y0 + 48 * s, {
       size: 14 * s, color: PALETTE.textDim, align: 'right', weight: 700, mono: true,
     });
-    ui.text('⭐ ' + formatNumber(run.stats.gold), x, 66 * s, {
+    ui.text('⭐ ' + formatNumber(run.stats.gold), x, y0 + 66 * s, {
       size: 14 * s, color: PALETTE.gold, align: 'right', weight: 700, mono: true,
     });
 
     // Generic metric hook — Kira's kills/sec, declared in his data.
     if (run.player.def.metric === 'killsPerSecond') {
       const kps = run.time > 0 ? run.stats.kills / run.time : 0;
-      ui.text(kps.toFixed(2) + ' k/s', x, 84 * s, {
+      ui.text(kps.toFixed(2) + ' k/s', x, y0 + 84 * s, {
         size: 12 * s, color: PALETTE.accent2, align: 'right', weight: 700, mono: true,
       });
     }
@@ -307,52 +344,96 @@ class Hud {
       ui.text(p.escape.remaining.toFixed(1), x2, y + 1, {
         size: 15 * s, color: '#ffffff', align: 'center', weight: 800, mono: true, outline: true });
     }
+  }
 
-    // --- WHAT IS RUNNING RIGHT NOW ------------------------------------------
+  // --- WHAT IS RUNNING RIGHT NOW ---------------------------------------------
+  //
+  // A radial answers "when can I use it again". It cannot answer "how long until
+  // the thing I am currently standing inside stops", and for most of the roster
+  // that second question is the one that decides whether you walk into the pack
+  // or away from it. On a cooldown sweep an eight-second damage window and its
+  // last half-second look identical — because to a cooldown sweep they ARE
+  // identical, both are simply "not ready yet".
+  //
+  // This used to be a pair of 148x26 chips stacked above the bottom-left
+  // radials, and verbatim from a player: it was too small and in the wrong
+  // place. Both are true, and they are the same complaint. A countdown you have
+  // to look AWAY from the fight to read is a countdown you do not read, so it
+  // does not matter how correct it is — and at 148px wide it had room for a
+  // ten-point name and a five-pixel track, which is a footnote, not an alarm.
+  //
+  // So it is centre-screen and large. The HUD's founding rule is that the middle
+  // 70% stays clear, and this does not break it: nothing here is drawn unless an
+  // ability is actually running, which is a few seconds at a time and never
+  // during the normal business of walking and shooting. It still sits clear of
+  // the ACTION — just under the midline, because the player is ON the midline
+  // and a bar centred there is drawn across your own character at the exact
+  // moment you are trying to read it.
+  _centerDurations(r, run, W, H, s) {
+    const n = this._durationCount(run);
+    if (n === 0) return;
+    // Sized by the UI scale AND capped against the viewport. 46px at uiScale
+    // 1.4 is 64px, which on a phone held sideways is a sixth of the screen for
+    // ONE of two bars — "bigger" was the request, but bigger than the window it
+    // is in helps nobody.
+    const h = Math.round(clamp(Math.min(46 * s, H * 0.085), 30, 56));
+    const gap = Math.round(8 * s);
+    let top = Math.round(H * 0.55);
+    // The build strip is the tallest single thing on the screen and on a short
+    // viewport it reaches most of the way to the midline. Pull the stack up
+    // rather than let it land on top of the arsenal — up to the point where it
+    // would be over the player, which is where the lesser evil changes sides.
     //
-    // A radial answers "when can I use it again". It cannot answer "how long
-    // until the thing I am currently standing inside stops", and for most of the
-    // roster that second question is the one that decides whether you walk into
-    // the pack or away from it. On a cooldown sweep an eight-second damage
-    // window and its last half-second look identical — because to a cooldown
-    // sweep they ARE identical, both are simply "not ready yet".
-    //
-    // So the running abilities stack upward from just above the two names, in
-    // the same glance as the radials, each carrying its radial's own glyph and
-    // colour so it maps to a button without being read. Nothing is drawn when
-    // nothing is running, which is most of the time, and nothing here knows
-    // which character is playing: the driver is asked what occupies the SPECIAL
-    // slot and what occupies the ESCAPE slot, and answers about whatever it is.
-    let cy = y - rad - 22 * s;
-    // TOUCH: the left thumb and its hint ring sit exactly where the stack would,
-    // and a bar underneath a thumb is a bar nobody can read. Lift the stack
-    // clear of the ring rather than shrinking it into illegibility.
-    if (IS_TOUCH) cy = Math.min(cy, H * 0.78 - 74);
-    cy = this._durationChip(r, run, 'special', '✦', '#ff5fa2', 26, cy, s);
-    this._durationChip(r, run, 'escape', '➤', '#6ad8ff', 26, cy, s);
+    // On a genuinely over-subscribed HUD — a 390px-tall window at uiScale 1.4,
+    // where the arsenal alone claims half the height — there is no clearance to
+    // find and the two do overlap. That is the right way round: this is drawn
+    // last, it is opaque, it is on screen for a few seconds at a time, and the
+    // arsenal is reference you can read whenever you like whereas "0.4s of
+    // invulnerability left" is a decision you are making now.
+    const floor = (this._stripTop || H) - Math.round(10 * s);
+    const need = n * h + (n - 1) * gap;
+    if (top + need > floor) top = Math.max(Math.round(H * 0.30), floor - need);
+
+    top = this._durationBar(r, run, 'special', '✦', '#ff5fa2', W, top, h, gap, s);
+    this._durationBar(r, run, 'escape', '➤', '#6ad8ff', W, top, h, gap, s);
   }
 
   /**
-   * ONE RUNNING ABILITY, AS A BAR. Returns the bottom edge for the next chip —
-   * unchanged when nothing was drawn, so a lone active ability sits closest to
-   * the radials instead of leaving a hole where the other one would have been.
+   * How many bars _centerDurations is about to draw, so the stack can be placed
+   * before any of it is. Two probes rather than one because `activeState`
+   * answers into a shared record — see abilities/index.js — and the answer about
+   * SPECIAL is gone the moment ESCAPE is asked about.
    */
-  _durationChip(r, run, key, icon, color, x, bottom, s) {
+  _durationCount(run) {
+    let n = 0;
+    for (let i = 0; i < 2; i++) {
+      const st = abilities.activeState(run, i === 0 ? 'special' : 'escape');
+      if (st.active && !(st.timed && st.total < BAR_MIN_TIME)) n++;
+    }
+    return n;
+  }
+
+  /**
+   * ONE RUNNING ABILITY, AS A BAR. Returns the top edge for the next one —
+   * unchanged when nothing was drawn, so a lone active ability sits where the
+   * stack starts instead of leaving a hole where the other one would have been.
+   */
+  _durationBar(r, run, key, icon, color, W, top, h, gap, s) {
     const st = abilities.activeState(run, key);
-    if (!st.active) return bottom;
+    if (!st.active) return top;
     // Sub-second effects are over before the eye has found the bar: the 0.45s of
-    // a cast animation, the 0.05s an ability spends handing control back. A chip
+    // a cast animation, the 0.05s an ability spends handing control back. A bar
     // that blinks on and off on every single press teaches the player to stop
-    // looking at the one corner they should be watching, so those do not get
-    // one. CHIP_MIN_TIME sits under the shortest window that is a STATE you play
+    // looking at the one place they should be watching, so those do not get one.
+    // BAR_MIN_TIME sits under the shortest window that is a STATE you play
     // inside — a 0.7s i-frame dash, a 1.2s phase-out — and over the longest one
     // that is only an animation.
-    if (st.timed && st.total < CHIP_MIN_TIME) return bottom;
+    if (st.timed && st.total < BAR_MIN_TIME) return top;
 
     const def = run.player.def[key];
-    const w = 148 * s, h = 26 * s;
-    const top = bottom - h;
-    const warn = st.timed && st.frac <= CHIP_WARN_FRAC;
+    const w = Math.round(Math.min(W * 0.56, 620 * s));
+    const x = Math.round((W - w) / 2);
+    const warn = st.timed && st.frac <= BAR_WARN_FRAC;
     // THE WARNING RIDES ON THREE CHANNELS, NOT ONE. The rule this file follows
     // is that no critical information may be carried by colour alone, and "your
     // invulnerability ends in half a second" is about as critical as this HUD
@@ -361,39 +442,51 @@ class Hud {
     const beat = warn ? 0.5 + 0.5 * Math.sin(run.time * 9) : 0;
     const tint = warn ? '#ffd94a' : color;
 
-    CHIP_PANEL.borderColor = warn ? '#ffd94a' : PALETTE.border;
-    CHIP_PANEL.borderWidth = warn ? 2 + beat : 1.5;
-    ui.panel(x, top, w, h, CHIP_PANEL);
+    BAR_PANEL.borderColor = warn ? '#ffd94a' : PALETTE.border;
+    BAR_PANEL.borderWidth = warn ? 2.5 + beat * 1.5 : 2;
+    ui.panel(x, top, w, h, BAR_PANEL);
+    // A stripe of the ability's own colour down the leading edge, so which of
+    // the two buttons this belongs to is answered before anything is read.
+    r.drawRect(x + 2, top + 2, Math.max(3, 4 * s), h - 4, tint, warn ? 0.6 + beat * 0.4 : 0.9);
 
-    const ty = top + 9 * s;
-    CHIP_ICON.size = 12 * s;
-    CHIP_ICON.color = tint;
-    ui.text(icon, x + 11 * s, ty, CHIP_ICON);
-    CHIP_NAME.size = 10 * s;
+    // TYPE SCALES WITH THE BAR, not with the UI setting alone. The bar itself
+    // is capped against the viewport height above, and 22px of countdown inside
+    // a 33px plate is type that does not fit its own panel — which is how a
+    // "bigger" bar becomes an unreadable one on the exact device the enlargement
+    // was for. On any window with room, `ts` is simply `s`.
+    const ts = Math.min(s, h / 46);
+    const ty = top + Math.round(h * 0.30);
+    BAR_ICON.size = 17 * ts;
+    BAR_ICON.color = tint;
+    ui.text(icon, x + 20 * s, ty, BAR_ICON);
+    BAR_NAME.size = 15 * ts;
     // The time field is a reserved width rather than a measured one: measuring
     // costs a text metric every frame for a string that is never wider than
     // "⚠ 12.3s", and the name is ellipsized into whatever is left.
-    ui.text(ellipsize(r, displayName(def).split(' [')[0], w - 79 * s, 10 * s, 800),
-            x + 21 * s, ty, CHIP_NAME);
-    CHIP_TIME.size = 12 * s;
-    CHIP_TIME.color = warn ? '#ffd94a' : '#ffffff';
+    ui.text(ellipsize(r, displayName(def).split(' [')[0], w - 150 * s, 15 * ts, 800),
+            x + 34 * s, ty, BAR_NAME);
+    BAR_TIME.size = 22 * ts;
+    BAR_TIME.color = warn ? '#ffd94a' : '#ffffff';
     ui.text(st.timed ? (warn ? '⚠ ' : '') + st.remaining.toFixed(1) + 's' : 'ACTIVE',
-            x + w - 9 * s, ty, CHIP_TIME);
+            x + w - 14 * s, ty, BAR_TIME);
 
-    const bx = x + 9 * s, bw = w - 18 * s, by = top + h - 9 * s, bh = 5 * s;
-    r.drawRect(bx - 1, by - 1, bw + 2, bh + 2, '#05070e', 1);
+    const bx = x + 14 * s, bw = w - 28 * s;
+    const bh = Math.max(8, Math.round(h * 0.26));
+    const by = top + h - bh - Math.round(h * 0.15);
+    r.drawRect(bx - 2, by - 2, bw + 4, bh + 4, '#05070e', 1);
     r.drawRect(bx, by, bw, bh, 'rgba(4,6,14,0.85)', 1);
 
     if (st.timed) {
-      const fw = Math.max(2, bw * st.frac);
+      const fw = Math.max(3, bw * st.frac);
       r.drawRect(bx, by, fw, bh, tint, 1);
-      r.drawRect(bx, by, fw, Math.max(1, bh * 0.34), 'rgba(255,255,255,0.30)', 1);
+      r.drawRect(bx, by, fw, Math.max(1, bh * 0.32), 'rgba(255,255,255,0.30)', 1);
+      r.drawRect(bx, by + bh - Math.max(1, bh * 0.26), fw, Math.max(1, bh * 0.26), 'rgba(0,0,0,0.28)', 1);
       // The last quarter of the TRACK is notched, always — so "about to run out"
       // is a place on the bar you can watch the fill travel toward, instead of a
       // colour that changes at the same instant as the problem it warns about.
-      const hx = bx + bw * (1 - CHIP_WARN_FRAC), hs = bw * CHIP_WARN_FRAC / 4;
+      const hx = bx + bw * (1 - BAR_WARN_FRAC), hs = bw * BAR_WARN_FRAC / 4;
       for (let i = 0; i < 4; i++) {
-        r.drawRect(hx + i * hs, by, Math.max(1, 1.5 * s), bh, 'rgba(255,255,255,0.30)', 1);
+        r.drawRect(hx + i * hs, by, Math.max(1, 2 * s), bh, 'rgba(255,255,255,0.30)', 1);
       }
       if (warn) r.drawRect(bx, by, fw, bh, '#ffffff', beat * 0.45);
     } else {
@@ -406,7 +499,7 @@ class Hud {
       r.drawRect(mx, by, mw, bh, color, 0.9);
     }
 
-    return top - 5 * s;
+    return top + h + gap;
   }
 
   /**
@@ -463,6 +556,11 @@ class Hud {
     const bx = (W - boxW) / 2;
     // Sit clear of the XP bar (10*s tall + 4px) with real breathing room.
     const by = H - (10 * s + 4) - boxH - 10 * s;
+    // Published for the duration bars, which are centre-screen and have to know
+    // where the tallest thing on the HUD starts. Computed here rather than
+    // recomputed there: every term above feeds it, and two copies of this
+    // arithmetic would disagree the first time either changed.
+    this._stripTop = by;
 
     ui.panel(bx, by, boxW, boxH, {
       radius: 6, color: 'rgba(16,21,35,0.92)',
@@ -595,7 +693,9 @@ class Hud {
     const size = 38 * s;
     const maxRelics = run.data.relics.RELIC_SLOTS;
     let x = W - 18 - size;
-    const y = H - 42 * s - size;
+    // The two ability buttons own the bottom-right corner on touch, so the relic
+    // row and its buff timers start above them instead of underneath a thumb.
+    const y = (TOUCH_L.live ? Math.min(TOUCH_L.rightClear, H - 42 * s) : H - 42 * s) - size;
 
     // Relic slots draw their maximum too, for the same reason the build grid
     // does: "you can carry three" is a rule the player has to be able to see
@@ -852,51 +952,193 @@ class Hud {
   }
 
   // --- touch --------------------------------------------------------------
-  _touchControls(r, W, H) {
-    const rad = Math.min(W, H) * 0.13;
-    // Virtual stick base (bottom-left) — drawn only as a hint ring.
+  /**
+   * THE TOUCH CONTROL MAP. Geometry only; nothing is drawn here.
+   *
+   * Everything is sized off the SHORT edge. A phone held sideways is 844x390,
+   * and a control sized off the long edge is a control at the far end of a reach
+   * your thumb does not have — the previous layout used `min(W, H) * 0.13` for
+   * the buttons and then placed them at multiples of that radius, which on a
+   * short screen stacked two 50px circles into the same 60px of corner.
+   *
+   * The three positions answer three different questions:
+   *   · the stick is a REGION, not a disc — the base appears wherever the left
+   *     thumb lands, so there is nothing to find and nothing to miss;
+   *   · the two ability buttons are two clearly separated discs in the opposite
+   *     corner, far enough apart (2.3 radii between centres) that a thumb
+   *     cannot press both;
+   *   · PAUSE is a small disc in the top-right, because without it a phone
+   *     player cannot leave a run at all — there is no ESC key to press.
+   */
+  _layoutTouch(W, H) {
+    const L = TOUCH_L;
+    const short = Math.min(W, H);
+    const m = Math.round(clamp(short * 0.045, 12, 28));
+    const rad = Math.round(clamp(short * 0.105, 46, 76));
+
+    L.rad = rad; L.margin = m;
+    L.specialR = rad; L.escapeR = rad;
+    L.specialX = W - m - rad;
+    L.specialY = H - m - rad;
+    L.escapeX = W - m - rad * 3.0;
+    L.escapeY = H - m - rad * 2.2;
+
+    L.pauseR = Math.round(clamp(rad * 0.42, 22, 32));
+    L.pauseX = W - m - L.pauseR;
+    L.pauseY = m + L.pauseR;
+
+    // The stick owns the bottom-left quadrant outright. It is a big rectangle
+    // rather than a disc on purpose: the thumb that grabs it is not looking at
+    // the screen, and "put your thumb somewhere down there" is a target nobody
+    // can miss. The two buttons are tested first in input._touchZone, so the
+    // rectangle is free to be generous without swallowing them.
+    L.zoneX = 0;
+    L.zoneW = Math.round(W * 0.5);
+    L.zoneY = Math.round(H * 0.34);
+    L.zoneH = H - L.zoneY;
+    L.stickR = Math.round(clamp(short * 0.17, 60, 108));
+
+    // What the rest of the HUD has to stay out of. The right-hand clearance is
+    // measured from the top of the ESCAPE disc MINUS its name label, which is
+    // drawn above the disc — clearing the circle alone puts the relic row on top
+    // of the one word telling the player what that button does.
+    const lbl = Math.round(20 * (save.data.settings.uiScale || 1));
+    L.topClear = L.pauseY + L.pauseR + 10;
+    L.rightClear = L.escapeY - L.escapeR - lbl;
+
+    // Published HERE rather than after the controls are drawn, so there is no
+    // way to compute a layout and forget to hand it over — the map the input
+    // layer resolves touches against is always the one this frame drew.
+    input.setTouchControls(L);
+  }
+
+  _touchControls(r, run, W, H, s) {
+    const L = TOUCH_L;
     const t = input.touch;
+
+    // --- the stick -----------------------------------------------------------
     if (t.active) {
-      r.strokeCircle(t.stickBaseX, t.stickBaseY, 62, 'rgba(255,255,255,0.25)', 3, 1);
-      r.drawCircle(t.stickX, t.stickY, 26, 'rgba(255,255,255,0.35)', 1);
+      // Drawn where the finger actually IS, at the radius the input layer
+      // actually uses. Those were three separate numbers before — a ring of 62,
+      // a knob of 26 and a deflection of 90 — so the knob left its own ring
+      // before the stick reached full speed, in a coordinate space that was
+      // wrong by the device pixel ratio on top of that.
+      r.drawCircle(t.stickBaseX, t.stickBaseY, L.stickR, '#ffffff', 0.05);
+      r.strokeCircle(t.stickBaseX, t.stickBaseY, L.stickR, 'rgba(255,255,255,0.22)', 3, 1);
+      let dx = t.stickX - t.stickBaseX, dy = t.stickY - t.stickBaseY;
+      const d = Math.hypot(dx, dy);
+      if (d > L.stickR) { dx = dx * L.stickR / d; dy = dy * L.stickR / d; }
+      const kx = t.stickBaseX + dx, ky = t.stickBaseY + dy;
+      r.drawLine(t.stickBaseX, t.stickBaseY, kx, ky, '#ffffff', 3, 0.18);
+      r.drawCircle(kx, ky, L.stickR * 0.40, 'rgba(255,255,255,0.34)', 1);
+      r.strokeCircle(kx, ky, L.stickR * 0.40, '#ffffff', 2.5, 0.8);
     } else {
-      r.strokeCircle(W * 0.16, H * 0.78, 62, 'rgba(255,255,255,0.10)', 3, 1);
+      const hx = L.zoneX + L.stickR + L.margin * 2;
+      const hy = H - L.stickR - L.margin * 2;
+      r.strokeCircle(hx, hy, L.stickR, 'rgba(255,255,255,0.10)', 3, 1);
+      ui.text('MOVE', hx, hy, {
+        size: 11 * s, color: 'rgba(255,255,255,0.30)', align: 'center', weight: 800, mono: true,
+      });
     }
-    // Two ability buttons (bottom-right), positioned clear of the HUD.
-    r.strokeCircle(W - rad * 1.5, H - rad * 1.5, rad, 'rgba(255,95,162,0.4)', 3, 1);
-    ui.text('✦', W - rad * 1.5, H - rad * 1.5, { size: rad * 0.7, align: 'center', color: '#ff5fa2' });
-    r.strokeCircle(W - rad * 3.4, H - rad * 1.2, rad, 'rgba(106,216,255,0.4)', 3, 1);
-    ui.text('➤', W - rad * 3.4, H - rad * 1.2, { size: rad * 0.7, align: 'center', color: '#6ad8ff' });
+
+    // --- the two ability buttons ---------------------------------------------
+    // These ARE the radials now, rather than a pair of hollow rings in the
+    // corner opposite the ones carrying the information. Cooldown, charges and
+    // the ready pulse belong on the thing you press.
+    this._touchAbility(r, run, 'special', '✦', '#ff5fa2',
+                       L.specialX, L.specialY, L.specialR, t.buttons.special, s);
+    this._touchAbility(r, run, 'escape', '➤', '#6ad8ff',
+                       L.escapeX, L.escapeY, L.escapeR, t.buttons.escape, s);
+
+    // --- pause ---------------------------------------------------------------
+    const pr = L.pauseR;
+    r.drawCircle(L.pauseX, L.pauseY, pr, 'rgba(6,8,16,0.85)', 1);
+    r.strokeCircle(L.pauseX, L.pauseY, pr, PALETTE.border, 2.5, 1);
+    // Two bars, drawn rather than typed: the pause glyph is one of the few
+    // characters that is missing often enough to render as a tofu box, and a
+    // tofu box on the only exit from a run is not a risk worth taking.
+    const bw = Math.max(3, pr * 0.17), bh = pr * 0.86;
+    r.drawRect(L.pauseX - bw * 2, L.pauseY - bh / 2, bw, bh, PALETTE.text, 0.95);
+    r.drawRect(L.pauseX + bw, L.pauseY - bh / 2, bw, bh, PALETTE.text, 0.95);
+  }
+
+  /** One touch ability button: the radial, its cooldown read, and its name. */
+  _touchAbility(r, run, key, icon, color, cx, cy, rad, pressed, s) {
+    const p = run.player;
+    const st = p[key];
+    TOUCH_RADIAL.icon = icon;
+    TOUCH_RADIAL.charges = st.charges;
+    TOUCH_RADIAL.maxCharges = st.maxCharges;
+    // A press has to be visible even when the button is on cooldown, or every
+    // mistimed tap reads as a control that did not register.
+    TOUCH_RADIAL.bg = pressed ? 'rgba(46,58,92,0.95)' : 'rgba(6,8,16,0.85)';
+    ui.radial(cx, cy, rad, st.progress, color, TOUCH_RADIAL);
+    if (pressed) r.strokeCircle(cx, cy, rad + 4, '#ffffff', 2.5, 0.55);
+    if (!st.ready) {
+      ui.text(st.remaining.toFixed(1), cx, cy + rad * 0.50, {
+        size: 16 * s, color: '#ffffff', align: 'center', weight: 800, mono: true, outline: true,
+      });
+    }
+    ui.text(displayName(p.def[key]).split(' [')[0], cx, cy - rad - 10 * s, {
+      size: 11 * s, color: PALETTE.textDim, align: 'center', weight: 800,
+    });
   }
 }
 
-// THE DURATION CHIPS' OPTION BAGS, HOISTED.
+// THE DURATION BARS' OPTION BAGS, HOISTED.
 //
 // The older widgets in this file build their opts inline, which is harmless for
 // a plate that is drawn once and then reasoned about never again. These are
 // different: they are polled and redrawn every rendered frame for as long as an
 // ability is running, and the rule the rest of the project holds to is that a
 // per-frame path allocates nothing. Every field that varies — with the UI scale,
-// with which slot the chip belongs to, with the warning state — is written on
-// every use, so nothing can leak in from the chip drawn before it.
-const CHIP_PANEL = {
-  radius: 5, color: 'rgba(10,13,24,0.92)', borderColor: '', borderWidth: 1.5, bevel: false,
+// with which slot the bar belongs to, with the warning state — is written on
+// every use, so nothing can leak in from the bar drawn before it.
+const BAR_PANEL = {
+  radius: 6, color: 'rgba(10,13,24,0.94)', borderColor: '', borderWidth: 2, bevel: false,
 };
-const CHIP_ICON = { size: 12, color: '#ffffff', align: 'center', baseline: 'middle' };
-const CHIP_NAME = { size: 10, color: PALETTE.text, weight: 800, baseline: 'middle' };
-const CHIP_TIME = {
-  size: 12, color: '#ffffff', weight: 800, mono: true,
+const BAR_ICON = { size: 17, color: '#ffffff', align: 'center', baseline: 'middle' };
+const BAR_NAME = { size: 15, color: PALETTE.text, weight: 800, baseline: 'middle' };
+const BAR_TIME = {
+  size: 22, color: '#ffffff', weight: 800, mono: true,
   align: 'right', baseline: 'middle', outline: true,
 };
 
 /** Under this, an ability is a cast animation rather than a state you play inside. */
-const CHIP_MIN_TIME = 0.6;
+const BAR_MIN_TIME = 0.6;
 /**
  * The warning zone, as a FRACTION rather than a fixed number of seconds. A
  * quarter of a 1.2s dash is 0.3s, which is about one human reaction; a quarter
  * of a 12s window is three seconds, which is long enough to get somewhere. One
  * number reads correctly for both only because it is proportional.
  */
-const CHIP_WARN_FRAC = 0.25;
+const BAR_WARN_FRAC = 0.25;
+
+/**
+ * THE TOUCH CONTROL MAP — one record, rebuilt in place every frame a run is
+ * being played through and handed to the input layer as it stands.
+ *
+ * It lives at module scope for the usual reason (a per-frame path allocates
+ * nothing) and it is SHARED with input.js by value rather than by reference:
+ * setTouchControls copies the fields out, so this is free to be scratch.
+ *
+ * `live` is what the rest of the HUD reads to get out of the way. It is false
+ * on a desktop, and false while a run is paused or picking an upgrade — those
+ * states draw menus on top of the HUD, and a movement stick still claiming the
+ * bottom-left of the screen underneath a menu is the entire bug this replaced.
+ */
+const TOUCH_L = {
+  live: false, rad: 0, margin: 0,
+  zoneX: 0, zoneY: 0, zoneW: 0, zoneH: 0, stickR: 90,
+  specialX: 0, specialY: 0, specialR: 0,
+  escapeX: 0, escapeY: 0, escapeR: 0,
+  pauseX: 0, pauseY: 0, pauseR: 0,
+  topClear: 0, rightClear: 0,
+};
+
+/** The touch buttons' radial opts. Same rule as the bars above. */
+const TOUCH_RADIAL = {
+  icon: '', charges: 0, maxCharges: 1, bg: 'rgba(6,8,16,0.85)',
+};
 
 export const hud = new Hud();

@@ -314,15 +314,89 @@ export function nova(run, p, x, y, radius, damage, o) {
   return hits;
 }
 
+// --- which way an escape actually goes ---------------------------------------
+/**
+ * MOVEMENT INTENT OUTRANKS WHATEVER THE ABILITY WAS AIMED AT.
+ *
+ * Reported from play: "dashes go into a pack of mobs." Every escape in the game
+ * comes out of `dash` or `blink`, and until now each one picked its own angle —
+ * usually `p.facing`, which is only refreshed WHILE the player is moving, and in
+ * several kits an enemy or the densest cluster instead. Both are wrong at the
+ * one moment that matters: you are surrounded, you have already picked the gap,
+ * you are LEANING ON THE STICK TOWARDS IT, and the button throws you somewhere
+ * else. The answer was in the input vector the whole time.
+ *
+ * So the direction is resolved here, once, on behalf of every escape at once:
+ *
+ *   1. `opts.aimed` — the caller insisted, and meant it. A gap-closer that has
+ *      to arrive on its target, and a plough deliberately driven INTO the crowd,
+ *      are not the bug being described.
+ *   2. a dash that is not the ESCAPE button at all. `opts.src` already says
+ *      which button a cast came off, and only the escape is the panic button
+ *      the player is entitled to steer; a special that happens to travel — a
+ *      shark carving nine passes through the thickest part of the room — is a
+ *      deliberate commitment and keeps its own aim. The balance harness found
+ *      this one: pointing that special away from the crowd cost the character
+ *      two thirds of its damage and half its levels.
+ *   3. anything that is not the player moving under their own input: a mirroring
+ *      minion, or THE FINAL FORM using your own kit against you (`opts.origin`,
+ *      `opts.hostile`). Your stick must never steer either of them.
+ *   4. the direction currently held. `run.inputMoveX/Y` is this frame's resolved
+ *      stick / keys / touch, sampled at the top of `run.update` before abilities
+ *      tick, so it is the very vector `player._move` is walking on — down to its
+ *      `> 0.01` threshold, so "the game thinks I am walking that way" and "the
+ *      dash thinks I am walking that way" cannot come apart.
+ *   5. the direction held a moment ago. Players let go of the stick as they tap
+ *      the button, and a facing from a fifth of a second back is still what they
+ *      meant. `p.stillT` is the engine's stillness clock — it resets to 0 the
+ *      frame you move — and past the grace window that facing is genuinely stale.
+ *   6. whatever the ability decided. Most of them answer "away from the thickest
+ *      part of the room", which is exactly the right answer for a player who is
+ *      standing still and has expressed no preference at all. That reasoning is
+ *      not being thrown away; it is being demoted below a player who HAS.
+ *
+ * No RNG is drawn and nothing is allocated. Escapes cast, they do not tick, so
+ * this is a handful of multiplies once every several seconds.
+ */
+const INTENT_MOVING = 0.01 * 0.01;   // `player._move`'s own "am I walking" test, squared
+const INTENT_GRACE = 0.2;            // seconds of stale facing still worth honouring
+
+export function escapeDirection(run, p, angle, opts) {
+  const o = opts || EMPTY;
+  if (o.aimed || o.hostile) return angle;
+  if (o.src !== undefined && o.src !== SRC.ESCAPE) return angle;
+  const player = run.player;
+  if (!player || p !== player || (o.origin && o.origin !== player)) return angle;
+  const mx = run.inputMoveX, my = run.inputMoveY;
+  // Undefined on the very first frame of a run, before `update` has sampled the
+  // input once; NaN fails the comparison and the caller's angle stands.
+  if (mx * mx + my * my > INTENT_MOVING) return Math.atan2(my, mx);
+  if (p.stillT >= 0 && p.stillT <= INTENT_GRACE) return p.facing;
+  return angle;
+}
+
+/**
+ * The opt-out, shared so a caller that has nothing else to say can pass it by
+ * reference instead of building a bag. Frozen because it is handed to a dozen
+ * files: a stray `H.AIMED.color = ...` would otherwise repaint every deliberate
+ * escape in the game, and throwing is a much cheaper way to find that out.
+ */
+export const AIMED = Object.freeze({ aimed: true });
+
 /**
  * A dash with i-frames. The shared spine of ~12 escape moves, so they all get
- * the same trail, the same obstacle handling and the same bounds clamping.
+ * the same trail, the same obstacle handling and the same bounds clamping — and
+ * now the same steering: `angle` is a REQUEST, resolved through
+ * `escapeDirection` against what the player is actually asking for. Pass
+ * `H.AIMED` (or `aimed: true` on the existing bag) for a dash that must go where
+ * the ability points it rather than where the player is walking.
  */
 export function dash(run, p, angle, distance, iframes, o) {
   const opts = o || EMPTY;
+  const a = escapeDirection(run, p, angle, opts);
   const x0 = p.x, y0 = p.y;
-  const x1 = clamp(p.x + Math.cos(angle) * distance, run.bounds.minX, run.bounds.maxX);
-  const y1 = clamp(p.y + Math.sin(angle) * distance, run.bounds.minY, run.bounds.maxY);
+  const x1 = clamp(p.x + Math.cos(a) * distance, run.bounds.minX, run.bounds.maxX);
+  const y1 = clamp(p.y + Math.sin(a) * distance, run.bounds.minY, run.bounds.maxY);
   p.x = x1; p.y = y1;
   p.px = x1; p.py = y1;
   if (iframes > 0) applyInvuln(p.st, iframes);
@@ -343,7 +417,7 @@ export function dash(run, p, angle, distance, iframes, o) {
     const f = fx(tier);
     f.life = 0.22 + t * 0.18;
     f.alpha = 0.5 + t * 0.5;                 // brightest where the dash ENDED
-    effects.afterimage(lerp(x0, x1, t), lerp(y0, y1, t), angle, size, color, f);
+    effects.afterimage(lerp(x0, x1, t), lerp(y0, y1, t), a, size, color, f);
   }
   // A DAMAGING dash cut something on the way through, so it draws the cut: a
   // beam down the exact line `lineDamage` tested, at the exact width it used.
@@ -368,11 +442,36 @@ export function dash(run, p, angle, distance, iframes, o) {
     particles.emit(lerp(x0, x1, t), lerp(y0, y1, t), 0, 0, DASH_TRAIL);
   }
   audio.play('escape');
-  return { x0, y0, x1, y1 };
+  // `angle` rides along because the requested one is no longer the one that was
+  // travelled. Callers that dress the dash afterwards — a skid, a spray cone, a
+  // plume of smoke out of the back — need the direction the body ACTUALLY went,
+  // and the segment endpoints alone would make every one of them recompute it.
+  return { x0, y0, x1, y1, angle: a };
 }
 
-/** Blink with no line damage — teleports, substitutions, dimension hops. */
-export function blink(run, p, x, y, iframes) {
+/**
+ * Blink with no line damage — teleports, substitutions, dimension hops.
+ *
+ * The destination gets the same treatment `dash` gives its angle, with one
+ * difference that matters: a blink is handed a PLACE, so what is re-aimed is the
+ * HOP — the caller's distance, pointed where the player is going. Two guards
+ * keep that honest.
+ *
+ * A blink that must arrive somewhere SPECIFIC — behind that enemy, on that
+ * planted gate — is a destination and not a direction, and passes `H.AIMED`;
+ * when it does, `x, y` are used untouched rather than round-tripped through a
+ * sine and a cosine that would land it a hair off the thing it was aiming at.
+ *
+ * And re-aiming may never cost DISTANCE. The hop escapes route their
+ * destination through their own wall-flip first, and letting intent overwrite
+ * that turns a 200px hop into a 20px shuffle against the arena edge the moment
+ * the player leans into the wall. If the re-aimed landing point survives the
+ * bounds clamp worse than the one the caller chose, the caller's wins — a player
+ * pressing into a wall is asking for the impossible, and the escape still has to
+ * escape.
+ */
+export function blink(run, p, x, y, iframes, o) {
+  const opts = o || EMPTY;
   const tier = visualTier(p, null);
   const color = p.visual.color;
   const a = fx(tier); a.from = 3; a.life = 0.30; a.width = 5;
@@ -381,8 +480,19 @@ export function blink(run, p, x, y, iframes) {
   effects.afterimage(p.x, p.y, p.facing || 0, 16, color, g);
   particles.ring(p.x, p.y, 10, color, 220);
 
-  p.x = clamp(x, run.bounds.minX, run.bounds.maxX);
-  p.y = clamp(y, run.bounds.minY, run.bounds.maxY);
+  const arena = run.bounds;
+  let tx = clamp(x, arena.minX, arena.maxX);
+  let ty = clamp(y, arena.minY, arena.maxY);
+  const dx = x - p.x, dy = y - p.y;
+  const asked = Math.atan2(dy, dx);
+  const heading = escapeDirection(run, p, asked, opts);
+  if (heading !== asked) {
+    const d = Math.sqrt(dx * dx + dy * dy);
+    const ix = clamp(p.x + Math.cos(heading) * d, arena.minX, arena.maxX);
+    const iy = clamp(p.y + Math.sin(heading) * d, arena.minY, arena.maxY);
+    if (dist2(ix, iy, p.x, p.y) >= dist2(tx, ty, p.x, p.y)) { tx = ix; ty = iy; }
+  }
+  p.x = tx; p.y = ty;
   p.px = p.x; p.py = p.y;
   if (iframes > 0) applyInvuln(p.st, iframes);
 

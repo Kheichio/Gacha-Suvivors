@@ -16,6 +16,11 @@
 // results screen, the "Maxed Out" achievement — none of which would be wrong in
 // a way that throws. They would just quietly report nonsense. Weapons get their
 // own list, and the places that should know about them are told explicitly.
+//
+// WEAPON LEVELS STILL READ THAT MAP, THOUGH, IN EXACTLY ONE DIRECTION: a weapon
+// will not evolve until the player has taken a named generic upgrade to a named
+// level. See the evolution-requirement block further down — the requirement is
+// declared in data/weapons.js, scored here, and enforced in evolvable().
 
 import { Interval } from '../core/timer.js';
 import { events } from '../core/events.js';
@@ -98,10 +103,101 @@ export class WeaponSystem {
   maxLevel(w) { return w.signature ? this.data.SIGNATURE_LEVELS.length : w.def.levels.length; }
   isMaxed(w) { return !w.evolved && w.level >= this.maxLevel(w); }
 
-  /** Every weapon that is maxed and has an evolution waiting. */
+  // --- the evolution requirement -------------------------------------------
+  //
+  // MAXED IS ONLY HALF THE RECIPE NOW. Every evolution in data/weapons.js
+  // declares `requires: { upgrade, level }` — a named generic upgrade the player
+  // has to have taken a few levels of before the weapon will accept the
+  // evolution. The reasoning behind the numbers lives with the numbers, in the
+  // THE EVOLUTION REQUIREMENT block at the top of data/weapons.js.
+  //
+  // The accessors below exist so that no UI file ever has to know the shape of
+  // that object, or reach into `player.upgrades` to score it, or invent its own
+  // wording for the hint. There are four surfaces that show a weapon — the
+  // level-up card, the HUD build strip, the TAB sheet and the pause menu — and
+  // every previous four-surface feature in this project drifted apart within a
+  // month of being written.
+  //
+  // They come in pairs: an `*Of(req)` primitive that takes the requirement
+  // object, and a shorthand that takes a SLOT. The primitives are the ones the
+  // "NEW WEAPON" card needs, because a weapon being offered for the first time
+  // has no slot record yet — only a definition — and it is exactly the card
+  // where knowing the evolution's price matters most.
+
+  /** The `{ upgrade, level }` this SLOT's evolution is gated behind. */
+  evoRequirement(w) {
+    const evo = this.evolutionOf(w);
+    return (evo && evo.requires) || null;
+  }
+
+  /** The same, read off a weapon DEFINITION the player does not own yet. */
+  evoRequirementOf(def) {
+    return (def && def.evolution && def.evolution.requires) || null;
+  }
+
+  /** The upgrade DEFINITION behind a gate — for its name and its icon. */
+  evoUpgradeOf(req) {
+    return req ? (this.run.data.upgrades.UPGRADES_BY_ID[req.upgrade] || null) : null;
+  }
+
+  /** How many levels of it the player holds, clamped to what is being asked. */
+  evoHaveOf(req) {
+    return req ? Math.min(req.level, this.run.player.upgradeLevel(req.upgrade)) : 0;
+  }
+
+  /**
+   * Is the entry fee paid?
+   *
+   * A missing requirement returns true, so a data row that forgets one fails
+   * OPEN rather than stranding a weapon at level 8 forever with nothing on
+   * screen to explain why.
+   */
+  evoReadyOf(req) {
+    if (!req) return true;
+    return this.run.player.upgradeLevel(req.upgrade) >= req.level;
+  }
+
+  /** "Wide Reach 2/3" — for a value column with no room for a sentence. */
+  evoNeedOf(req) {
+    if (!req) return '';
+    const up = this.evoUpgradeOf(req);
+    return (up ? up.name : req.upgrade) + ' ' + this.evoHaveOf(req) + '/' + req.level;
+  }
+
+  /**
+   * THE ONE LINE EVERY SURFACE PRINTS. Empty string when there is nothing to say.
+   *
+   * Allocates a string, so it belongs in a draw path and nowhere near a fire()
+   * or a tick() — every caller is a UI file already building strings for the
+   * same row.
+   */
+  evoHintOf(req) {
+    if (!req) return '';
+    if (this.evoReadyOf(req)) return 'EVOLUTION UNLOCKED  ' + this.evoNeedOf(req);
+    return 'EVOLVES WITH  ' + this.evoNeedOf(req);
+  }
+
+  evoUpgrade(w) { return this.evoUpgradeOf(this.evoRequirement(w)); }
+  evoHave(w) { return this.evoHaveOf(this.evoRequirement(w)); }
+  evoReady(w) { return this.evoReadyOf(this.evoRequirement(w)); }
+  evoNeed(w) { return this.evoNeedOf(this.evoRequirement(w)); }
+  evoHint(w) { return this.evoHintOf(this.evoRequirement(w)); }
+
+  /**
+   * Every weapon that is maxed, has an evolution waiting AND has had its
+   * requirement paid.
+   *
+   * THIS IS WHERE THE REQUIREMENT IS ENFORCED, because this is the single place
+   * the game asks "may anything evolve right now" — run.rollUpgradeChoices()
+   * calls it, takes the first entry, and that is the only route by which a
+   * `weaponEvo` card has ever existed. `evolve()` below stays a raw mutation on
+   * purpose: it is what the card, the balance harness, the perf tool and the
+   * render smoke test all call once the decision has already been made, and a
+   * second gate there would only be able to fail silently.
+   */
   evolvable() {
     const out = [];
-    for (const w of this.slots) if (this.isMaxed(w)) out.push(w);
+    for (const w of this.slots) if (this.isMaxed(w) && this.evoReady(w)) out.push(w);
     return out;
   }
 
@@ -235,6 +331,11 @@ export class WeaponSystem {
         maxLevel: this.maxLevel(w),
         evolved: w.evolved,
         signature: w.signature,
+        // "Maxed and one upgrade short" is the most useful thing a results
+        // screen can tell you about a run you just lost, so it travels with the
+        // rest of the record rather than being recomputed from a dead Run.
+        canEvolve: this.evoReady(w),
+        evoHint: this.evoHint(w),
       });
     }
     return out;

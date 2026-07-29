@@ -141,11 +141,59 @@ WEAPON_IMPLS.arc = {
 // ---------------------------------------------------------------------------
 // ORBIT — shards on a ring around the player. Periodic until it evolves, at
 // which point the ring is simply never allowed to empty.
+//
+// WHY THE RING USED TO BE LOPSIDED, AND WHAT FIXED IT
+// --------------------------------------------------
+// Reported from play: "idol orbit sometimes has 1 star sometimes 2 stars next to
+// each other, why is that?". Three separate causes, all real, all fixed here:
+//
+//   1. GENERATIONS AT AN ARBITRARY PHASE — the big one, and the one the report
+//      is describing. From level 5 up the weapon's `duration` exceeds its
+//      `interval` (level 7 is 5.0s of shards on a 2.6s timer, level 8 is 6.0s on
+//      2.4s), so a second and sometimes a third batch goes down while the first
+//      is still turning. Each batch used to be laid out from `w.phase`, a
+//      counter that advanced 0.7 radians per activation — while the shards
+//      already up had advanced `speed * interval`, which at level 8 is 13.4
+//      radians. The two lattices were therefore offset by an angle with no
+//      relationship to the shard spacing at all: some slots got two shards a few
+//      degrees apart, others got none.
+//   2. AN ODD `count` ON TWO RINGS — permanent, and specific to level 7. The
+//      inner/outer split was by index parity, and with seven shards the parity
+//      wraps: shards 6 and 0 are both outer and one slot apart, while every
+//      other outer pair is two slots apart. One doubled gap and one adjacent
+//      pair, in a single batch, forever.
+//   3. SHARDS DYING MID-RING — a shard is released once it has pierced its
+//      quota (`pierce` is 6 at level 8), so in a crowd the ring thins unevenly.
+//      That one is the weapon working as designed; the overlapping generations
+//      in (1) are what refill it, which is why the fix below is a PHASE LOCK and
+//      not "stop spawning a second generation". Refreshing the existing shards
+//      instead would have removed the only thing keeping the ring populated
+//      under pressure and quietly halved the weapon.
+//
+// THE PHASE LOCK. A batch's base angle is no longer a counter — it is
+// `run.time * speed`, the angle a shard launched at time zero would be at right
+// now. A shard spawned at t0 into slot k sits at `t0*speed + k*TAU/n` and then
+// integrates `speed*dt` every tick, so at any later time t it is at
+// `t*speed + k*TAU/n` — exactly the slot the lock hands to a batch spawned at t.
+// Every generation, from the timer or from the evolved top-up, lands on the SAME
+// rotating lattice. Two shards can now share a slot (they sit on top of each
+// other, which is invisible and preserves the weapon's damage exactly) but no
+// two shards can ever again be a few degrees apart.
+//
+// `run.time` is incremented at the top of Run.update and the projectile
+// integration runs later in the same tick, so both sides of that identity see
+// the same value with no off-by-one-tick drift.
 // ---------------------------------------------------------------------------
+
+/**
+ * The evolved top-up calls fire() directly, and fire() plays a sound. In a crowd
+ * the top-up can run on consecutive frames, which is a click track. The flag
+ * costs nothing and keeps the audio on the weapon's own timer.
+ */
+let ORBIT_QUIET = false;
+
 WEAPON_IMPLS.orbit = {
   fire(run, p, w, s) {
-    if (!w.state.orbs) w.state.orbs = [];
-    const orbs = w.state.orbs;
     const dmg = H.abilityDamage(run, p, s.damage);
     const radius = H.area(p, s.radius);
     const n = s.count;
@@ -153,13 +201,37 @@ WEAPON_IMPLS.orbit = {
     //
     // A single ring is a fence at exactly one distance: push the radius out to
     // cover more ground and it starts passing straight OVER everything standing
-    // close to you. Alternating shards onto an inner ring is what stops a bigger
+    // close to you. Splitting shards onto an inner ring is what stops a bigger
     // orbit from being a worse orbit — and it is why the evolved form is
     // strictly better than the maxed one rather than merely wider.
-    const inner = n >= 6;
+    //
+    // The split is BY HALVES, not by parity: the first ceil(n/2) shards take the
+    // outer ring and the rest take the inner one, so each ring is evenly spaced
+    // in its own right whether `n` is odd or even. For every even count this is
+    // the identical layout parity produced; for seven it is the fix.
+    const split = n >= 6;
+    const outerN = split ? n - (n >> 1) : n;
+    const innerN = n - outerN;
+    // The lattice. The inner ring counter-rotates, so a shard sweeps past a
+    // given point twice as often as the ring's own period suggests — which means
+    // it needs its own base angle, running the other way.
+    const base = (run.time * s.speed) % TAU;
+    // Track the live shards only for the evolved form: nothing else reads the
+    // list, and a plain orbit that pushed into it for fifteen minutes was
+    // growing an array of three thousand stale projectile references.
+    const track = w.evolved;
+    if (track && !w.state.orbs) w.state.orbs = [];
+    const orbs = track ? w.state.orbs : null;
+
     for (let i = 0; i < n; i++) {
-      const a = (i / n) * TAU + (w.phase || 0);
-      const rr = inner && (i & 1) ? radius * 0.58 : radius;
+      const isInner = i >= outerN;
+      const ringN = isInner ? innerN : outerN;
+      const k = isInner ? i - outerN : i;
+      // Half a slot of stagger on the inner ring, so the two rings interleave
+      // rather than lining up into spokes.
+      const a = isInner ? (k + 0.5) / ringN * TAU - base
+                        : (k / ringN) * TAU + base;
+      const rr = isInner ? radius * 0.58 : radius;
       PROJ_OPTS.speed = 0;
       PROJ_OPTS.damage = dmg;
       PROJ_OPTS.life = s.duration;
@@ -173,19 +245,18 @@ WEAPON_IMPLS.orbit = {
       PROJ_OPTS.host = p;
       PROJ_OPTS.orbitAngle = a;
       PROJ_OPTS.orbitRadius = rr;
-      // The inner ring counter-rotates, so a shard sweeps past a given point
-      // twice as often as the ring's own period would suggest.
-      PROJ_OPTS.orbitSpeed = (inner && (i & 1)) ? -s.speed : s.speed;
+      PROJ_OPTS.orbitSpeed = isInner ? -s.speed : s.speed;
       const pr = run.projectiles.fire(p.x + Math.cos(a) * rr,
                                       p.y + Math.sin(a) * rr, a, PROJ_OPTS);
-      if (pr) orbs.push(pr);
+      if (pr && orbs) orbs.push(pr);
     }
-    w.phase = (w.phase || 0) + 0.7;
-    H.audio.play('uiMove');
+    if (!ORBIT_QUIET) H.audio.play('uiMove');
   },
   persist(run, p, w, s) {
     // Top the ring back up the instant a shard expires, rather than waiting out
-    // an interval. Without this the "permanent" halo visibly blinks.
+    // an interval. Without this the "permanent" halo visibly blinks — and with
+    // the phase lock above, the top-up drops straight back onto the lattice the
+    // survivors are already on instead of starting a ring of its own.
     const orbs = w.state.orbs;
     if (!orbs) return;
     let alive = 0;
@@ -193,7 +264,10 @@ WEAPON_IMPLS.orbit = {
       if (orbs[i] && orbs[i].active && orbs[i].tag === w.id) alive++;
       else { orbs.splice(i, 1); i--; }
     }
-    if (alive < s.count) WEAPON_IMPLS.orbit.fire(run, p, w, s);
+    if (alive >= s.count) return;
+    ORBIT_QUIET = true;
+    WEAPON_IMPLS.orbit.fire(run, p, w, s);
+    ORBIT_QUIET = false;
   },
 };
 
@@ -786,7 +860,52 @@ WEAPON_IMPLS.boomerang = {
 const HUM_OPTS = { follow: null, fx: false };
 const SIPHON_TAP = { falloff: 0.15, knockback: 18 };
 const SIPHON_ARC = { knockback: 60, canCrit: true };
-const SIPHON_NOVA = { color: '#ffd94a', knockback: 0, falloff: 0.15, src: 0, tier: 0, shake: false };
+// `particles: 14`, down from the helper's default 22, and `shake: false` so the
+// nova's own camera kick is not added on top of the one the discharge asks for.
+const SIPHON_NOVA = {
+  color: '#ffd94a', knockback: 0, falloff: 0.15, src: 0, tier: 0,
+  shake: false, particles: 14,
+};
+
+/**
+ * HOW OFTEN THE CORE IS ALLOWED TO PAY OUT, AND WHY THERE IS A FLOOR AT ALL.
+ *
+ * Play report on OVERLOAD, the evolved form: "laggy and causes too many visual
+ * problems as it shakes the screen too much and is overall too annoying to use".
+ * Every word of that was earned, and none of it was a rendering bug.
+ *
+ * The meter banks one point per enemy the hum touches. The evolved hum reaches
+ * 240px before Wide Reach, so in any real crowd a single tick banked twenty to
+ * fifty points against a threshold of twenty — the meter was full again before
+ * the previous discharge had finished drawing. At the old 0.16s interval that is
+ * SIX DISCHARGES A SECOND, and a discharge is a full nova (shockwave, burst
+ * ring, impact, 32 particles, an explosion sample) plus one beam per arc, twelve
+ * of them, plus a `shake.medium()`. Seventy-five beams and six explosions a
+ * second is the "laggy"; six `shake.medium()` calls a second against a trauma
+ * decay of 1.02/s is the screen shake, and it does not merely spike, it PINS at
+ * maximum and stays there for as long as you stand in a crowd.
+ *
+ * So the meter is unchanged and the PAYOUT is throttled. The core still banks
+ * every point it earns, up to four charges' worth; it simply refuses to spend
+ * them more than about twice a second, and when it does spend them it spends the
+ * whole bank in one discharge worth `stack` times the surge. The damage the
+ * player earned is all still there — measured over the harness's 6s/26-enemy
+ * case it went slightly UP — but it arrives as two big readable hits a second
+ * instead of six small ones, which is also the identity the weapon claims in its
+ * own description: a meter that pays out in one lump.
+ *
+ * SURGE_MAX_STACK is 4 rather than unbounded so that a wave-wipe cannot bank a
+ * discharge the size of a boss, and so the payout stays a number a player can
+ * learn.
+ */
+const SURGE_MIN_GAP = 0.55;
+const SURGE_MAX_STACK = 4;
+/**
+ * The hum's own ring is what tells you the core is working. At six hums a second
+ * it stops being a ring and becomes a strobe, so it runs on its own clock. Any
+ * weapon slower than this — every un-evolved level of the core — is unaffected.
+ */
+const HUM_RING_GAP = 0.30;
 
 WEAPON_IMPLS.siphon = {
   fire(run, p, w, s) {
@@ -795,6 +914,7 @@ WEAPON_IMPLS.siphon = {
     const tier = tierOf(w);
     const dmg = H.abilityDamage(run, p, s.damage);
     const r = H.area(p, s.radius);
+    const now = run.time;
 
     // THE HUM. Small on purpose — its output is the meter, not the number.
     const hits = H.areaDamage(run, p.x, p.y, r, dmg, SRC.AUTO, SIPHON_TAP);
@@ -803,35 +923,58 @@ WEAPON_IMPLS.siphon = {
     const fresh = run.stats.kills - st.kills;
     st.kills = run.stats.kills;
     // A wave wiped by one meteor should not bank four discharges at once, so
-    // the kill credit per tick is capped.
-    st.charge = (st.charge || 0) + hits + (fresh > 0 ? Math.min(fresh, 12) * 5 : 0);
+    // the kill credit per tick is capped — and the bank itself is capped at the
+    // largest discharge the core can actually spend.
+    const cost = s.charge;
+    st.charge = Math.min(cost * SURGE_MAX_STACK,
+                         (st.charge || 0) + hits + (fresh > 0 ? Math.min(fresh, 12) * 5 : 0));
 
-    const f = wfx(tier);
-    f.spokes = 8; f.life = 0.22; f.width = Math.max(2, r * 0.04);
-    H.effects.burstRing(p.x, p.y, r * 0.92, v.color, f);
+    if (now - (st.ringAt === undefined ? -99 : st.ringAt) >= HUM_RING_GAP) {
+      st.ringAt = now;
+      const f = wfx(tier);
+      f.spokes = 8; f.life = 0.22; f.width = Math.max(2, r * 0.04);
+      H.effects.burstRing(p.x, p.y, r * 0.92, v.color, f);
+    }
 
-    if (st.charge < s.charge) return;
-    st.charge = 0;
+    if (st.charge < cost) return;
+    if (now - (st.surgeAt === undefined ? -99 : st.surgeAt) < SURGE_MIN_GAP) return;
+    // Spend whole charges only, and keep the remainder: the bar the standing
+    // field draws should drop to what is actually left, not to zero.
+    const stack = Math.min(SURGE_MAX_STACK, Math.floor(st.charge / cost));
+    st.charge -= stack * cost;
+    st.surgeAt = now;
 
     // THE DISCHARGE.
-    const surge = H.abilityDamage(run, p, s.surge);
+    const surge = H.abilityDamage(run, p, s.surge * stack);
     SIPHON_NOVA.color = v.color;
     SIPHON_NOVA.src = SRC.AUTO;
     SIPHON_NOVA.tier = tier;
     SIPHON_NOVA.knockback = 220;
-    H.nova(run, p, p.x, p.y, s.blast, surge, SIPHON_NOVA);
+    // A four-charge dump is physically wider than a one-charge dump, by a little.
+    // Six percent a charge is not a balance lever, it is the player being able to
+    // tell at a glance which one they just got.
+    H.nova(run, p, p.x, p.y, s.blast * (1 + (stack - 1) * 0.06), surge, SIPHON_NOVA);
 
     const arcs = Math.min(12, s.count | 0);
     H.collectNearest(run, p, H.area(p, s.blast) * 1.3, null, arcs, NEAR);
+    // One descriptor for the whole fan rather than one per target: `effects`
+    // copies every field out synchronously on spawn, so re-filling the shared
+    // scratch inside the loop only ever bought a wasted reset.
+    const b = wfx(tier);
+    b.life = 0.26;
     for (let i = 0; i < NEAR.length; i++) {
       const e = NEAR[i];
       H.dealDamage(run, e, surge * 0.5, SRC.AUTO, SIPHON_ARC);
-      const b = wfx(tier);
-      b.life = 0.26;
       H.effects.beam(p.x, p.y, e.x, e.y, 6 + i * 0.4, v.color, b);
     }
     NEAR.length = 0;
-    H.shake.medium();
+    // SMALL, not medium, and this is the whole of the shake fix. One `small` is
+    // 0.0875 trauma and trauma is squared before it becomes camera offset, so a
+    // lone discharge moves the camera by about a third of a pixel — it reads as
+    // weight without reading as movement. Capped at two a second by the gap
+    // above, the sustained trauma never leaves the floor, where the old six
+    // `medium` calls a second held it at the ceiling.
+    H.shake.small();
   },
   persist(run, p, w, s, dt) {
     // OVERLOAD: the meter stops being invisible. Both the radius and the damage

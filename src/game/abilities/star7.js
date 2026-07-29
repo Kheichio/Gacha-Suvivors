@@ -84,8 +84,19 @@ function scareOff(e) {
 }
 function burnNear(e) { H.applyBurn(e.st, S.dps, S.dur); }
 function countBodies() { S.n++; }
-function bleedRust(e) { H.applyBleed(e.st, 0.02, 4); S.n++; }
-function polishArmour(e) { H.applyShred(e.st, 3, 6); S.n++; }
+function bleedRust(e) { H.applyBleed(e.st, RUST_BLEED, RUST_BLEED_TIME); S.n++; }
+/**
+ * Buffed to a mirror: thinner plate AND a much easier thing to see. The glint
+ * is per BODY rather than per cast — the point of the spell is that you can
+ * pick the polished ones out of a crowd afterwards — and capped, because a
+ * thirty-strong pack would otherwise empty the effect pool on housework.
+ */
+function polishArmour(e) {
+  H.applyShred(e.st, POLISH_SHRED, POLISH_TIME);
+  H.applyVulnerable(e.st, POLISH_VULN, POLISH_TIME);
+  if (S.n < POLISH_GLINTS) H.effects.impact(e.x, e.y, C_PLAIN, POLISH_GLINT);
+  S.n++;
+}
 
 // ===========================================================================
 //                    AOI — water, rarity 6, "The Catastrophe Maid"
@@ -458,25 +469,275 @@ const SILENT_MULT = 3;
 const BOLT_FX = { speed: 240, life: 0.14, size: 0.4 };
 
 // --- THE COLLECTION ---------------------------------------------------------
-// Five spells, one of which is famously useless. `runRng` picks — never fxRng
-// and never Math.random — so a seeded run replays the exact same book.
+//
+// FIVE SPELLS THAT WERE ALL THE SAME SPELL
+// ----------------------------------------
+// The book opened, and out came a nova, a heal, two debuff sweeps and a
+// floater — five entries that differed only in which number moved. Nothing they
+// did was a THING; nothing was left on the floor afterwards; the field of
+// flowers, which is the most famous piece of ordinary magic anybody in this
+// world has ever collected, was eight hit points and five green sparks.
+//
+// The premise of the whole character is that she picked up magic nobody thought
+// was worth writing down, and that the reason she is the most dangerous person
+// in any room is that she actually kept it. That only lands if the spells are
+// REAL. So every one of the five now does the literal thing it is named after
+// and the arena remembers it afterwards:
+//
+//   0  a patch of ground turned to SAND — the ground heaves once, and then it
+//      is sand for twelve seconds and nothing standing on it has any footing
+//   1  a FIELD OF FLOWERS — an actual meadow, for an actual minute, and she
+//      heals the entire time she is standing in it. The headline. See below.
+//   2  a spell that REMOVES RUST — it comes off, and it lands, and the corrosion
+//      keeps working on whatever walks through the pile
+//   3  a spell that POLISHES ARMOUR — the only one that leaves nothing on the
+//      floor, because what it leaves is on THEM: plate buffed down to a shine
+//      that stops being armour and starts being a bright, obvious target
+//   4  a spell that makes GRAPES SWEETER — still, correctly, useless. It also
+//      still works: the ground it lands on is now the nicest thing for a
+//      hundred pixels and everything in the area wanders over to have a look
+//
+// `runRng` picks — never fxRng and never Math.random — so a seeded run replays
+// the exact same book in the exact same order.
 const COLLECTION_TIME = 10;
 const COLLECTION_TIME_S3 = 15;
 const COLLECTION_CADENCE = 0.5;
-const SPELL_FLOWERS_HEAL = 8;
-const SPELL_SAND_DAMAGE = 65;
-const SPELL_SAND_RADIUS = 110;
 const SPELL_REACH = 520;
 const COLLECTION_AIM = { mode: 'densestCluster', range: SPELL_REACH };
-const SAND_NOVA = {
-  src: H.SRC.SPECIAL, element: 'spirit', color: C_GOLD,
-  falloff: 0.25, particles: 16, shake: false,
-};
-const FLOWER_FX = { color: C_MEADOW, life: 0.8, size: 0.6, sizeEnd: 0.1, drag: 1.4, additive: true };
 const SPELL_FX = { tier: 0, life: 0.3, size: 18 };
 /** Spell 4 is the one that makes grapes sweeter. S3 removes it from the book. */
 const SPELL_COUNT = 5;
 const SPELL_USELESS = 4;
+
+// --- spell 0: a patch of ground turned to sand ------------------------------
+/** Pale, dry and not remotely gold — the ground it used to be is gone. */
+const C_SAND = '#d8d2c4';
+const SPELL_SAND_DAMAGE = 65;
+const SPELL_SAND_RADIUS = 110;
+/** The patch is WIDER than the blast: the damage is the ground going, not the sand. */
+const SAND_PATCH_RADIUS = 150;
+const SAND_PATCH_TIME = 12;
+const SAND_SLIP = { param: 0.62 };            // 0.62 speed == "38% slower"
+const SAND_NOVA = {
+  src: H.SRC.SPECIAL, element: 'spirit', color: C_GOLD,
+  falloff: 0.25, particles: 16, shake: false,
+};
+/** Square grains, thrown low and dragging hard. Sand does not float. */
+const SAND_GRAINS = { speed: 150, life: 0.7, size: 0.34, drag: 3.2, shape: 'square' };
+
+// --- spell 2: a spell that removes rust -------------------------------------
+const C_RUST_DUST = '#c96a4a';
+const RUST_RADIUS = 120;
+const RUST_TIME = 10;
+const RUST_DPS = 16;
+const RUST_BLEED = 0.02;                      // 2% max HP per second
+const RUST_BLEED_TIME = 4;
+const RUST_FLAKES = { speed: 130, life: 0.8, size: 0.3, drag: 3, shape: 'shard' };
+
+// --- spell 3: a spell that polishes armour ----------------------------------
+// The one entry in the book whose leave-behind is not on the ground. Armour
+// polished to a mirror is thinner armour AND a brighter target, and both halves
+// outlive the cast by twelve seconds — long enough that the player can see the
+// spell was worth rolling even when it lands on an empty patch of floor.
+const POLISH_SHRED = 3;
+const POLISH_TIME = 12;
+const POLISH_VULN = 1.18;
+/** Effects are a 160-slot pool. A crowd of thirty must not spend it on sparkle. */
+const POLISH_GLINTS = 6;
+const POLISH_GLINT = { tier: 0, life: 0.26, size: 11 };
+const POLISH_FX = { tier: 0, life: 0.4, width: 4, spokes: 14 };
+
+// --- spell 4: a spell that makes grapes sweeter -----------------------------
+// It is not a combat spell, it has never been a combat spell, and making it one
+// would be throwing the joke away. What it is instead is TRUE: the fruit on
+// that patch of ground is now better than the fruit anywhere else, and things
+// go and stand where the good fruit is. No damage, no debuff, no buff. A weak
+// pull, a small circle, five seconds, and every other page in the book aimed at
+// the same place.
+const C_GRAPE = '#a86bff';
+const GRAPE_RADIUS = 110;
+const GRAPE_TIME = 5;
+const GRAPE_PULL = { param: 80 };
+const GRAPE_DROP = { speed: 90, life: 0.9, size: 0.36, drag: 4.5 };
+
+// --- spell 1: THE FIELD OF FLOWERS ------------------------------------------
+//
+// A MINUTE OF GROUND THAT IS ACTUALLY THERE
+// -----------------------------------------
+// This had to be a real gameplay object and not a flourish, so it is one: a
+// `heal` field out of hazards.js, hers alone (`hitsEnemies: false` — the meadow
+// is not a weapon), running the full minute and paying out every quarter of a
+// second she is standing inside it.
+//
+// The problem with that on its own is that hazards.js draws a field as a
+// translucent disc with a stroke round it, and a translucent disc is what every
+// burning floor, chill slick and pull well in the game already looks like. A
+// meadow that reads as "a green version of the fire" is not a meadow.
+//
+// So the patch is FOUR MORE FIELDS, with no gameplay on them at all — they hit
+// nobody, they carry no dps, and they exist purely because four discs straddling
+// the rim break the circle into a lumpy, overgrown edge with a denser middle,
+// which is what a patch of anything growing actually looks like from above.
+// They are placed at FIXED angles, not rolled: a meadow that is a different
+// shape on a replay of the same seed is a meadow that consumed the run stream
+// to be pretty. The fields' own ambient motes then rise out of all five for the
+// whole minute for free, which is most of the shimmer.
+//
+// On top of that a scheduled pulse keeps SEEDING it: three flower heads and
+// three blades of grass every 0.7s, scattered across the patch off the cosmetic
+// stream, each living a couple of seconds. Steady state is a dozen-odd flowers
+// standing in the grass at any moment, in four colours, never in the same place
+// twice. Nothing here is alive for a minute — 800 particles is the whole game's
+// budget — but the MEADOW is, and that is the part the player is standing in.
+//
+// The pulse re-arms itself through `run.scheduler`, which swap-and-pops before
+// firing (so a callback may safely schedule the next one) and is cleared with
+// the run (so a meadow can never outlive the arena it grew in).
+const MEADOW_TIME = 60;
+const MEADOW_RADIUS = 150;
+const MEADOW_HEAL_DPS = 3;
+const MEADOW_HEAL_OPTS = { hitsPlayer: true, hitsEnemies: false, fx: false };
+const MEADOW_DECOR_OPTS = { hitsPlayer: false, hitsEnemies: false, fx: false };
+/**
+ * The fringe: angle, distance from centre and radius, all as fractions of the
+ * meadow's own radius. They sit ON the rim rather than inside it, so each one
+ * is a bite out of the silhouette rather than a second disc stacked on the
+ * first — hazards.js composites field alpha, and five concentric discs is a
+ * solid green coin.
+ */
+const MEADOW_LOBES = [
+  { a: 0.42, d: 0.92, r: 0.40 },
+  { a: 1.98, d: 1.00, r: 0.34 },
+  { a: 3.35, d: 0.88, r: 0.42 },
+  { a: 4.90, d: 0.97, r: 0.36 },
+];
+const MEADOW_FX = { tier: 0, life: 0.7, width: 5, from: 24, spokes: 18 };
+const MEADOW_BLOOM = 0.7;
+const MEADOW_FLOWERS = 3;
+const MEADOW_BLADES = 3;
+/** Four ordinary flowers. Every one of these is already in the atlas palette. */
+const FLOWER_COLORS = [C_PLAIN, '#ff8fc7', C_GOLD, '#c9a6ff'];
+/**
+ * A flower is a thing standing in a field, not a spark: zero velocity, zero
+ * drag, zero gravity, and it barely shrinks over a two-second life. Drawn
+ * source-over rather than additive for the same reason the props are — a petal
+ * lit additively over a dark stage is a smear of light, not a petal.
+ */
+const FLOWER_HEAD = { color: C_PLAIN, life: 2.4, size: 0.44, sizeEnd: 0.38, drag: 0, grav: 0, alpha: 0.95, shape: 'star' };
+const GRASS_BLADE = { color: C_MEADOW, life: 1.9, size: 0.32, sizeEnd: 0.28, drag: 0, grav: 0, alpha: 0.8, shape: 'shard' };
+
+/**
+ * A fixed ring of meadow records, one per live patch that is still being seeded.
+ * Six is more than the special can plant inside its own duration; a seventh
+ * simply takes the oldest slot, whose GROUND carries on to its natural end and
+ * whose pulse stops — the flowers stop arriving, the meadow does not vanish.
+ */
+const MEADOW_SLOTS = 6;
+const MEADOWS = [];
+for (let i = 0; i < MEADOW_SLOTS; i++) {
+  MEADOWS.push({ run: null, gen: 0, x: 0, y: 0, r: 0, left: 0, n: 0 });
+}
+let meadowSlot = 0;
+/** Two centres closer than this share of a radius are the same patch. */
+const MEADOW_MERGE = 1.0;
+
+/** Scatter flowers and grass across a patch, uniform over the disc. */
+function seedFlowers(rec, flowers, blades) {
+  for (let i = 0; i < flowers; i++) {
+    // sqrt, or every flower crowds the middle and the rim is bare.
+    const a = H.fxRng.angle();
+    const d = Math.sqrt(H.fxRng.raw()) * rec.r;
+    FLOWER_HEAD.color = FLOWER_COLORS[(rec.n++) & 3];
+    H.particles.emit(rec.x + Math.cos(a) * d, rec.y + Math.sin(a) * d, 0, 0, FLOWER_HEAD);
+  }
+  for (let i = 0; i < blades; i++) {
+    const a = H.fxRng.angle();
+    const d = Math.sqrt(H.fxRng.raw()) * rec.r;
+    H.particles.emit(rec.x + Math.cos(a) * d, rec.y + Math.sin(a) * d, 0, 0, GRASS_BLADE);
+  }
+}
+
+/**
+ * One seeding pulse, re-arming itself until the patch's minute is up.
+ *
+ * `gen` is the whole safety story. The record is a recycled slot, so a pulse
+ * still in the scheduler when its slot is handed to a NEWER meadow would
+ * otherwise carry on seeding — at the new coordinates, on the new clock,
+ * doubling that patch's flower rate forever. Comparing the generation it was
+ * armed with against the one the slot carries now is what makes a superseded
+ * pulse return instead.
+ */
+function bloomMeadow(rec, gen) {
+  const run = rec.run;
+  if (!run || rec.gen !== gen) return;
+  rec.left -= MEADOW_BLOOM;
+  seedFlowers(rec, MEADOW_FLOWERS, MEADOW_BLADES);
+  if (rec.left > 0) run.scheduler.after(MEADOW_BLOOM, bloomMeadow, rec, gen);
+  else rec.run = null;
+}
+
+/** A patch of hers still growing at this point, or null. */
+function meadowAt(run, x, y, r) {
+  const merge = r * MEADOW_MERGE;
+  for (let i = 0; i < MEADOW_SLOTS; i++) {
+    const m = MEADOWS[i];
+    if (m.run !== run || m.left <= 0) continue;
+    const dx = m.x - x, dy = m.y - y;
+    if (dx * dx + dy * dy <= merge * merge) return m;
+  }
+  return null;
+}
+
+/**
+ * Put a meadow on the ground. Shared by the spell and by her signature relic,
+ * because they are the same spell and must not be two different meadows.
+ *
+ * GROUND THAT IS ALREADY A MEADOW DOES NOT BECOME MORE OF A MEADOW.
+ * ----------------------------------------------------------------
+ * The special rolls this page four or five times inside one casting and she is
+ * very often standing where she was standing a second ago, so the first version
+ * of this laid four heal fields on top of each other: hazards.js pays every
+ * overlapping field out separately, which measured at TWELVE HP a second — a
+ * 130 HP character back to full in eleven seconds, on a minute-long floor, from
+ * a spell whose whole joke is that it is not for combat. It was not a tuning
+ * problem, it was the same patch counted four times.
+ *
+ * So a cast that lands on a patch that is already blooming re-seeds it and
+ * stops. Not a refresh, not a stack, not a bigger circle — the flowers come up
+ * again and that is all, because there is nothing else casting it a second time
+ * would honestly do. `radius` is the BASE radius throughout; `H.field` applies
+ * the player's area scaling to all five fields and the record stores the scaled
+ * result, so the flowers land inside the patch that actually exists rather than
+ * inside the one it would have been at areaMult 1.
+ */
+function plantMeadow(run, p, x, y, radius, duration, healDps) {
+  const r = H.area(p, radius);
+  const live = meadowAt(run, x, y, r);
+  if (live) {
+    seedFlowers(live, MEADOW_FLOWERS * 2, MEADOW_BLADES * 2);
+    H.effects.shockwave(x, y, r * 0.9, C_MEADOW, MEADOW_FX);
+    return;
+  }
+
+  H.field(run, p, x, y, radius, duration, 'heal', healDps, C_MEADOW, MEADOW_HEAL_OPTS);
+  for (let i = 0; i < MEADOW_LOBES.length; i++) {
+    const L = MEADOW_LOBES[i];
+    H.field(run, p, x + Math.cos(L.a) * r * L.d, y + Math.sin(L.a) * r * L.d,
+            radius * L.r, duration, 'heal', 0, C_MEADOW, MEADOW_DECOR_OPTS);
+  }
+  H.effects.shockwave(x, y, r * 1.25, C_MEADOW, MEADOW_FX);
+
+  const rec = MEADOWS[meadowSlot];
+  meadowSlot = (meadowSlot + 1) % MEADOW_SLOTS;
+  rec.run = run;
+  rec.gen++;
+  rec.x = x; rec.y = y;
+  rec.r = r * 1.15;                 // out to the far edge of the fringe lobes
+  rec.left = duration;
+  rec.n = 0;
+  // Seed it on the frame it is planted. The pulse arms the next one itself.
+  bloomMeadow(rec, rec.gen);
+}
 
 // --- Mana Suppression -------------------------------------------------------
 const SUPPRESS_SPEED = 1.30;
@@ -567,11 +828,67 @@ function applyTailBuff(p, ctx) {
 // ===========================================================================
 
 // --- Flawless Repetition ----------------------------------------------------
+//
+// SHE WAS FINISHED ON THE DAY SHE ARRIVED, WHICH IS NOT WHAT AN APPRENTICE IS
+// ----------------------------------------------------------------------------
+// The first version handed her two homing bolts, a 620px search and a streak
+// that climbed to six on kills — all of it available on the opening volley of a
+// fresh run at one star with nothing levelled. Two bolts became six inside the
+// first minute, every one of them multiplied again by Extra Shot, and the
+// player who reported it was right: at level one she was already doing the
+// thing she is supposed to spend a run earning. A ★5 precision caster whose
+// level-one attack is her level-forty attack has no progression in it at all;
+// she just has a good attack, and then keeps it.
+//
+// So the drill is a drill again. She fires ONE bolt, she throws it about as far
+// as a room is wide, and everything past that is bought:
+//
+//   HOW MANY   the streak still climbs one per volley that killed something and
+//              still collapses to one the instant a volley does not — that is
+//              the character and it is untouched. What changed is the CEILING it
+//              climbs to, which is her star level and nothing else: 2 at ★1 and
+//              ★2, then 3, 4 and 5. On top of that `spread` adds Extra Shot and
+//              the signature's own extra projectiles to every bolt, exactly as
+//              it does for every other shooter in the game.
+//   HOW FAR    a flat base, plus a step per star, plus a step for every extra
+//              projectile she has earned — and then multiplied by `area`, which
+//              for the auto-attack pipeline folds in Wide Reach AND the
+//              signature weapon's own per-level number. That last one is the
+//              only SMOOTH per-level lever the weapon system publishes (`count`
+//              moves twice in eight levels; `area` moves every level), and for a
+//              caster whose entire attack is its reach, "how big is what she
+//              does" and "how far away is she willing to do it" are the same
+//              question. Long Haul then extends it again, because its card
+//              promises range and this is range.
+//
+// The bolt's LIFE is derived from the reach rather than fixed, so the search and
+// the flight always agree. A 620px bolt behind a 240px search was the old shape
+// and it reads as a bug: she declines to shoot at something, and then the thing
+// she did shoot at sails a screen past it.
 const V_WREN_BOLT = { shape: 'diamond', color: C_LILAC, accent: '#2a2436', size: 8, rotates: true, glow: true };
-const REPEAT_BASE = 2;
-const REPEAT_MAX = 6;
+/** A volley that killed nothing. Also the very first volley of every run. */
+const REPEAT_BASE = 1;
+/**
+ * How far the streak may climb, indexed by star level. Slot 0 is unreachable
+ * and holds a zero deliberately: `[star] || [1]` then covers a ctx with no star
+ * on it — a mirrored cast, a test harness — without a separate guard.
+ */
+const REPEAT_CEIL_BY_STAR = [0, 2, 2, 3, 4, 5];
+const REPEAT_SPEED = 620;
+const REPEAT_RANGE = 280;
+const REPEAT_RANGE_PER_STAR = 40;
+const REPEAT_RANGE_PER_SHOT = 60;
+/**
+ * The ceiling on the search, which is targeting.js's own DEFAULT_RANGE — the
+ * distance this game already treats as "as far as anybody aims". A fully
+ * levelled signature with four Extra Shots and eight Long Hauls asks for well
+ * past three thousand pixels, which is not reach, it is a bolt fired at nothing.
+ */
+const REPEAT_RANGE_CAP = 900;
+/** Seconds of flight over and above the reach — homing bolts need to curve. */
+const REPEAT_SLACK = 0.3;
 const REPEAT_BOLT = {
-  damage: 0, speed: 620, life: 1.3, radius: 8, pierce: 1,
+  damage: 0, speed: REPEAT_SPEED, life: 1, radius: 8, pierce: 1,
   motion: H.MOTION.HOMING, turnRate: 8, target: null,
   element: 'lightning', visual: V_WREN_BOLT, trailColor: '#e6d8ff',
   tag: 'repeat_bolt', onHit: null,
@@ -580,7 +897,7 @@ const REPEAT_BOLT = {
 let repeatKilled = false;
 function noteRepeatKill(proj, e) { if (e.hp <= 0 || e.dying) repeatKilled = true; }
 REPEAT_BOLT.onHit = noteRepeatKill;
-const REPEAT_AIM = { mode: 'nearestN', count: REPEAT_MAX, range: 620 };
+const REPEAT_AIM = { mode: 'nearestN', count: 1, range: REPEAT_RANGE };
 
 // --- PERFECT MARKS ----------------------------------------------------------
 const MARKS_TIME = 5;
@@ -932,7 +1249,14 @@ registerAll({
   the_collection: {
     // "She opens the book. For 10s she casts one random spell from the
     //  collection every 0.5s — 20 casts, none of which were ever meant for
-    //  combat."   S3: 15s, and the spell that does nothing is removed.
+    //  combat, and every one of which leaves the arena different afterwards:
+    //  a patch of ground turned to sand for 12s, a field of flowers that
+    //  blooms for a full minute and heals 3 HP/s while she stands in it, a
+    //  spell that takes the rust off and leaves it on the floor still eating
+    //  for 10s, a spell that polishes armour down to a shine for 12s, and one
+    //  that makes grapes sweeter, which does nothing except make that patch of
+    //  ground the nicest thing for a hundred pixels."
+    //  S3: 15s, and the spell that does nothing is removed.
     cast(run, p, ctx, opts) {
       if (H.isHostile(opts)) {
         const o = H.origin(run, p, opts);
@@ -968,32 +1292,48 @@ registerAll({
       const r = H.area(p, SPELL_SAND_RADIUS);
 
       switch (spell) {
-        case 0:   // a spell that turns a patch of ground to sand
+        case 0: {  // a spell that turns a patch of ground to sand
+          // The blast is the ground GOING. What is left is what it went to, and
+          // it is wider than the crater, because the crater is the moment and
+          // the sand is the consequence.
           H.nova(run, p, x, y, SPELL_SAND_RADIUS,
                  H.abilityDamage(run, p, SPELL_SAND_DAMAGE), SAND_NOVA);
-          break;
-        case 1: { // a spell that grows a field of flowers
-          H.healPlayer(run, SPELL_FLOWERS_HEAL);
-          for (let i = 0; i < 5; i++) {
-            H.particles.emit(p.x + H.fxRng.signed() * 40, p.y + H.fxRng.signed() * 40,
-                             0, -30, FLOWER_FX);
-          }
-          H.floaters.spawn(p.x, p.y - 40, 'FLOWERS', C_MEADOW, 15, 0.8);
+          H.field(run, p, x, y, SAND_PATCH_RADIUS, SAND_PATCH_TIME, 'chill', 0,
+                  C_SAND, SAND_SLIP);
+          H.particles.burst(x, y, 12, C_SAND, SAND_GRAINS);
           break;
         }
-        case 2:   // a spell that removes rust
+        case 1: {  // a spell that grows a field of flowers
+          // At her own feet, always — every other page in the book is aimed at
+          // the crowd, and this one is the page she stands on.
+          plantMeadow(run, p, p.x, p.y, MEADOW_RADIUS, MEADOW_TIME, MEADOW_HEAL_DPS);
+          H.floaters.spawn(p.x, p.y - 40, 'A FIELD OF FLOWERS', C_MEADOW, 15, 1.0);
+          break;
+        }
+        case 2: {  // a spell that removes rust
           S.n = 0;
           H.forEachEnemyIn(run, x, y, r, bleedRust);
-          H.effects.impact(x, y, '#c8703a', SPELL_FX);
+          // She took it OFF them. It did not stop existing — it is on the floor
+          // now, and it is still corrosion, and it is still working.
+          H.field(run, p, x, y, RUST_RADIUS, RUST_TIME, 'damage',
+                  H.abilityDamage(run, p, RUST_DPS), C_RUST_DUST);
+          H.effects.impact(x, y, C_RUST_DUST, SPELL_FX);
+          H.particles.burst(x, y, 10, C_RUST_DUST, RUST_FLAKES);
           break;
-        case 3:   // a spell that polishes armour
+        }
+        case 3: {  // a spell that polishes armour
           S.n = 0;
           H.forEachEnemyIn(run, x, y, r, polishArmour);
+          H.effects.burstRing(x, y, r, C_PLAIN, POLISH_FX);
           H.effects.impact(x, y, C_STEEL, SPELL_FX);
           break;
-        default:  // a spell that makes grapes sweeter
-          H.floaters.spawn(p.x, p.y - 40, '...grapes', C_MEADOW, 14, 0.8);
+        }
+        default: {  // a spell that makes grapes sweeter
+          H.field(run, p, x, y, GRAPE_RADIUS, GRAPE_TIME, 'pull', 0, C_GRAPE, GRAPE_PULL);
+          H.particles.burst(x, y, 9, C_GRAPE, GRAPE_DROP);
+          H.floaters.spawn(x, y - 40, '...grapes', C_GRAPE, 14, 0.8);
           break;
+        }
       }
       H.audio.play('shoot');
     },
@@ -1235,9 +1575,11 @@ registerAll({
   // ---- WREN ---------------------------------------------------------------
 
   flawless_repetition: {
-    // "2 homing bolts every 0.45s, 12 damage each, pierce 1. Every volley that
-    //  kills something adds a bolt to the next one, up to 6; a volley that kills
-    //  nothing drops straight back to 2."
+    // "One homing bolt every 0.45s, 12 damage, pierce 1, and at first she will
+    //  not throw it further than about 240px. Every volley that kills something
+    //  adds a bolt to the next one; a volley that kills nothing drops straight
+    //  back to one. Her star level raises that ceiling from 2 bolts to 5, and
+    //  every extra projectile she earns pushes the range out with it."
     fire(run, p, ctx, opts) {
       const o = H.origin(run, p, opts);
       // Resolve the PREVIOUS volley before firing this one: `repeatKilled` was
@@ -1245,13 +1587,27 @@ registerAll({
       // first volley of a run also CLEARS it, so a kill from the previous run
       // can never hand her a free bolt on the opening shot.
       if (ctx.streak === undefined) { ctx.streak = REPEAT_BASE; repeatKilled = false; }
-      ctx.streak = repeatKilled ? Math.min(REPEAT_MAX, ctx.streak + 1) : REPEAT_BASE;
+      const ceiling = REPEAT_CEIL_BY_STAR[ctx.star | 0] || REPEAT_CEIL_BY_STAR[1];
+      ctx.streak = repeatKilled ? Math.min(ceiling, ctx.streak + 1) : REPEAT_BASE;
       repeatKilled = false;
 
+      // THE REACH, rebuilt every volley because every term in it can move
+      // between two shots — a level-up, a weapon level, an evolution.
+      // `H.area` is deliberately inside the auto's scope here, which is the
+      // only place the signature weapon's per-level number is readable at all.
+      const base = REPEAT_RANGE +
+                   ((ctx.star || 1) - 1) * REPEAT_RANGE_PER_STAR +
+                   H.extraShots(p) * REPEAT_RANGE_PER_SHOT;
+      const reach = Math.min(REPEAT_RANGE_CAP, H.projSpeed(p, H.area(p, base)));
+      REPEAT_AIM.range = reach;
       REPEAT_AIM.count = ctx.streak;
-      const t = H.target(run, p, REPEAT_AIM);
+      const t = H.target(run, p, REPEAT_AIM, opts);
       if (!t.found) return;
       REPEAT_BOLT.damage = H.autoDamage(run, p, ctx.def.damage, opts);
+      // `spread` multiplies this by projectileSpeedMult again, exactly as it
+      // does the speed — so a Long Haul bolt outruns the search rather than
+      // falling short of it, which is the direction that error has to point.
+      REPEAT_BOLT.life = reach / REPEAT_SPEED + REPEAT_SLACK;
       const found = t.targets.length;
       for (let i = 0; i < ctx.streak; i++) {
         const e = i < found ? t.targets[i] : t.target;
@@ -1556,9 +1912,12 @@ const TEACUP_HIT = { falloff: 0.25, element: 'water', knockback: 200 };
 const TEACUP_FX = { tier: 0, life: 0.44, width: 7, from: 12, spokes: 12 };
 
 // --- A Field of Flowers (Mirel) ---------------------------------------------
+// The meadow itself — the heal field, the ragged fringe and the seeding pulse —
+// lives up in her ability section and this relic plants exactly that one. They
+// are the same spell out of the same book, and if the relic laid down a
+// different-looking patch the player would reasonably conclude they were two
+// different effects that happened to share a colour.
 const MEADOW_CHILL = { param: 0.70 };
-const MEADOW_HEAL = { hitsPlayer: true, hitsEnemies: false };
-const MEADOW_FX = { tier: 0, life: 0.6, width: 5, from: 30, spokes: 16 };
 
 RELIC_IMPL.exclusive_contract = {
   /** Sign: a burst window, and then the clause you agreed to. */
@@ -1648,15 +2007,14 @@ RELIC_IMPL.cracked_teacup = {
 
 RELIC_IMPL.field_of_flowers = {
   onInterval(run, p, params) {
-    const radius = params.radius || 240;
+    const radius = params.radius || MEADOW_RADIUS;
     const dur = params.duration || 8;
-    // Two fields, because a meadow does two unrelated things: it slows whoever
-    // walks into it, and it is nice to stand in.
+    // The slow is the relic's own clause and belongs to the relic — the spell
+    // in the book has never slowed anybody, and a meadow that grips your ankles
+    // is a relic doing something extra, not a meadow.
     MEADOW_CHILL.param = 1 - (params.slow || 0.30);
     H.field(run, p, p.x, p.y, radius, dur, 'chill', 0, C_MEADOW, MEADOW_CHILL);
-    H.field(run, p, p.x, p.y, radius, dur, 'heal', params.healPerSecond || 3,
-            C_MEADOW, MEADOW_HEAL);
-    H.effects.shockwave(p.x, p.y, H.area(p, radius), C_MEADOW, MEADOW_FX);
+    plantMeadow(run, p, p.x, p.y, radius, dur, params.healPerSecond || MEADOW_HEAL_DPS);
     H.floaters.spawn(p.x, p.y - 46, 'IN BLOOM', C_MEADOW, 17, 1.1);
     H.audio.play('pickup');
   },

@@ -291,6 +291,53 @@ const RELIC_IMPL = {
     },
   },
 
+  /**
+   * The rabbit trickster — once every `cooldown`, a hit comes back at the sender
+   * and a mine goes off where she was standing.
+   *
+   * THE REFUND, AND WHY IT IS A REFUND. Her card promises the hit "does not
+   * land". `onDamageTaken` fires AFTER damage.js has already resolved and
+   * subtracted it — the Susanoo Fragment's own comment says as much, which is
+   * why that relic pre-arms a shield through the status system instead of
+   * cancelling anything here. A shield is the wrong shape for this one: it would
+   * eat a hit chosen by the shield, whereas this relic's entire pitch is that you
+   * never know which hit it spends on. So the hit is REFUNDED — healed back
+   * exactly, capped by the heal path — which nets to the same HP as a negation
+   * and, unlike a shield, still lets the reflect read off the real number.
+   *
+   * The one honest difference: anything that reacts to HP dropping (low-HP
+   * relics, her own on-damage counters) still sees the dip. That is a fair price
+   * for not touching damage.js's hot path, and it is invisible at 60fps.
+   *
+   * The mine is NOT routed through the trickster's own trap ring: that ring is
+   * owned and cleared by her passive and pays her spite stacks, which this
+   * relic's card does not promise to anyone who is merely holding it.
+   */
+  the_contingency_plan: {
+    onDamageTaken(run, p, params, state, dmg, src, attacker) {
+      const now = run.time;
+      if (state.until !== undefined && now < state.until) return;
+      state.until = now + (params.cooldown || 40);
+
+      const taken = dmg > 0 ? dmg : 0;
+      if (taken > 0) healPlayer(run, taken);
+
+      // Straight back onto whatever threw it, when there is something to hit.
+      if (attacker && attacker.active && attacker.hp > 0) {
+        dealDamage(run, attacker, taken * (params.reflect || 3), SRC.RELIC,
+                   { canCrit: false, element: 'spirit' });
+      }
+      areaDamage(run, p.x, p.y, (params.radius || 130) * p.stats.areaMult,
+                 (params.damage || 100) * p.abilityDamageMultiplier(), SRC.RELIC,
+                 { falloff: 0.3, element: 'spirit' });
+
+      particles.ring(p.x, p.y, 18, '#ff8f2e', (params.radius || 130) * 2.6);
+      floaters.spawn(p.x, p.y - 46, 'PLAN B', '#ff8f2e', 18, 1.0);
+      audio.play('explode');
+      shake.small();
+    },
+  },
+
   /** Uzu — below 50% HP: +40% attack speed and a burning chakra cloak. */
   nine_tails_chakra: {
     onLowHp(run, p, params, state, below) {

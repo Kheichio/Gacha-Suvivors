@@ -240,13 +240,24 @@ export const runScene = {
 
   // --- world background -------------------------------------------------------
   /**
-   * THE STAGE'S OWN SCENERY.
+   * THE GROUND THE STAGE IS PLAYED ON.
    *
-   * This used to be a ground rect, a 128px grid, a border and one mote — for all
-   * seven stages, which meant a school roof at sunset and a flooded stadium were
-   * the same screen with four hex codes swapped. render/stageBackdrop.js builds
-   * a real layered backdrop per stage instead; everything this function still
-   * does is decide WHEN to build it.
+   * Two versions of this have been wrong for opposite reasons. The first was a
+   * ground rect, a 128px grid, a border and one drifting mote, identical for all
+   * seven stages, so a school roof at sunset and a flooded stadium were the same
+   * screen with four hex codes swapped. The second was a parallax diorama —
+   * silhouettes at 0.26x scroll, near scenery at 0.58x, mist, a moon, an aurora —
+   * and it was distinct per stage but it was drawn ABOVE the arena, because on a
+   * TOP-DOWN view "further from the camera than the floor" can only mean in the
+   * air. Play report: "maps have a lot of random things floating around the
+   * screen, it feels cluttering." Correct, and unfixable by tuning.
+   *
+   * render/stageBackdrop.js is now one opaque, patterned SURFACE that scrolls
+   * 1:1 with the world, and nothing translucent is drawn anywhere except lying
+   * flat on it. This scene no longer spawns ambient particles of its own for the
+   * same reason; everything the stage's `ambience` colour used to put in the air
+   * is now litter on the floor. Everything this function still does is decide
+   * WHEN to build the thing.
    *
    * Built lazily against the run rather than in enter(), because enter() is not
    * the only way a run reaches this scene: tests/renderSmoke.js assigns

@@ -346,6 +346,18 @@ export const PICKUPS = [
     visual: { shape: 'square', color: '#ffd166', accent: '#fff3c4', size: 14, emoji: '📦', glow: true },
   },
   {
+    // BOSS LOOT, never a world roll — see BOSS_WEAPON_DROP below for who pays it
+    // and how often. One shared descriptor for every weapon the crate can carry:
+    // the crate does NOT get the weapon's own emoji baked into a sprite, because
+    // that would be fourteen atlas entries rasterised the first time each one
+    // ever dropped, mid-fight, on the frame a boss died. The weapon's icon and
+    // name are drawn as world text above it instead (PickupSystem.draw), which
+    // costs nothing at boot and says far more than a coloured box ever could.
+    id: 'weapon_crate', name: 'Weapon Crate', emoji: '🧰', effect: 'weaponDrop', value: 1,
+    weight: 0, desc: 'A weapon, still in its case. Walk over it to take it.',
+    visual: { shape: 'square', color: '#22304d', accent: '#6ad8ff', size: 15, emoji: '🧰', glow: true },
+  },
+  {
     // One per stage, random location, placed by the stage loader — never rolled.
     // Costs live in SHRINE_ALTAR below so the UI and the handler read one number.
     id: 'shrine', name: 'Shrine', emoji: '⛩', effect: 'shrine', value: 0, perStage: 1,
@@ -489,10 +501,27 @@ export const XP_CURVE = {
  *
  * OFFENSIVE and UTILITY are counted separately so a damage build cannot crowd
  * out every defensive option and leave the player with no way to survive.
+ *
+ * THREE AND THREE, down from six and six. Play report: "lower the number of
+ * upgrade slots, 3 attack upgrades and 3 util upgrades ... this should make
+ * picking more strategic and harder to play."
+ *
+ * They are right, and the reason is arithmetic rather than taste. There are 9
+ * offensive upgrades and 13 utility ones. At six apiece the cap did not bind
+ * until two thirds of the way through a run, and by then the pool had so little
+ * left in it that the "decision" was whichever of the last three the weighted
+ * roll happened to surface. A cap that only engages after the choices have
+ * stopped mattering is not a cap, it is a formality — the same failure the
+ * XP_CURVE comment above describes, in a different system.
+ *
+ * At three, the FIRST offensive card you take spends a third of your attack
+ * build, and it spends it on level-up two. Crit chance, crit damage, pierce,
+ * projectile count, attack size, attack speed: pick three, live without the
+ * other six, all run. That is the decision the cap exists to create.
  */
 export const BUILD_SLOTS = {
-  offensive: 6,
-  utility: 6,
+  offensive: 3,
+  utility: 3,
   /** Which bucket each upgrade counts against. */
   bucketOf(upgrade) {
     return OFFENSIVE_STATS.indexOf(upgrade.stat) >= 0 ? 'offensive' : 'utility';
@@ -505,6 +534,135 @@ const OFFENSIVE_STATS = [
 ];
 
 export const LEVELUP = { choices: 3, freeRerolls: 1, banishes: 0, skipGold: 30 };
+
+/**
+ * HOW OFTEN A WEAPON IS ALLOWED ONTO THE LEVEL-UP SCREEN.
+ *
+ * Play report: "make it so that less weapons spawn at once, so only 1 weapon
+ * every few level ups as its too easy to level up, make the generic upgrades
+ * appear more often compared to weapons."
+ *
+ * WHAT IT USED TO DO. An empty weapon slot RESERVED a card on every single
+ * level-up, and on top of that every un-owned weapon and every levelable weapon
+ * also sat in the general pool at 1.35x and 150 weight against a stat card's 60
+ * to 100. Two of the three cards were routinely weapons. With five slots to
+ * fill and a level-up every twenty seconds, the arsenal was complete somewhere
+ * around minute six and the rest of the run was a stat-card mop-up — which is
+ * exactly the "too easy" the report is describing.
+ *
+ * WHAT IT DOES NOW. A screen may carry AT MOST ONE weapon card, and only on
+ * every `everyNth` level-up. Widening the rack costs one slot of ARSENAL BUDGET,
+ * and the run earns one such slot per `newEveryNth` level-ups; the weapon cards
+ * in between can only level something already in it. Every other card on every
+ * other screen is a generic upgrade.
+ *
+ * WHERE THE TWO NUMBERS COME FROM. Measured, not guessed, on the 15-minute
+ * stage — the shortest in the game — over the whole roster at seeds 42, 1337
+ * and 7. LEVEL-UPS per run, which is the only clock that matters here:
+ *
+ *     reaches the finale   21 to 48   (hoshino_rei 21, sovereign_alicia 35,
+ *                                      mirel 41, wren 41, uzu 42, yukine 44,
+ *                                      kira 45, hikari 48) — mean 40
+ *     dies mid-stage        1 to 24   (captain_yuli 1, alto 5, shiro_same 5,
+ *                                      mochi 6, rin 8, kagura 14, reika 23,
+ *                                      unit_09 23, aoi 24)
+ *
+ * Note how far that is from a guess: the roster's spread is 48x, and the same
+ * character lands at either end of it depending on whether the bot survives the
+ * mid-boss. Any cadence tuned against one character is tuned against nothing —
+ * which is exactly how this constant came to be wrong the first time.
+ *
+ *   everyNth 3      A weapon card on one screen in three. Two full screens of
+ *                   nothing but stat cards between them, which is what "generic
+ *                   upgrades appear more often" has to mean if it is to mean
+ *                   anything. Over a full run that is 7 to 16 weapon cards —
+ *                   enough that the arsenal you do have keeps climbing.
+ *   newEveryNth 15  The budget is `2 + floor(levelUps / 15)`, capped by the five
+ *                   real slots: the signature, one at level-up 0, a third at 15,
+ *                   a fourth at 30, a fifth at 45. Held against the measured
+ *                   mean of 40 level-ups, the three candidates pay out exactly:
+ *
+ *                       21 -> 2 + 1 = 3 weapons
+ *                       15 -> 2 + 2 = 4 weapons
+ *                       12 -> 2 + 3 = 5 weapons, the full rack
+ *
+ *                   21 spends the entire back half of a run unable to widen and
+ *                   reads as the pool having given up — re-swept, it lands at
+ *                   3.38 weapons against 15's 4.04; 12 puts the rack back to
+ *                   full before the finale, which is the thing being fixed. 15
+ *                   is the only one of the three that lands on the 3-4 the
+ *                   report asked for, and it puts the fifth slot at level-up 45
+ *                   — past the end of a 15-minute stage on purpose. Filling the
+ *                   rack is an endless-mode achievement, not a Tuesday.
+ *
+ * WHAT IT ACTUALLY PRODUCED, same sweep, weapons held at death or victory:
+ * full-length runs 3.0 to 4.7, averaging 4.04; a run that dies before minute
+ * five ends on 2; the roster average is 2.81. Not one character fills all five
+ * inside the stage.
+ *
+ * SCREEN ZERO IS AN EXPANSION SCREEN, deliberately. The first level-up still
+ * offers a second weapon, because that is what makes the level-1 signature nerf
+ * survivable — see the SIGNATURE_LEVELS comment in weapons.js for the run where
+ * a thin opening meant slow levels meant the weapons that fix the opening never
+ * arrived at all.
+ *
+ * IT NEED NOT DIVIDE `everyNth`, and that is worth stating because the first
+ * version of this required it. The budget is a COUNTER the run spends when it
+ * can, not a date it has to hit — Run.mayExpandArsenal has the three ways an
+ * exactly-scheduled expansion turn used to get silently eaten.
+ *
+ * `levelWeight` is what a weapon you already own weighs against ONE un-owned
+ * weapon definition on an expansion screen. At 90 against a pool of fourteen
+ * definitions the expansion screen almost always expands, but "level the one
+ * you have" can still win the roll, which is the honest behaviour: a fifth
+ * weapon at level 1 is not always better than your third at level 5.
+ */
+export const WEAPON_OFFERS = {
+  everyNth: 3,
+  newEveryNth: 15,
+  levelWeight: 90,
+};
+
+/**
+ * A BOSS CAN DROP A WEAPON. Play report: "make boss drops have a chance to drop
+ * weapons."
+ *
+ * It drops as a CRATE on the ground rather than as a card on a screen, and that
+ * is the whole point of it: the level-up screen is where the game asks you a
+ * question, and a boss reward that hijacked it would just be a level-up you did
+ * not earn. A crate is an object you can see, read (it prints the weapon's own
+ * icon and name above itself), walk to, or leave — which is a real choice when
+ * taking it spends your last permanent slot.
+ *
+ * The rates are sized against the cadence above rather than against each other.
+ * A stage that is played all the way through runs one finale, one signature
+ * mid-boss and two or three minis, which prices a completed run at 0.5 + 0.3 +
+ * 2-3 x 0.12 = 1.04 to 1.16 expected crates before luck.
+ *
+ * THE REALISED NUMBER IS FAR LOWER THAN THAT, and it is the one that matters:
+ * measured over the roster at seeds 42, 1337 and 7, a run averages 1.11 boss,
+ * mid-boss and mini kills TOTAL — most runs die long before the finale — and
+ * 0.22 crates. So the crate is a genuine event rather than a fifth slot the
+ * arsenal quietly grows on its own, and a player who wants one has to be a
+ * player who actually kills the fights.
+ *
+ * That is also why Run.mayExpandArsenal counts a crate against the level-up
+ * budget rather than stacking on top of it: at a fifth of a crate per run the
+ * two paths are not remotely equal contributors, and the one that IS reliable
+ * has to stay the one that sets the pace.
+ */
+export const BOSS_WEAPON_DROP = {
+  boss: 0.50,
+  midBoss: 0.30,
+  miniBoss: 0.12,
+  /**
+   * Each point of the Four-Leaf stat scales the chance by this much, the same
+   * shape the gold-drop roll in run.onEnemyDeath already uses.
+   */
+  luckPerPoint: 0.04,
+  /** Gold paid instead when the crate has nothing left to give. */
+  consolationGold: 150,
+};
 
 /**
  * The ⛩ interactable's two offers. Lines 1439-1441.

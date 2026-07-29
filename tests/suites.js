@@ -29,6 +29,7 @@ import * as refs from '../src/data/refs.js';
 // exact source-IP names the flag exists to hide.
 import { SHIP_NAMES } from '../src/data/shipNames.js';
 import { HAZARD_KINDS } from '../src/game/hazards.js';
+import { BEHAVIORS } from '../src/game/enemy.js';
 
 import { Rng, mulberry32, hashString } from '../src/core/rng.js';
 import { Pool } from '../src/core/pool.js';
@@ -419,10 +420,16 @@ describe('data / counts and integrity', () => {
     assert.notEqual(enemies.ENEMIES_BY_ID.lesser_oni, enemies.ENEMIES_BY_ID.oni_bruiser);
   });
 
-  it('every behavior an enemy declares is one of the 15 archetypes', () => {
-    const OK = ['chaser', 'swarmer', 'charger', 'ranged', 'exploder', 'splitter',
-                'orbiter', 'summoner', 'shielder', 'dasher', 'tank', 'healer',
-                'leech', 'ambusher', 'static'];
+  it('every behavior an enemy declares has an implementation', () => {
+    // DERIVED FROM THE REGISTRY, never re-typed. This used to be a hand-kept
+    // list of fifteen archetype names, which is the same shape of mistake that
+    // let five stage hazards ship dead: a second copy of a table drifts the
+    // moment content lands beside it, and the copy is the thing the test
+    // believes. Reading BEHAVIORS means an enemy pointed at an archetype nobody
+    // wrote still fails — which is the bug worth catching — while an archetype
+    // that genuinely exists never has to be registered in two places.
+    const OK = Object.keys(BEHAVIORS);
+    assert.atLeast(OK.length, 15, 'the archetype registry shrank');
     for (const e of enemies.ENEMIES) {
       assert.includes(OK, e.behavior, `${e.id} declares unknown behavior "${e.behavior}"`);
     }

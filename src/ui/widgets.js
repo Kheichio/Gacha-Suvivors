@@ -107,12 +107,18 @@ class UI {
     this._cursor = '';
     /** Per-list drag state for the scrollbars, keyed by list id. */
     this._drag = null;
+    /**
+     * Is the last thing that touched this UI a finger? Decides whether widgets
+     * are hit-tested with the touch-target floor applied — see hitIn().
+     */
+    this._touching = false;
   }
 
   begin(r, screenId) {
     this.r = r;
     r.setScreenSpace();
     this.scale = save.data.settings.uiScale || 1;
+    this._touching = input.lastDevice === 'touch';
     this.mx = input.mouseInside ? input.mouseX / (r.dpr || 1) : -10000;
     this.my = input.mouseInside ? input.mouseY / (r.dpr || 1) : -10000;
     // Did the pointer move since the last frame? Answered once, here, so every
@@ -141,6 +147,32 @@ class UI {
   /** Is the cursor inside this rect? Screen space, DPR already divided out. */
   pointIn(x, y, w, h) {
     return this.mx >= x && this.mx <= x + w && this.my >= y && this.my <= y + h;
+  }
+
+  /**
+   * THE HIT TEST FOR AN ACTIVATABLE WIDGET: `pointIn` grown to the platform
+   * minimum touch target, and no further. Identical to `pointIn` on any device
+   * with a cursor to aim with.
+   *
+   * A fingertip is about 9mm across and lands about 5px away from where its
+   * owner thinks it did, which is why every platform sets a ~44px floor. Half
+   * the controls in this game are under it — a 40px back button, a 28px stepper
+   * arrow — and on a phone those are not "hard to hit", they are a coin flip.
+   *
+   * The growth is PER AXIS and capped at that axis's shortfall, rather than
+   * being a flat pad. That is what keeps it safe: a 60px button gets nothing at
+   * all, a 300x28 settings row grows only vertically, and a widget can
+   * therefore never reach into a neighbour that was already big enough. Where
+   * two undersized widgets do overlap, the press capture below hands the touch
+   * to whichever was declared first — so the worst case is a wrong neighbour
+   * rather than the dead tap it replaced.
+   */
+  hitIn(x, y, w, h) {
+    if (!this._touching) return this.pointIn(x, y, w, h);
+    const px = Math.max(0, (MIN_TOUCH_TARGET - w) * 0.5);
+    const py = Math.max(0, (MIN_TOUCH_TARGET - h) * 0.5);
+    if (px === 0 && py === 0) return this.pointIn(x, y, w, h);
+    return this.pointIn(x - px, y - py, w + px * 2, h + py * 2);
   }
 
   /**
@@ -201,6 +233,7 @@ class UI {
   attach(r) {
     this.r = r;
     this.scale = save.data.settings.uiScale || 1;
+    this._touching = input.lastDevice === 'touch';
     this.mx = input.mouseInside ? input.mouseX / (r.dpr || 1) : -10000;
     this.my = input.mouseInside ? input.mouseY / (r.dpr || 1) : -10000;
   }
@@ -317,7 +350,10 @@ class UI {
   brackets(x, y, w, h, color, len, width) {
     const r = this.r;
     const L = len || Math.min(18, w * 0.22);
-    const t = width || 3;
+    // A bracket is a corner mark, not a frame. Past about two pixels the four
+    // of them stop reading as a reticle and start reading as a heavy border
+    // with holes in the middle of each side.
+    const t = width || 2;
     const c = color || PALETTE.accent;
     for (const [sx, sy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
       const px = x + sx * w, py = y + sy * h;
@@ -467,7 +503,9 @@ class UI {
     const clip = o.clip;
     const visible = !clip || (x + w > clip.x && x < clip.x + clip.w &&
                               y + h > clip.y && y < clip.y + clip.h);
-    const hover = visible && this.pointIn(x, y, w, h) &&
+    // `hitIn` on the widget, `pointIn` on the clip: the slop exists to forgive
+    // a fat finger, not to make a scrolled-out-of-view row clickable.
+    const hover = visible && this.hitIn(x, y, w, h) &&
                   (!clip || this.pointIn(clip.x, clip.y, clip.w, clip.h));
     // `_mouseMoved` is computed ONCE PER FRAME in begin(). It used to be
     // recomputed here and the previous position stored per button — so after the
@@ -514,7 +552,13 @@ class UI {
       // `focusRing: false` is for callers whose art already carries a richer
       // focus state of its own; the plain ring drawn on top of one of those is
       // a second, weaker outline fighting the first.
-      r.strokeRect(x - 3, y - 3, w + 6, h + 6, PALETTE.accent, 3, 0.55 + pulse * 0.45);
+      //
+      // TWO pixels, three out. It was three pixels three out, which on a card
+      // that already has a coloured top edge and a bracket set reads as a
+      // highlighter drawn round the widget rather than as a focus state — the
+      // "extremely thick yellow box" the hub's PLAY button was reported for.
+      // The pulse still carries the attention; the weight does not have to.
+      r.strokeRect(x - 3, y - 3, w + 6, h + 6, PALETTE.accent, 2, 0.55 + pulse * 0.45);
     }
 
     if (label && !o.invisible) {
@@ -592,7 +636,12 @@ class UI {
     const thumbH = Math.max(28, h * (visible / total));
     const t = clamp(scroll / maxScroll, 0, 1);
     const ty = y + (h - thumbH) * t;
-    const over = this.pointIn(x - 4, y, w + 8, h);
+    // An 8px-wide bar is a fine mouse target and an impossible finger one, and
+    // on touch it is the ONLY way to reach page two of anything — there is no
+    // wheel. The grab area widens rather than the bar, so the layout is
+    // untouched and the thumb still looks like a thumb.
+    const grab = this._touching ? 16 : 4;
+    const over = this.pointIn(x - grab, y, w + grab * 2, h);
     const dragging = this._drag === id;
     if (over) this._wantPointer = true;
     if (over && input.mouseClicked && !this._pressUsed) {
@@ -701,7 +750,7 @@ class UI {
     this.panel(x, y, w, h, {
       color: body,
       borderColor: o.focused ? PALETTE.borderHot : col,
-      borderWidth: o.focused ? 3 : 2,
+      borderWidth: o.focused ? 2.5 : 2,
       radius: 6,
     });
 
@@ -717,7 +766,7 @@ class UI {
 
     if (rarity >= 5 || o.focused) {
       const p = 0.55 + 0.45 * Math.sin(this.time * 3 + x * 0.01);
-      this.brackets(x, y, w, h, o.focused ? PALETTE.borderHot : col, 16, 3);
+      this.brackets(x, y, w, h, o.focused ? PALETTE.borderHot : col, 16, 2.5);
       if (rarity >= 6) r.strokeRect(x - 3, y - 3, w + 6, h + 6, col, 2, p * 0.7);
     }
     return col;
@@ -906,6 +955,17 @@ export function formatCount(n) {
 }
 
 const EMPTY = {};
+
+/**
+ * The smallest thing a finger can reliably hit, in CSS pixels.
+ *
+ * 44 is the number every mobile platform's own guidance settles on (iOS 44pt,
+ * Android 48dp, WCAG 2.5.5 at 44px) and it is a floor, not a target. Nothing in
+ * this file enforces it as a LAYOUT rule — half the controls in the game are
+ * smaller and redesigning ten screens is not the fix for a touch bug — it is
+ * enforced as a HIT rule, in hitIn().
+ */
+const MIN_TOUCH_TARGET = 44;
 
 /**
  * The pending navigation source — see UI.markSource().

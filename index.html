@@ -67,11 +67,26 @@
     background: linear-gradient(90deg, #ffd76a 0 33.3%, #ff5fa2 33.3% 66.6%, #6ad8ff 66.6%);
     opacity: .85;
   }
-  #bootbar { width: min(420px, 70vw); height: 6px; border-radius: 3px; background: #1a1f33; overflow: hidden; }
+  /* The empty part of the track was #1a1f33 on #05060d — a 1.5:1 difference,
+     which is to say invisible. At 0% the bar simply was not there, so the boot
+     screen showed no progress affordance at all until the first tick landed. */
+  #bootbar {
+    width: min(420px, 70vw); height: 7px; border-radius: 4px;
+    background: #232a42; box-shadow: inset 0 0 0 1px rgba(150,170,225,.35); overflow: hidden;
+  }
   #bootbar i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #6ad8ff, #ff5fa2); transition: width .18s ease; }
+  /* THE STATUS LINE, LIFTED OUT OF THE FAINT TIER.
+     It was #9aa6c6 — the exact value src/ui/widgets.js calls PALETTE.textFaint,
+     which is the THIRD text tier, meant for a caption sitting beside something
+     brighter that is doing the actual talking. This is the only sentence on the
+     boot screen. At 14px, uppercased and tracked out to .16em there is very
+     little ink per glyph to carry the contrast, and the result read as switched
+     off rather than as quiet. #d3ddf3 on #05060d is about 13.5:1 against the
+     ~8:1 it was, and it matches the tier the running game uses for body copy. */
   #bootmsg {
-    font-family: var(--font-display); font-size: 14px; color: #9aa6c6;
+    font-family: var(--font-display); font-size: 15px; font-weight: 600; color: #d3ddf3;
     letter-spacing: .16em; text-transform: uppercase;
+    text-shadow: 0 1px 2px rgba(0,0,0,.9);
   }
   #fatal {
     position: absolute; inset: 0; z-index: 100; display: none; padding: 24px;

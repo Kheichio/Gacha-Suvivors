@@ -32,6 +32,14 @@
 //                   the fights land at roughly 1.8x each other. Wall Amaris:
 //                   2,526 -> 4,752 -> 8,944 -> 14,913 for the finale.
 //
+//                   The FINALE now stands apart from that staircase on purpose:
+//                   game/boss.js applies `def.finaleHpMult` (2.5 on every stage
+//                   boss and on nothing else) when the closer walks on, so Wall
+//                   Amaris actually reads 2,526 -> 4,752 -> 8,944 -> 37,283. The
+//                   mid-boss rungs are untouched, and keeping them untouched is
+//                   the entire reason the multiplier lives on the boss rather
+//                   than in `hp`.
+//
 //                   `midBosses` is a fallback list only — the authored timelines
 //                   in waves.js are what actually place these fights, and the
 //                   WaveDirector rebuilds this list from `midBoss` if it is absent.
@@ -47,9 +55,13 @@
 //                   READ IT: five of seven stages were flat, empty floors and the
 //                   two that were not only got geometry because a hazard happened
 //                   to drop some. It is a real registry key now.
-//   backdrop        key into BACKDROPS below. The layered scenery render/
-//                   stageBackdrop.js builds once per run. Before this every stage
-//                   was the same grid and border in four different hex codes.
+//   backdrop        key into BACKDROPS below. The GROUND render/stageBackdrop.js
+//                   draws the stage on. It was a layered parallax diorama for one
+//                   pass, and the play report on that was "maps have a lot of
+//                   random things floating around the screen" — on a TOP-DOWN view
+//                   a layer drawn further away than the floor is a layer drawn
+//                   ABOVE the arena. It is one opaque patterned surface at 1:1
+//                   scroll now, and nothing in it is off the floor.
 //   events          the MINI EVENTS this stage may roll, by key into STAGE_EVENTS.
 //                   Themed per stage exactly like `hazards` is, so a new event on
 //                   an existing kind is a data-only addition.
@@ -82,6 +94,11 @@ export const STAGES = [
       { id: 'slime_kouhai', weight: 14, from: 240 },
       { id: 'cursed_desk', weight: 12, from: 300 },
       { id: 'gym_uniform_ghoul', weight: 10, from: 420 },
+      // Late fodder that is FASTER than anything the stage has shown, and the
+      // first mob in the game that punishes standing still. Both open past
+      // minute eight of fifteen.
+      { id: 'eraser_gremlin', weight: 12, from: 480 },
+      { id: 'hall_monitor', weight: 8, from: 540 },
     ],
     elite: 'perfect_attendance_award',
     // The teaching stage gets TWO, not three: one mid-boss to learn the grammar
@@ -129,6 +146,9 @@ export const STAGES = [
       { id: 'camera_drone', weight: 18, from: 180 },
       { id: 'antifan_swarm', weight: 14, from: 300 },
       { id: 'mascot_suit', weight: 10, from: 420 },
+      { id: 'courier_scooter', weight: 10, from: 600 },
+      // The crowd this stage is named for, moving 30% faster. Latest gate here.
+      { id: 'hype_marshal', weight: 6, from: 720 },
     ],
     elite: 'gacha_golem',
     midBoss: 'mascot_prime',
@@ -170,6 +190,9 @@ export const STAGES = [
       { id: 'crawler_husk', weight: 24, from: 90 },
       { id: 'sprinting_husk', weight: 18, from: 240 },
       { id: 'rubble_golem', weight: 16, from: 300 },
+      // The stage is built entirely out of slow. One of these is not.
+      { id: 'splinter_husk', weight: 14, from: 540 },
+      { id: 'siege_husk', weight: 8, from: 720 },
     ],
     elite: 'abnormal',
     midBoss: 'the_armored',
@@ -212,6 +235,9 @@ export const STAGES = [
       { id: 'crow_familiar', weight: 18, from: 150 },
       { id: 'trap_scroll', weight: 12, from: 240 },
       { id: 'ambusher', weight: 12, from: 360 },
+      { id: 'ember_sprite', weight: 12, from: 480 },
+      { id: 'censer_shade', weight: 10, from: 600 },
+      { id: 'roofline_runner', weight: 8, from: 660 },
     ],
     elite: 'sealed_vessel',
     midBoss: 'the_twin_fangs',
@@ -255,6 +281,11 @@ export const STAGES = [
       { id: 'ronin_shade', weight: 12, from: 480 },
       // The only stage that fits a full-size oni. Late, and rare.
       { id: 'oni_bruiser', weight: 6, from: 660 },
+      // All three past minute thirteen of twenty-two: the skill-check stage's
+      // skill check.
+      { id: 'mask_bearer', weight: 8, from: 780 },
+      { id: 'sutra_chanter', weight: 6, from: 840 },
+      { id: 'brazier_oni', weight: 5, from: 900 },
     ],
     elite: 'upper_rank_remnant',
     midBoss: 'the_drum_oni',
@@ -299,6 +330,10 @@ export const STAGES = [
       { id: 'eel_swarm', weight: 12, from: 360 },
       // The rank-and-file siren, NOT the named elite (DECISIONS.md §30).
       { id: 'encore_siren', weight: 6, from: 540 },
+      { id: 'bait_ball', weight: 12, from: 480 },
+      { id: 'spine_urchin', weight: 8, from: 660 },
+      { id: 'deep_watcher', weight: 7, from: 780 },
+      { id: 'reef_bulwark', weight: 5, from: 840 },
     ],
     elite: 'elite_encore_siren',
     midBoss: 'tide_warden',
@@ -341,7 +376,7 @@ export const STAGES = [
     hazards: ['spotlights'],
     modifier: 'grand_finale',
     // "Everything, mixed from all previous tables" — written out as a real table.
-    // Every spawnable enemy in the game appears exactly once (32 entries; the three
+    // Every spawnable enemy in the game appears exactly once (48 entries; the three
     // split-children are spawned by their parents and are never rolled here).
     // Weights fall and `from` gates rise as the tier climbs, so the finale still
     // opens on fodder and ends on threats.
@@ -381,6 +416,25 @@ export const STAGES = [
       { id: 'oni_bruiser', weight: 5, from: 720 },
       { id: 'trap_scroll', weight: 4, from: 780 },
       { id: 'encore_siren', weight: 4, from: 840 },
+      // Tier 1 — the new fast ones, from minute seven.
+      { id: 'eraser_gremlin', weight: 8, from: 420 },
+      { id: 'splinter_husk', weight: 8, from: 450 },
+      { id: 'bait_ball', weight: 8, from: 480 },
+      { id: 'ember_sprite', weight: 7, from: 510 },
+      // Tier 2 — the archetypes, introduced in the order the stages teach them.
+      { id: 'hall_monitor', weight: 7, from: 600 },
+      { id: 'courier_scooter', weight: 7, from: 630 },
+      { id: 'censer_shade', weight: 6, from: 660 },
+      { id: 'roofline_runner', weight: 6, from: 690 },
+      { id: 'hype_marshal', weight: 5, from: 720 },
+      // Tier 3 — the encore's encore.
+      { id: 'siege_husk', weight: 5, from: 780 },
+      { id: 'spine_urchin', weight: 5, from: 810 },
+      { id: 'mask_bearer', weight: 4, from: 870 },
+      { id: 'deep_watcher', weight: 4, from: 900 },
+      { id: 'brazier_oni', weight: 4, from: 930 },
+      { id: 'sutra_chanter', weight: 3, from: 960 },
+      { id: 'reef_bulwark', weight: 3, from: 990 },
     ],
     // Both authored in DECISIONS.md §7 — the spec gave Stage 7 neither.
     elite: 'the_understudy',
@@ -512,7 +566,7 @@ export const HAZARDS = {
 export const BACKDROPS = {
   school_roof: {
     kind: 'rooftop',
-    desc: 'Tiled roof, a chain-link fence, school blocks against a sunset.',
+    desc: 'Concrete roof bays, drainage channels, court paint, drifted petals.',
     far: '#331634', farEdge: '#ff7f50', farLit: '#ffd166',
     mid: '#7a4470', midEdge: '#3d1a3a',
     tile: '#43213f', seam: '#5a2e52',
@@ -522,7 +576,7 @@ export const BACKDROPS = {
 
   wet_street: {
     kind: 'wet_street',
-    desc: 'Black wet asphalt doubling every sign above it.',
+    desc: 'Poured asphalt, tyre lanes, kerbs, and puddles doubling the signs.',
     far: '#150c2b', farEdge: '#ff2d95', farLit: '#6ad8ff',
     mid: '#2a1a4a', midEdge: '#0a0616',
     tile: '#160d2c', seam: '#241546',
@@ -532,7 +586,7 @@ export const BACKDROPS = {
 
   ruined_town: {
     kind: 'ruins',
-    desc: 'Cracked flagstones, broken roof lines, and the wall behind all of it.',
+    desc: 'Hand-laid flagstones, cracks, rubble, and stretches with no paving left.',
     far: '#1f2227', farEdge: '#0f1113', farLit: '#3a3f47',
     mid: '#33373e', midEdge: '#191b1f',
     tile: '#2d3037', seam: '#3a3f47',
@@ -542,7 +596,7 @@ export const BACKDROPS = {
 
   hidden_village: {
     kind: 'village',
-    desc: 'Packed earth, plank roofs used as roads, lanterns, scheduled mist.',
+    desc: 'Packed earth, raked yards, plank roads, and the pools the lanterns throw.',
     far: '#141a2a', farEdge: '#0a0e18', farLit: '#25384d',
     mid: '#241a12', midEdge: '#100c08',
     tile: '#1d1712', seam: '#2c2117',
@@ -552,7 +606,7 @@ export const BACKDROPS = {
 
   paper_halls: {
     kind: 'halls',
-    desc: 'Tatami without a building, sliding doors without a wall, one moon.',
+    desc: 'Tatami without a building, bound in heri, edged by a polished engawa.',
     far: '#161036', farEdge: '#0d0a24', farLit: '#f2e6c0',
     mid: '#3a2350', midEdge: '#120c22',
     tile: '#2e2036', seam: '#4a2f60',
@@ -562,7 +616,7 @@ export const BACKDROPS = {
 
   sunken_stadium: {
     kind: 'reef',
-    desc: 'Rippled seabed sand over forty thousand seats, kelp, and caustics.',
+    desc: 'Rippled seabed sand, caustics on the crests, a pitch still marked out.',
     far: '#07243a', farEdge: '#031420', farLit: '#0d3a52',
     mid: '#0a3048', midEdge: '#031420',
     tile: '#08263a', seam: '#0d3a52',
@@ -572,7 +626,7 @@ export const BACKDROPS = {
 
   zenith_deck: {
     kind: 'zenith',
-    desc: 'A polished stage floor, light trusses, floating slabs, too much aurora.',
+    desc: 'Polished stage boards, inlaid light strips, footlights, gaffer marks.',
     far: '#0e1a3a', farEdge: '#060418', farLit: '#7cf7d0',
     mid: '#20305c', midEdge: '#080a1a',
     tile: '#131338', seam: '#20305c',

@@ -4,7 +4,7 @@
 // handful of features; `render/pixelArt.js` assembles the actual pixels. Swapping
 // any entry for `{ sheet: 'art/hero.png', frames: 4 }` later changes nothing else.
 //
-// The 24 characters are hand-authored because they are what the player looks at
+// The 25 characters are hand-authored because they are what the player looks at
 // for twenty minutes. Every one is directed off its own entry in characters.js —
 // element, archetype, epithet, weapon, palette — and NO TWO SHARE A SILHOUETTE.
 // The rule the first pass broke was that a palette swap is not a character: the
@@ -29,35 +29,55 @@
 
 /**
  * id -> descriptor.
- * Body plans: humanoid | portrait | blob | ghost | beast | mech | titan
+ * Body plans: humanoid | portrait | blob | ghost | beast | mech | titan | drake
  *
  * Feature vocabulary the humanoid plan understands:
- *   hair       short spiky flame wild bowl bangs bob wave long twin drills
- *              lowTwin ponytail sidetail braid topknot buzz ahoge plume
+ *   hair       short spiky flame wild bowl bangs bob wave long twin twinLong
+ *              drills lowTwin ponytail sidetail braid topknot buzz ahoge plume
  *              ducktail undercut hood none
  *   hair extra hairColor, hairTip (gradient to a second colour), hairTie,
  *              hairStreak (ONE dyed lock in the fringe — hairTip recolours the
  *              whole mass and is not the same request), sideBraid (a short
  *              braid at one temple, whatever the main style is)
- *   ears       fox cat elf ribbon fin horns greatHorns (+ earColor, earInner)
- *   headgear   crown, hat:'tricorn'|'topHat' (+hatColor, hatPlume), headband
- *              (+headbandPlate), headdress (+headdressRibbon), halo,
- *              hairpin:'star'
- *   face       eyes, eyeGlow, eyeSigil, visor, mask, eyepatch:'left'|'right',
- *              scar:'left'|'right', whiskers, blush:false
- *   garment    coat (+coatTrim, coatPattern:'check'|'stripe', coatPattern2,
- *              coatRagged), pinafore (+pinaforeTrim), hoodDown, highCollar,
- *              skirt, shorts, sash, belt, scarf, tie, neckBow, harness,
- *              pauldrons (colour) + pauldron:'left'|'right' (one side only),
- *              gauntlets, gloves, cuffs, armWraps, detachedSleeves, boots,
- *              bootHeight:'knee'|'thigh', barefoot, sleeve, legColor,
+ *   ears       fox cat rabbit elf ribbon fin horns greatHorns
+ *              (+ earColor, earInner)
+ *   headgear   crown, hat:'tricorn'|'topHat'|'beret' (+hatColor, hatTrim,
+ *              hatPlume), headband (+headbandPlate), headdress
+ *              (+headdressRibbon), halo, hairpin:'star'
+ *   face       eyes, eyeGlow, eyeSigil, visor, mask, eyepatch:'left'|'right'
+ *              (+eyepatchColor, eyepatchStrap), scar:'left'|'right', whiskers,
+ *              blush:false
+ *   garment    coat (+coatTrim, coatLapels, coatCuffs, coatButtons,
+ *              coatPattern:'check'|'stripe', coatPattern2, coatRagged),
+ *              pinafore (+pinaforeTrim), hoodDown, highCollar,
+ *              skirt, shorts, sash (+sashBuckle), belt, scarf, tie, neckBow,
+ *              harness, pauldrons (colour) + pauldron:'left'|'right' (one side
+ *              only), gauntlets, gloves, cuffs, armWraps, detachedSleeves,
+ *              boots, bootHeight:'knee'|'thigh', barefoot, sleeve, legColor,
  *              underLayer, chest (crest)
- *   extras     cape, wings (feather|mech|energy|dragon), armWings, hipWings,
- *              tails 1-9 or tail:'scaled', aura, sparks, hologram,
- *              backpack (+backpackColor, strapColor), young
+ *   extras     cape, shoulderCape, wings (feather|mech|energy|dragon),
+ *              armWings, hipWings, tails 1-9 or tail:'scaled', aura, sparks,
+ *              hologram, backpack (+backpackColor, strapColor), young
  *   weapon     greatsword sword cutlass katana daisho dual dualRev scythe
  *              trident spear staff gun book mic fan chakram hammer axe bow
- *              claws orb whip cards mirror none
+ *              claws orb whip cards mirror carrot none
+ *
+ * THE SECOND ROUND OF ADDITIONS — twinLong, rabbit ears, the beret, hatTrim,
+ * the eyepatch strap, coatLapels/coatCuffs/coatButtons, sashBuckle, the
+ * shoulder cape and the carrot — are all the same story as the first: one
+ * concrete line of somebody's refNotes that the vocabulary could not say. Every
+ * one of them is OPTIONAL AND OFF BY DEFAULT, so nothing already in this table
+ * changed shape when they landed. Two are worth calling out because they live
+ * six pixels from something that already existed and must never be written for
+ * it:
+ *   coatCuffs  the deep turned-back funnel of a DRESS COAT sleeve. `cuffs` is
+ *              the narrow detached band a maid wears at the wrist and belongs
+ *              to no sleeve at all; this one belongs to the coat, takes its
+ *              colour and carries its trim along the lip.
+ *   shoulderCape a short mantle over the shoulders, worn OPEN, stopping well
+ *              above the waist. `cape` is the full-length one that hangs to the
+ *              boot; the two have opposite silhouettes and neither is a length
+ *              setting on the other.
  *
  * FOUR OF THOSE ARE NEW AND EXIST BECAUSE THE MAID WAS BEING DRAWN OUT OF THE
  * WRONG PARTS. `headband` was standing in for the frilled headdress, `coat` for
@@ -265,18 +285,6 @@ export const CHARACTER_SPRITES = {
     armWings: '#ffd23f', tails: 2, tailColor: '#ff6a1a',
     aura: '#ffd23f', chest: '#ffd23f', boots: '#c8502a', weapon: 'none',
   },
-  // EVERYTHING IS RED. Long black twin-tails with red ribbons, a red coat worn
-  // open over red-and-white, a huge red tricorn with a plume, gold trim, an
-  // eyepatch over one eye, and a curved cutlass rather than a straight sword.
-  akane: {
-    body: 'humanoid', hair: 'twin', hairColor: '#1a1420', hairTie: '#c8203a',
-    skin: '#fbdcc4', outfit: '#f4f1ea', accent: '#ffd23f', eyes: '#e0405f',
-    hat: 'tricorn', hatColor: '#c8203a', hatPlume: '#f4f1ea',
-    eyepatch: 'right', eyepatchColor: '#8f1428',
-    coat: '#c8203a', coatTrim: '#ffd23f', pauldrons: '#ffd23f',
-    sash: '#ffd23f', skirt: '#8f1428', boots: '#3a1218', bootHeight: 'thigh',
-    weapon: 'cutlass', weaponColor: '#ffe9a3',
-  },
   // The administrator. Immaculate: neat brown hair, brown eyes, a school blazer
   // and a TIE, perfect posture, no expression, and a PLAIN BLACK notebook. He is
   // the only person on the roster whose weapon is stationery, and the design
@@ -420,6 +428,138 @@ export const CHARACTER_SPRITES = {
     sash: '#c8a24a', boots: '#5a4a38', bootHeight: 'knee',
     blush: false, aura: '#dff4e8', weapon: 'staff', weaponColor: '#8a6a4a',
   },
+  // EVERYTHING IS RED, and she is the most detailed figure in the cast, because
+  // the promotion out of the ★5 bracket is a promise the art has to keep: she is
+  // now the character the rainbow pull beam lands on and the one the splash
+  // screen holds a silent beat for, and a ★5-grade drawing under a ★6 banner is
+  // the single most visible way to break that.
+  //
+  // She is drawn on a 38x54 grid rather than the roster's 30x42 — the atlas
+  // divides the integer upscale back out, so a finer grid costs nothing on
+  // screen and buys the room the brief actually needs: a coat with lapels AND
+  // cuffs AND two rows of buttons, a hat with a cocked brim AND a crown AND a
+  // plume, and a face carrying an eyepatch, its strap and its buckle at once.
+  // At 30x42 those collapse into each other and she reads as a red smear.
+  //
+  // Line by line: long black twin-tails with red ribbons — LONG, which `twin`
+  // could not say and `twinLong` now can; a red captain's coat worn OPEN over
+  // red-and-white, with real notched lapels, deep turned-back cuffs and a
+  // double row of gold buttons; a huge red tricorn with a white plume; gold
+  // trim on every edge of it; an eyepatch, with the strap the previous pass
+  // drew under the fringe where nobody could see it; and a CURVED cutlass.
+  akane: {
+    body: 'humanoid', gridW: 38, gridH: 54,
+    // A hair colour two shades off black rather than at it. `twinLong` puts a
+    // near-white thread down each fall, but the rest of the ramp is derived,
+    // and derived off #1a1420 every tone in it is the same tone: the tails came
+    // out as two flat slabs the width of an arm.
+    hair: 'twinLong', hairColor: '#241a2c', hairTie: '#c8203a',
+    skin: '#fbdcc4', outfit: '#f4f1ea', accent: '#ffd23f', eyes: '#e0405f',
+    hat: 'tricorn', hatColor: '#c8203a', hatTrim: '#ffd23f', hatPlume: '#f4f1ea',
+    // The strap takes the PATCH's colour and not a black of its own: it crosses
+    // black hair for most of its run, and a black strap on black hair is a
+    // feature that costs eleven pixels and shows none of them.
+    eyepatch: 'right', eyepatchColor: '#8f1428', eyepatchStrap: '#8f1428',
+    coat: '#c8203a', coatTrim: '#ffd23f', coatLapels: '#8f1428',
+    sleeve: '#c8203a', coatCuffs: '#8f1428', coatButtons: '#ffd23f',
+    pauldrons: '#ffd23f', chest: '#c8203a',
+    // A deep-red sash with a gold plate on the knot rather than the flat gold
+    // band she used to wear. Gold on gold is one shape: the buckle, the buttons
+    // and the coat piping were all the same colour and all within six rows of
+    // each other, so the "gold fittings" the brief asks for read as one smear
+    // of yellow across the waist instead of as three separate pieces of metal.
+    sash: '#8f1428', sashBuckle: '#ffd23f', skirt: '#a3182f',
+    boots: '#3a1218', bootHeight: 'thigh',
+    // STEEL, not the pale gold the previous pass gave the blade. Against a red
+    // coat, a gold hilt and a white plume, a gold sword is one more gold thing
+    // in a picture that already has four — and the one part of a cutlass that
+    // has to read from across the arena is the edge.
+    aura: '#ffd23f', weapon: 'cutlass', weaponColor: '#dfe8f5',
+  },
+  // The rabbit. Everything about her is the EARS: white, pink-lined, rooted at
+  // the crown and falling past the hip on the outside of the arms, which is
+  // forty rows of silhouette that no other entry in this table owns a single
+  // pixel of. Then blue-green twin-tails with white ribbons, red eyes, a
+  // blue-and-white officer's coat-dress with a double row of gold buttons and a
+  // high collar over a white top, a short shoulder cape, white gloves, brown
+  // boots, and the carrot she carries the way everybody else carries a weapon.
+  //
+  // The checks that matter, because a converging silhouette is how a roster
+  // silently loses a character: the other small twin-tailed one is pale blue
+  // with a dorsal fin and a trident and no ears at all; the other long-eared
+  // one is a white BLOB with no limbs; the two drills and the low tails are
+  // hair-coloured falls that start at the temple and the nape rather than white
+  // ones that start above the skull; and nobody else on the roster has four
+  // separate things hanging past their hips at once.
+  //
+  // 40x54, for the same reason as the captain and then one more: at 30x42 the
+  // ears, the twin-tails and the weapon column all want the same four columns,
+  // and two of the three have to lose.
+  pekora: {
+    body: 'humanoid', young: true, gridW: 40, gridH: 54,
+    hair: 'twin', hairColor: '#6fd0c4', hairTie: '#f4f1ea',
+    skin: '#fbe0cc', outfit: '#eaf2ff', accent: '#e8c34a', eyes: '#ff3a5e',
+    ears: 'rabbit', earColor: '#f7f4f0', earInner: '#ff9ecb',
+    hat: 'beret', hatColor: '#f4f1ea',
+    coat: '#3a63c8', coatTrim: '#f4f1ea', coatButtons: '#e8c34a',
+    // The sleeves go in the COAT's blue rather than defaulting to the white
+    // top: with white arms, white gloves and two white ears she came out as
+    // four pale poles round a blue box, and the arms were the only three of
+    // them that were not supposed to be read as a feature.
+    sleeve: '#3a63c8', highCollar: '#2f52ad',
+    // Two shades under the coat, not one. A mantle within a shade of the
+    // garment it is worn over is not a mantle, it is a fold.
+    shoulderCape: '#233a7a',
+    gloves: '#f4f1ea', boots: '#7a5330', bootHeight: 'knee',
+    // The fronds go in `gripColor` rather than in a slot of their own: on a
+    // carrot the green end IS the handle, so the vocabulary already had a word
+    // for it and did not need a second one.
+    weapon: 'carrot', weaponColor: '#ff8f2e', gripColor: '#4fae4a',
+  },
+
+  // ALTERNATE FORMS -----------------------------------------------------------
+  //
+  // Not roster entries. A character who becomes something else for the duration
+  // of an ability declares an `altForm` in characters.js carrying its own
+  // `spriteId`, and index.js resolves that id THROUGH THIS TABLE — so a form
+  // lives here, next to the person it belongs to, rather than in a second table
+  // that three consumers would have to learn to skip. Nothing walks these keys:
+  // every reader of this file indexes it by a character id it already has.
+  //
+  // The id is `<character>_dragon` and never the character's own, for exactly
+  // the reason `portraitFor()` renames: the atlas keys pixel sprites on
+  // `'px|' + descriptor.id + '|' + round(size)`, so a form that reused the plain
+  // id would be handed back the cached HUMAN sprite at the transformed size and
+  // nothing anywhere would report an error — she would simply get bigger.
+
+  // THE DRAGON.
+  //
+  // Her transformation is canon to the character rather than borrowed, and the
+  // spec calls the cast of it the most spectacular thing in the game: a full
+  // screen tint, the camera pulling out, and a wing-beat under the roar. Up to
+  // now the thing all of that announced was the same woman at 2.2x scale with
+  // an orange aura, which is not a transformation, it is a status effect.
+  //
+  // So it is a different BODY PLAN, not a different descriptor on the humanoid
+  // one. `drake` shares nothing with the figure she turns out of: an animal's
+  // proportions, no shoulders, a barrel slung between the forelimbs, hind legs
+  // that fold the wrong way, a snout, two pairs of horns, a membrane wing with
+  // finger struts on each side and a tail a third of the grid long. Turn the
+  // colour off and the two silhouettes have nothing in common, which is the
+  // only test a transformation has to pass.
+  //
+  // The palette is hers, read straight off her humanoid entry — the orange-red
+  // her hair runs to at the tips is the scale colour, the gold of her horns and
+  // crown is the horn and claw colour, and the deep red of her cape is the wing
+  // membrane. A dragon in colours the player has never seen her wear is a
+  // different monster arriving, not her.
+  sovereign_alicia_dragon: {
+    body: 'drake', gridW: 54, gridH: 48,
+    outfit: '#e0452c', accent: '#ffd76a',
+    wingColor: '#8a2a18', underLayer: '#ffb03d',
+    eyes: '#ffd76a', eyeGlow: '#ff8a3d',
+    chest: '#ffd76a', aura: '#ffd76a',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -466,7 +606,7 @@ export function portraitFor(def) {
     sash: null, gauntlets: null, boots: null, bootHeight: undefined,
     belt: undefined, harness: null, armWings: null, hipWings: null,
     backpack: null, hologram: null, barefoot: false, detachedSleeves: null,
-    armWraps: null, cuffs: null,
+    armWraps: null, cuffs: null, coatCuffs: null, sashBuckle: null,
     // `wings` deliberately SURVIVES: the bust shows the leading edge of one at
     // each shoulder, which is in frame and is half the read on the one
     // character who has them. So, deliberately, do `headdress`, `neckBow`,
@@ -474,6 +614,14 @@ export function portraitFor(def) {
     // of an apron and the roll of a hood down behind the neck are all ABOVE OR
     // AT the crop line, and a maid whose uniform is cropped out of her own
     // portrait is a stranger in a navy dress.
+    //
+    // And so do `coatLapels`, `coatButtons`, `shoulderCape` and `eyepatchStrap`.
+    // A bust is mostly collar and shoulder: the lapels are a frame around the
+    // face, the buttons and the mantle are the only parts of a uniform that
+    // survive the crop at all, and a strap that runs over the temple is nearer
+    // the eye than anything else on the figure. `coatCuffs` and `sashBuckle` go
+    // the other way with the wrists and the waist they belong to, for the same
+    // reason `cuffs` does — there are no wrists in a bust.
   });
 }
 

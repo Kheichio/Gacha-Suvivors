@@ -41,6 +41,185 @@ const BROADSIDE_AIM = { mode: 'densestCluster', range: 760 };
 const AWAY_AIM = { mode: 'densestCluster', range: 520 };
 const MASS_WRITE_AIM = { mode: 'nearestN', count: 6, filter: 'unmarked', range: 620 };
 
+// ===========================================================================
+//        AKANE'S PROPS — the three objects a pirate is made of
+// ===========================================================================
+//
+// SHE WAS FIGHTING WITH ENERGY, WHICH IS THE ONE THING SHE HAS NONE OF.
+//
+// Everything in her kit is MATTER. A cutlass is a bar of steel, a flintlock is
+// a machine that throws burning powder out of one end, a cannonball is eleven
+// pounds of iron, and a rum barrel is a barrel. All four were drawn as coloured
+// light: the cutlass was an arc with nothing in it, the flintlock was a
+// one-frame line pushed into `run.overlays` that blinked and was gone, the
+// broadside's galleon was six drifting motes, and the barrel was a yellow ring
+// on the floor. The player report — "give her abilities better animations" — is
+// really the report that none of her abilities looked like OBJECTS, which for
+// the roster's one non-magical character is the whole read missing.
+//
+// So the three things she actually holds are pre-rastered props now, blitted
+// source-over by `effects.sweepSprite` / `effects.fallSprite` in the second
+// pass, and the energy effects stay exactly where they were: they are what the
+// object DID to the air. Nothing about her damage, reach, cadence or cooldowns
+// moved — this pass spends nothing but draw calls.
+//
+// Two of the three descriptors below are LITERAL, field-for-field copies of
+// entries that are already in prewarm.js's EFFECT_VISUALS, which is why they
+// cost the atlas nothing: the white steel crescent is a blade, and the brown
+// disc that was written for a generic barrel-shaped thing is, in fact, a
+// barrel seen from above. The cannon is the one genuinely new key, and it is
+// registered HERE at module scope so it is baked before the first frame
+// whichever of this module and the boot pass loads first.
+//
+// `flash: false` on the cannon for the same reason it is on every other prop:
+// nothing can hit it, so the white twin is memory nothing will ever read — and
+// because `flash` is part of the atlas key, omitting it would raster a SECOND
+// cannon the first time she fires, which is exactly what tests/renderSmoke.js
+// fails the build over.
+const CUTLASS_STEEL = { shape: 'crescent', color: '#ffffff', accent: '#2a2a3a', size: 26, rotates: true };
+const RUM_BARREL = { shape: 'circle', color: '#8a7b63', accent: '#3a3226', size: 20 };
+const CANNON_IRON = { shape: 'saucer', color: '#2a2118', accent: '#e8c34a', size: 20, flash: false };
+const CUTLASS_SPRITE = H.atlas.register(CUTLASS_STEEL);
+const BARREL_SPRITE = H.atlas.register(RUM_BARREL);
+const CANNON_SPRITE = H.atlas.register(CANNON_IRON);
+
+/**
+ * `sweepSprite` and `fallSprite` take a scale in MULTIPLES OF THE BAKED SPRITE,
+ * so every call site below asks for a length in world pixels and divides by the
+ * sprite's own width once, here. The alternative — hand-tuned scale constants —
+ * silently changes size the day somebody edits a descriptor's `size`.
+ */
+const CUTLASS_UNIT = 1 / Math.max(1, CUTLASS_SPRITE.w);
+const BARREL_UNIT = 1 / Math.max(1, BARREL_SPRITE.w);
+const CANNON_UNIT = 1 / Math.max(1, CANNON_SPRITE.w);
+
+// --- Buccaneer's Cutlass ----------------------------------------------------
+/** 140°, 100px — the swing's declared geometry, unchanged and now named. */
+const CUTLASS_ARC = 2.4435;
+const CUTLASS_REACH = 100;
+/**
+ * Where the blade rides along the reach, and how much of it the blade spans.
+ * Riding at 0.60 with a blade 0.80 of the reach long puts the hilt at her fist
+ * and the point on the damage edge, which is what makes a 140° cone legible
+ * without one extra draw call.
+ */
+const CUTLASS_RIDE = 0.60;
+const CUTLASS_SPAN = 0.80;
+/**
+ * `sweep` here is a REQUEST, exactly as it is on Nekromina's scythe: `meleeArc`
+ * otherwise picks the energy arc's direction from one module-level toggle whose
+ * phase is shared with every other sword in the game, so a prop swung on top of
+ * it would disagree for the whole run. Pinned per shot, off the shot index, so
+ * her combo alternates and the blade and its own slash agree every time.
+ */
+const CUTLASS_SWING = { color: '#d62b3a', knockback: 120, src: H.SRC.AUTO, sweep: 1 };
+const CUTLASS_SWEEP = { sweep: 1, scale: 1, ghosts: 3, life: 0.22 };
+
+// --- the flintlock, and the ship's guns, which are the same machine ----------
+/**
+ * ONE GUN PROP, IN TWO SIZES. The pistol in her hand and the eighteen-pounders
+ * along the galleon's rail are the same object at 26px and 70px, and that is a
+ * statement rather than a saving: her entire answer to everything is a tube
+ * full of powder, and the broadside is that answer eighteen times at once.
+ */
+const PISTOL_LEN = 26;
+const GUN_LEN = 70;
+const PISTOL_ARC = 0.46;
+const GUN_ARC = 0.40;
+const PISTOL_KICK = { sweep: 1, scale: PISTOL_LEN * CANNON_UNIT, ghosts: 2, life: 0.16, alpha: 0.95 };
+const GUN_KICK = { sweep: 1, scale: GUN_LEN * CANNON_UNIT, ghosts: 3, life: 0.2, alpha: 0.95 };
+const FLINTLOCK_HIT = { element: 'fire', knockback: 90, maxTargets: 0 };
+/**
+ * THE SHOT, as something with a life instead of a frame.
+ *
+ * It was `run.beamOverlay`, which the scene clears at the end of every tick —
+ * so the one visible product of a hitscan shot existed for a single frame and,
+ * at 144Hz with the sim at 60, was drawn for less than half of them. A pooled
+ * beam rises, ripples and fades over a fifth of a second, which is how long a
+ * muzzle flash actually hangs around. It also stops allocating an overlay
+ * record on every third auto-attack.
+ */
+const FLINTLOCK_TRACE = { tier: 0, life: 0.2 };
+const MUZZLE_JET = { tier: 0, life: 0.15 };
+const MUZZLE_POP = { tier: 0, life: 0.2, size: 18 };
+/** Powder smoke: slow, heavy, and it lingers long after the shot is resolved. */
+const POWDER_FX = { speed: 200, life: 0.9, size: 0.8, drag: 3.2 };
+const SPARK_FX = { speed: 380, life: 0.22, size: 0.45, additive: true };
+const EMBER_FX = { speed: 150, life: 0.6, size: 0.35, drag: 2.4, additive: true };
+const RECOIL_FX = { tier: 0, life: 0.22, alpha: 0.5 };
+const RECOIL_GHOSTS = 3;
+
+// --- BROADSIDE! -------------------------------------------------------------
+/**
+ * The galleon, in numbers.
+ *
+ * `HULL_HALF` is the same 280 the cast's telegraph line has always used, which
+ * is the point: the ship is now DRAWN along the line that was already promising
+ * it. `GUN_PORTS` is a row rather than a scatter — the shots walk down the
+ * broadside and back, so a volley reads as one ship working its guns in
+ * sequence instead of as fourteen unrelated bangs.
+ */
+const HULL_HALF = 280;
+const GUN_PORTS = 7;
+const HULL_REFRESH = 0.11;
+/** How far the whole ship shoves when a gun goes off, and how fast it settles. */
+const HULL_KICK = 16;
+const HULL_SETTLE = 9;
+const SHIP_TIMBER = '#8a7a5c';
+const SHIP_DECK = '#c9c4bb';
+const HULL_BEAM = { tier: 0, life: 0.2, alpha: 0.5 };
+const RAIL_BEAM = { tier: 0, life: 0.2, alpha: 0.34 };
+const ARRIVE_BEAM = { tier: 0, life: 0.7, alpha: 0.75 };
+const FOG_FX = { speed: 120, life: 1.2, size: 0.9, drag: 2.2 };
+/** The shell's flight, and the telegraph, are the same 1.1s. Unchanged. */
+const SHELL_FLIGHT = 1.1;
+const SHELL_ARC_BASE = 120;
+const SHELL_ARC_PER_PX = 0.26;
+/**
+ * The volley's shot record, mutated in place.
+ *
+ * It used to be an object literal built inside `tick()` — one allocation per
+ * cannonball, twenty-two of them per cast, on the frame the screen is busiest.
+ */
+const BROADSIDE_SHOT = {
+  motion: H.MOTION.ARC, targetX: 0, targetY: 0,
+  flightTime: SHELL_FLIGHT, arcHeight: SHELL_ARC_BASE,
+  damage: 0, aoeRadius: 0, aoeDamage: 0,
+  radius: 11, visual: CANNONBALL_VISUAL, element: 'fire',
+  trailColor: '#7a6a58', owner: null, tag: 'broadside',
+};
+/**
+ * WHERE THE SHELL LANDS, drawn as the shell landing.
+ *
+ * `MOTION.ARC` resolves its own damage on touchdown and offers no hook, so the
+ * impact is scheduled for the same 1.1s the flight takes and lands on the same
+ * frame. That is the only way to get splinters out of a projectile the engine
+ * owns — and splinters are what separates "a cannonball hit the ground" from "a
+ * number appeared". Thirty-two slots against ten shells in the air at once.
+ */
+const SHELL_SLOTS = 32;
+const SHELLS = [];
+for (let i = 0; i < SHELL_SLOTS; i++) SHELLS.push({ run: null, x: 0, y: 0, radius: 0 });
+let shellSlot = 0;
+const IMPACT_RING = { tier: 0, life: 0.44, width: 7, from: 16, spokes: 14 };
+const IMPACT_POP = { tier: 0, life: 0.26, size: 24 };
+/** Timber, going everywhere. `shard` is one of the five pre-baked shapes. */
+const SPLINTER_FX = { speed: 300, life: 0.55, size: 0.5, drag: 3.2, shape: 'shard' };
+const SCORCH_FX = { speed: 130, life: 0.7, size: 0.75, drag: 4 };
+
+// --- Barrel Roll ------------------------------------------------------------
+const BARREL_SIZE = 46;
+/** Her diving into it: it comes down over her, spinning, in a fifth of a second. */
+const BARREL_IN = { tier: 0, life: 0.22, from: 70, scale: BARREL_SIZE * BARREL_UNIT, angle: 0, spin: 5.5 };
+/** And rolling: re-dropped on a cadence with a hair of lift, so it tumbles. */
+const BARREL_ROLLING = { tier: 0, life: 0.14, from: 6, scale: BARREL_SIZE * BARREL_UNIT, angle: 0, spin: 7 };
+const BARREL_ROLL_REFRESH = 0.09;
+const STAVE_FX = { speed: 320, life: 0.6, size: 0.55, drag: 3, shape: 'shard' };
+const RUM_SPRAY = { speed: 210, life: 0.7, size: 0.5, drag: 2.6 };
+const SHATTER_FX = { tier: 0, life: 0.3, size: 26 };
+/** The roll's own cut. Built once; it was an object literal per press. */
+const ROLL_CUT = { damage: 0, width: 44, color: '#d62b3a', src: H.SRC.ESCAPE };
+
 // --- NEKROMINA'S SCYTHE, the one PROP in this file ---------------------------
 //
 // Everything else in the game that an ability draws is ENERGY — an arc, a ring,
@@ -437,45 +616,96 @@ registerAll({
   // AKANE — "Captain of the Treasure Ship". Ahoy.
   // =========================================================================
 
-  // AUTO — "Buccaneer's Cutlass": a wide 140° cutlass arc, 24 damage, 100px
-  // reach, every 0.65s. Every 3rd swing she instead fires a FLINTLOCK shot —
-  // hitscan, pierces 4, 45 damage, with a satisfying puff of smoke.
-  // Targeting: facing.
+  // AUTO — "Buccaneer's Cutlass": a wide 140° cutlass arc at 100px reach, on the
+  // cadence and for the damage her card declares. Every 3rd swing she instead
+  // fires a FLINTLOCK shot — hitscan, pierces 4, 45 damage, with a satisfying
+  // puff of smoke. Targeting: facing.
+  //
+  // Two guns and a sword, and all three of them are drawn as objects: see the
+  // prop block at the top of this file for why that mattered enough to do.
   buccaneers_cutlass: {
     fire(run, p, ctx, opts) {
       const o = H.origin(run, p, opts);
       const t = H.target(run, p, ctx.def.targeting, opts);
       const a = t.angle;
+      const shot = ctx.shotIndex | 0;
 
-      if ((ctx.shotIndex | 0) % 3 === 0) {
+      if (shot % 3 === 0) {
         // THE FLINTLOCK. Hitscan: it resolves the instant it is fired.
         const dmg = H.autoDamage(run, p, 45, opts);
         const x1 = o.x + Math.cos(a) * 520;
         const y1 = o.y + Math.sin(a) * 520;
-        H.lineDamage(run, o.x, o.y, x1, y1, H.area(p, 16), dmg, H.SRC.AUTO, {
-          element: 'fire', knockback: 90,
-          maxTargets: H.pierce(p, 4) + 1,   // "pierces 4" — the shot plus four
-        });
-        run.beamOverlay(o.x, o.y, x1, y1, 5, '#ffe1a3');
-        // The satisfying puff of smoke, which is the whole point of the move.
-        H.particles.cone(o.x + Math.cos(a) * 20, o.y + Math.sin(a) * 20, a, 0.55, 12, '#c9c4bb', SMOKE_FX);
-        H.particles.burst(o.x + Math.cos(a) * 22, o.y + Math.sin(a) * 22, 6, '#ffd76a', MUZZLE_FX);
+        FLINTLOCK_HIT.maxTargets = H.pierce(p, 4) + 1;   // "pierces 4" — the shot plus four
+        H.lineDamage(run, o.x, o.y, x1, y1, H.area(p, 16), dmg, H.SRC.AUTO, FLINTLOCK_HIT);
+
+        // THE GUN, THEN THE FLASH, THEN THE SMOKE — in that order, because that
+        // is the order they happen in and drawing them as one event is what made
+        // this read as "a line appeared" rather than as a shot.
+        //
+        // The pistol is the ship's own gun at a third of the size (see
+        // PISTOL_LEN), swung through a short arc pivoted on her fist: the
+        // sweep's built-in wind-up dips the muzzle and then kicks it, which is
+        // what a hand cannon going off does to the wrist holding it. Direction
+        // alternates off the shot index so consecutive shots are not the same
+        // shot twice, and none of it touches an RNG.
+        const mx = o.x + Math.cos(a) * 22;
+        const my = o.y + Math.sin(a) * 22;
+        PISTOL_KICK.sweep = (shot & 2) ? -1 : 1;
+        H.effects.sweepSprite(o.x, o.y, a, PISTOL_ARC, 24, CANNON_SPRITE, PISTOL_KICK);
+
+        // The trace picks up the evolved tier, because an evolved kit has to
+        // read as evolved in one frame and half of that read is her shot
+        // growing gold rails down its length.
+        FLINTLOCK_TRACE.tier = H.visualTier(p, opts);
+        H.effects.beam(o.x, o.y, x1, y1, 5, '#ffe1a3', FLINTLOCK_TRACE);
+        H.effects.beam(mx, my, mx + Math.cos(a) * 46, my + Math.sin(a) * 46, 13, '#ffd76a', MUZZLE_JET);
+        H.effects.impact(mx, my, '#fff3b0', MUZZLE_POP);
+
+        // The satisfying puff of smoke, which is the whole point of the move —
+        // now heavy enough to still be hanging in the air on the next swing.
+        H.particles.cone(mx, my, a, 0.55, 14, '#c9c4bb', POWDER_FX);
+        H.particles.cone(mx, my, a, 0.22, 7, '#ffd76a', SPARK_FX);
+        H.particles.burst(mx, my, 4, '#ff9a3d', EMBER_FX);
         H.audio.play('shoot');
-        H.camera.punch(0.024, 0.16);
+        H.camera.punch(0.03, 0.2);
+        H.shake.small();
       } else {
-        H.meleeArc(run, p, o.x, o.y, a, 2.4435, 100,           // 140°, 100px reach
-                   H.autoDamage(run, p, ctx.def.damage, opts), {
-          color: '#d62b3a', knockback: 120, src: H.SRC.AUTO,
-        });
+        // THE CUTLASS, with a cutlass in it. `meleeArc` draws the energy of the
+        // swing; the sprite swept through the same arc at the same speed is the
+        // bar of steel that displaced the air, and `sweepSprite` aligns every
+        // ghost along its own radius so the hilt always points back at whoever
+        // is holding it — which is what makes this a swing from her hip instead
+        // of a blade sliding sideways across the screen.
+        //
+        // Everything pivots on `o` rather than on `p`, so a mirroring minion and
+        // THE FINAL FORM both swing from where THEY stand.
+        CUTLASS_SWING.sweep = (shot & 1) ? -1 : 1;
+        H.meleeArc(run, p, o.x, o.y, a, CUTLASS_ARC, CUTLASS_REACH,
+                   H.autoDamage(run, p, ctx.def.damage, opts), CUTLASS_SWING);
+        const reach = H.area(p, CUTLASS_REACH);
+        CUTLASS_SWEEP.sweep = CUTLASS_SWING.sweep;
+        CUTLASS_SWEEP.scale = reach * CUTLASS_SPAN * CUTLASS_UNIT;
+        H.effects.sweepSprite(o.x, o.y, a, CUTLASS_ARC, reach * CUTLASS_RIDE,
+                              CUTLASS_SPRITE, CUTLASS_SWEEP);
       }
     },
   },
 
-  // SPECIAL — "BROADSIDE!" (27s): a ghostly galleon fades in along one edge and
-  // runs out its guns. 14 cannonballs arc across the arena over 2.5s, each
-  // exploding for 70 damage in a 110px radius. Every impact point is
-  // telegraphed, so it is aimable chaos rather than random chaos.
+  // SPECIAL — "BROADSIDE!": a ghostly galleon fades in along one edge and runs
+  // out its guns. 14 cannonballs arc across the arena over 2.5s, each exploding
+  // for 70 damage in a 110px radius. Every impact point is telegraphed, so it is
+  // aimable chaos rather than random chaos.
   // S3: 22 cannonballs and the galleon stays for a second volley.
+  //
+  // AIMABLE CHAOS IS THE IDENTITY AND THE TELEGRAPH IS ONLY HALF OF IT. Every
+  // impact was already announced 1.1s before it landed; what was missing was the
+  // other end of the line. Fourteen bangs came out of a stripe of warning colour
+  // and fourteen explosions appeared, and nothing in between said SHIP. The hull
+  // is drawn now, the guns are a row that fires in sequence, every shot kicks the
+  // whole vessel back off the shot, and the shells loft in proportion to the
+  // ground they cross — so the player can read where the volley is coming from,
+  // which gun is next, and how far along the arc the iron currently is. None of
+  // that changes a number. All of it changes whether the move is read or endured.
   broadside: {
     cast(run, p, ctx) {
       ctx.perVolley = ctx.s3 ? 22 : 14;
@@ -492,8 +722,23 @@ registerAll({
       const mid = (run.bounds.minX + run.bounds.maxX) * 0.5;
       ctx.shipX = p.x > mid ? p.x - 760 : p.x + 760;
       ctx.shipY = p.y;
-      run.hazards.telegraphLine(ctx.shipX, ctx.shipY - 280, ctx.shipX, ctx.shipY + 280,
+      // Which way the guns point. Every muzzle, every recoil and the hull's own
+      // kick are measured against this one sign, so the ship cannot end up
+      // firing out of its landward side.
+      ctx.face = ctx.shipX < p.x ? 1 : -1;
+      ctx.hullT = 0;
+      ctx.kick = 0;
+      run.hazards.telegraphLine(ctx.shipX, ctx.shipY - HULL_HALF, ctx.shipX, ctx.shipY + HULL_HALF,
                                 40, ctx.t, 'yellow', 'arrow');
+
+      // SHE FADES IN. The telegraph line has always promised a ship along this
+      // edge and there was never one there — six drifting motes and a warning
+      // stripe. The hull arrives as a single long beam down the exact line the
+      // telegraph draws, with the fog it came out of blowing off it to leeward,
+      // and `tick` keeps it on screen from there.
+      H.effects.beam(ctx.shipX, ctx.shipY - HULL_HALF, ctx.shipX, ctx.shipY + HULL_HALF,
+                     40, SHIP_TIMBER, ARRIVE_BEAM);
+      H.particles.cone(ctx.shipX, ctx.shipY, ctx.face > 0 ? 0 : Math.PI, 2.4, 18, SHIP_TIMBER, FOG_FX);
 
       H.grade(run, '#d62b3a', 0.42, 0.6);
       H.announce(run, 'BROADSIDE!', '#e8c34a');
@@ -501,11 +746,26 @@ registerAll({
       H.audio.play('special');
     },
     tick(run, p, ctx, dt) {
-      // The hull, drawn in drifting spectral timber rather than an allocation.
-      ctx.hullT = (ctx.hullT || 0) - dt;
+      // THE HULL, drawn rather than implied.
+      //
+      // Three pooled beams — the hull, the weather rail outboard, the far rail
+      // inboard — refreshed four times faster than they fade, so they overlap
+      // into one continuous ship for a handful of effect slots instead of three
+      // draw calls a frame. They are spectral on purpose: `effects` composites
+      // additively, and a ghost galleon is the one object in the game that ought
+      // to be lit from inside.
+      ctx.kick -= ctx.kick * (dt * HULL_SETTLE > 1 ? 1 : dt * HULL_SETTLE);
+      ctx.hullT -= dt;
       if (ctx.hullT <= 0) {
-        ctx.hullT = 0.12;
-        H.particles.drift(ctx.shipX, ctx.shipY + H.fxRng.signed() * 260, '#8a7a5c', HULL_FX);
+        ctx.hullT = HULL_REFRESH;
+        // The whole ship rides back on the recoil and settles. This is the cue
+        // that makes a volley read as a ship WORKING rather than as a spawner.
+        const hx = ctx.shipX - ctx.face * ctx.kick;
+        const y0 = ctx.shipY - HULL_HALF, y1 = ctx.shipY + HULL_HALF;
+        H.effects.beam(hx, y0, hx, y1, 34, SHIP_TIMBER, HULL_BEAM);
+        H.effects.beam(hx + ctx.face * 15, y0 + 40, hx + ctx.face * 15, y1 - 40, 8, SHIP_DECK, RAIL_BEAM);
+        H.effects.beam(hx - ctx.face * 15, y0 + 70, hx - ctx.face * 15, y1 - 70, 6, SHIP_TIMBER, RAIL_BEAM);
+        H.particles.drift(hx, ctx.shipY + H.fxRng.signed() * HULL_HALF, SHIP_TIMBER, HULL_FX);
       }
 
       ctx.next -= dt;
@@ -527,17 +787,55 @@ registerAll({
 
       // TELEGRAPHED FIRST. The shell's flight time and the telegraph are the
       // same 1.1s, so the red X fills exactly as the cannonball lands.
-      run.hazards.telegraph(tx, ty, r, 1.1, 'red', 'x');
+      run.hazards.telegraph(tx, ty, r, SHELL_FLIGHT, 'red', 'x');
 
-      const sy = ty + H.runRng.range(-40, 40);
-      run.projectiles.fire(ctx.shipX, sy, H.angleTo(ctx.shipX, sy, tx, ty), {
-        motion: H.MOTION.ARC,
-        targetX: tx, targetY: ty, flightTime: 1.1, arcHeight: 200,
-        damage: ctx.dmg, aoeRadius: r, aoeDamage: ctx.dmg,
-        radius: 11, visual: CANNONBALL_VISUAL, element: 'fire',
-        trailColor: '#7a6a58', owner: p, tag: 'broadside',
-      });
-      H.particles.burst(ctx.shipX, sy, 7, '#ffd76a', MUZZLE_FX);
+      // WHICH GUN. The shot used to leave from a point level with wherever it
+      // was going, which meant the muzzle flashes wandered up and down the edge
+      // of the arena at random and the ship had no guns — it had one hole that
+      // moved. They walk the broadside in order now, so the row is visible and
+      // the volley has a rhythm you can hear coming.
+      const port = ctx.fired % GUN_PORTS;
+      const py = ctx.shipY - HULL_HALF * 0.82 + (port / (GUN_PORTS - 1)) * HULL_HALF * 1.64;
+      const px = ctx.shipX - ctx.face * ctx.kick;
+      const aim = H.angleTo(px, py, tx, ty);
+
+      // A shell thrown further is thrown higher. One arc height for every range
+      // made a long shot look like a flat line drive and a short one like a
+      // mortar; both now loft in proportion to the ground they cover, which is
+      // the entire "visibly ARCS" read.
+      BROADSIDE_SHOT.targetX = tx;
+      BROADSIDE_SHOT.targetY = ty;
+      BROADSIDE_SHOT.arcHeight = SHELL_ARC_BASE + Math.sqrt(H.dist2(px, py, tx, ty)) * SHELL_ARC_PER_PX;
+      BROADSIDE_SHOT.damage = ctx.dmg;
+      BROADSIDE_SHOT.aoeRadius = r;
+      BROADSIDE_SHOT.aoeDamage = ctx.dmg;
+      BROADSIDE_SHOT.owner = p;
+      run.projectiles.fire(px, py, aim, BROADSIDE_SHOT);
+
+      // THE GUN GOING OFF: the barrel jumps in its port, a jet of flame leaves
+      // it, the piece runs back inboard on its tackle, and the whole ship shoves
+      // away from the shot.
+      GUN_KICK.sweep = (port & 1) ? -1 : 1;
+      H.effects.sweepSprite(px, py, aim, GUN_ARC, 30, CANNON_SPRITE, GUN_KICK);
+      const jx = px + Math.cos(aim) * 34, jy = py + Math.sin(aim) * 34;
+      H.effects.beam(jx, jy, jx + Math.cos(aim) * 90, jy + Math.sin(aim) * 90, 16, '#ffd76a', MUZZLE_JET);
+      H.effects.impact(jx, jy, '#fff3b0', MUZZLE_POP);
+      for (let i = 1; i <= RECOIL_GHOSTS; i++) {
+        RECOIL_FX.alpha = 0.5 - i * 0.12;
+        H.effects.afterimage(px - ctx.face * i * 10, py, aim, 13, SHIP_DECK, RECOIL_FX);
+      }
+      H.particles.cone(jx, jy, aim, 0.5, 12, '#c9c4bb', POWDER_FX);
+      H.particles.cone(jx, jy, aim, 0.24, 6, '#ffd76a', SPARK_FX);
+      H.particles.burst(jx, jy, 4, '#ff9a3d', EMBER_FX);
+      ctx.kick = HULL_KICK;
+
+      // AND WHERE IT LANDS. `MOTION.ARC` owns the damage and offers no hook, so
+      // the splinters are scheduled for the same flight time and arrive on the
+      // same frame the iron does.
+      const rec = SHELLS[shellSlot];
+      shellSlot = (shellSlot + 1) % SHELL_SLOTS;
+      rec.run = run; rec.x = tx; rec.y = ty; rec.radius = r;
+      run.scheduler.after(SHELL_FLIGHT, shellImpact, rec);
       H.shake.small();
     },
   },
@@ -550,10 +848,8 @@ registerAll({
   barrel_roll: {
     cast(run, p, ctx) {
       const a = p.facing;
-      H.dash(run, p, a, 220, ctx.def.iframes, {
-        damage: H.abilityDamage(run, p, 30), width: 44,
-        color: '#d62b3a', src: H.SRC.ESCAPE,
-      });
+      ROLL_CUT.damage = H.abilityDamage(run, p, 30);
+      H.dash(run, p, a, 220, ctx.def.iframes, ROLL_CUT);
       ctx.angle = a;
       ctx.rollT = ctx.s5 ? 1.5 : 0;         // S5: hold to keep rolling
       ctx.rollDmg = H.abilityDamage(run, p, 30);
@@ -563,9 +859,14 @@ registerAll({
       ctx.igniteT = 0.4;
       ctx.checkT = 0;
       ctx.fuseT = 0;
+      ctx.propT = 0;
       ctx.done = false;
       ctx.active = true;
       ctx.t = 8;                            // roll window + the puddle's life
+      // SHE DIVES INTO A BARREL, so there is a barrel. It comes down over her
+      // spinning, which is the one frame that explains everything that follows —
+      // without it the move is a yellow dash that inexplicably leaves a puddle.
+      H.effects.fallSprite(p.x, p.y, BARREL_SPRITE, BARREL_IN);
       H.grade(run, '#e8c34a', 0.24, 0.4);
       H.particles.burst(p.x, p.y, 10, '#e8c34a', MUZZLE_FX);
     },
@@ -592,6 +893,16 @@ registerAll({
           p.y = H.clamp(p.y + Math.sin(ctx.angle) * step, run.bounds.minY, run.bounds.maxY);
           p.px = p.x; p.py = p.y;
           H.particles.drift(p.x, p.y, '#e8c34a', HULL_FX);
+          // The barrel she is inside, re-blitted on a cadence with a hair of
+          // lift and a hard spin: a prop cannot be held on screen by a system
+          // whose every entry has a lifetime, so a rolling object is drawn as a
+          // fast sequence of very short-lived ones. The spin is what makes it
+          // roll rather than slide.
+          ctx.propT -= dt;
+          if (ctx.propT <= 0) {
+            ctx.propT = BARREL_ROLL_REFRESH;
+            H.effects.fallSprite(p.x, p.y, BARREL_SPRITE, BARREL_ROLLING);
+          }
           // Damage is resolved on a 0.15s cadence over the segment just covered,
           // so a long roll cannot hit the same enemy sixty times a second.
           ctx.hitT -= dt;
@@ -609,6 +920,12 @@ registerAll({
       // --- the barrel shatters ----------------------------------------------
       if (!ctx.puddle) {
         ctx.puddle = H.field(run, p, p.x, p.y, 80, 6, 'damage', 0, '#e8c34a');
+        // IT SHATTERS. Staves outward as timber shards, rum outward as liquid,
+        // and one hard pop where the hoops let go — the puddle is the thing it
+        // BECAME and needs a moment where it stops being a barrel.
+        H.effects.impact(p.x, p.y, '#e8c34a', SHATTER_FX);
+        H.particles.burst(p.x, p.y, 12, '#8a7a5c', STAVE_FX);
+        H.particles.burst(p.x, p.y, 12, '#e8c34a', RUM_SPRAY);
         H.particles.burst(p.x, p.y, 14, '#e8c34a', SMOKE_FX);
         H.audio.play('explode');
         ctx.t = 6;
@@ -671,6 +988,9 @@ registerAll({
         element: 'fire', color: '#ff9a3d', falloff: 0.2, src: H.SRC.ESCAPE,
       });
       H.field(run, p, f.x, f.y, 80, 4, 'burn', 15, '#ff7a2f');
+      // Burning spirit throws what is left of the barrel at the room.
+      H.particles.burst(f.x, f.y, 10, '#8a7a5c', STAVE_FX);
+      H.particles.burst(f.x, f.y, 10, '#ff9a3d', EMBER_FX);
       H.flash.fire('#ff9a3d', 0.3, 3);
       run.hazards.fields.release(f);
       ctx.puddle = null;
@@ -909,6 +1229,26 @@ function featherPool(pr, run) {
 /** HIKARI — everything the Rebirth Nova touches burns, at the feathers' rate. */
 function igniteOnHit(e) {
   H.applyBurn(e.st, 10, 3);
+}
+
+/**
+ * AKANE — eleven pounds of iron arriving.
+ *
+ * Scheduled by the volley for the shell's own flight time, so it fires on the
+ * frame `MOTION.ARC` resolves the blast it cannot give us a hook for. This is
+ * the whole "splintering impact": a shockwave sized to the real damage radius,
+ * a hot core, timber shards thrown outward and a low bank of scorched dust that
+ * hangs after everything else has gone. The ARC's own ring and its `explode`
+ * sample still play underneath — this is the layer that says what was HIT.
+ */
+function shellImpact(rec) {
+  const run = rec.run;
+  if (!run) return;
+  H.effects.shockwave(rec.x, rec.y, rec.radius, '#ff9a3d', IMPACT_RING);
+  H.effects.impact(rec.x, rec.y, '#ffd76a', IMPACT_POP);
+  H.particles.burst(rec.x, rec.y, 9, '#8a7a5c', SPLINTER_FX);
+  H.particles.burst(rec.x, rec.y, 6, '#c9c4bb', SCORCH_FX);
+  H.camera.punch(0.02, 0.14);
 }
 
 /** AKANE — is anything standing in the rum already on fire? */

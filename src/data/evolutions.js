@@ -15,6 +15,39 @@
 // tests/data.test.js asserts every one of them resolves against relics.js.
 //
 // No ref strings live here (DECISIONS.md §22) — refs.js owns them, keyed by id.
+//
+// ---------------------------------------------------------------------------
+// THIS FILE AND WEAPON EVOLUTIONS ARE TWO DIFFERENT SYSTEMS. HOW THEY RELATE.
+// ---------------------------------------------------------------------------
+//
+// Since the weapon overhaul there are two things in the game called an
+// evolution, and confusing them is easy, so:
+//
+//   THIS FILE — BUILD evolutions. Eight of them, one per recipe, and a recipe is
+//   a generic upgrade at MAX LEVEL plus a specific RELIC. What they change is the
+//   character's kit: an execute, a revive, a beam from orbit, a permanent
+//   warrior. They are recorded in `player.evolutions`, they are counted against
+//   a hard-coded total of 8 by the results screen and two achievements, and they
+//   are offered by run._availableEvolution() as a `kind: 'evolution'` card.
+//
+//   data/weapons.js — WEAPON evolutions. One per weapon, fifteen of them
+//   counting the signature, and a recipe is that weapon at LEVEL 8 plus a named
+//   generic upgrade a few levels deep (`evolution.requires`) — no relic. What
+//   they change is the weapon: the timer comes off it and it becomes a standing
+//   effect. They live in the WeaponSystem's own slot records, deliberately NOT
+//   in `player.evolutions`, and they are offered as a `kind: 'weaponEvo'` card.
+//
+// The connective tissue is the generic upgrade pool, and that is on purpose. One
+// upgrade now does up to three jobs at once: its own stat, its half of a build
+// recipe here, and its half of a weapon recipe over there. Four upgrades pull
+// double duty across both tables — Sharp Edge, Extra Shot, Piercing Will and
+// Bloodthirst — which is a feature: the card that was already the best card in
+// your build is now also the card that finishes a weapon.
+//
+// They cannot collide, because the two systems ask for different things from the
+// same upgrade. A build recipe needs it MAXED and needs a relic on top; a weapon
+// recipe needs two or three levels and nothing else. Paying one never accidentally
+// pays the other, and paying both is a build worth planning.
 // ============================================================================
 
 /** Every 4th shot becomes a 16-projectile ring. Rei's penlight, weaponised. */

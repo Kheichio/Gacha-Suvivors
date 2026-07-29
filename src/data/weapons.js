@@ -31,10 +31,11 @@
 //                   delta table cannot be read at a glance and this is the table
 //                   the whole feel of the weapon lives in. `note` is the line the
 //                   level-up card shows: what THIS level buys.
-//   evolution       { name, icon, desc, stats } — the always-on form. Its stats
-//                   row is absolute too and always carries a very short
+//   evolution       { name, icon, desc, stats, requires } — the always-on form.
+//                   Its stats row is absolute too and always carries a very short
 //                   interval, plus `persist` where the weapon becomes a standing
-//                   effect rather than a repeated one.
+//                   effect rather than a repeated one. `requires` is the entry
+//                   fee — see THE EVOLUTION REQUIREMENT below.
 //   visual          the projectile/effect descriptor. Pre-rastered at boot by
 //                   render/prewarm.js — never built inside a fire() path.
 //
@@ -53,6 +54,39 @@
 //
 // No ref strings live here (DECISIONS.md §22) and no character ids: the
 // signature weapon reads its name off whichever character is playing.
+//
+// ---------------------------------------------------------------------------
+// THE EVOLUTION REQUIREMENT — `evolution.requires`
+// ---------------------------------------------------------------------------
+//
+// Play report: "make weapons require a specific atk/utl upgrade in order to be
+// evolved". They are right, and the reason is that maxing a weapon was never a
+// DECISION. Eight levels into a weapon and the evolve card simply turned up; the
+// only thing standing between a player and every evolution in their rack was
+// time. So a weapon that is maxed is now only half a recipe. The other half is a
+// named generic upgrade, three levels deep, and the pair of them is what the
+// player has to plan for.
+//
+// WHY THREE LEVELS AND NOT MAX. The relic recipes in data/evolutions.js already
+// own "max out this upgrade" as their price, and they can afford it because they
+// only ask it once. A weapon asks it five times over — one per slot — and there
+// are only three offensive and three utility build slots to pay with
+// (BUILD_SLOTS in upgrades.js). Demanding eight levels of five different
+// upgrades is not a cost, it is a refusal. Three is deep enough that you feel it
+// leave your build and shallow enough that a run can pay it more than twice.
+// Extra Shot asks for TWO because it only has four levels in it at all; the rule
+// is min(3, ceil(maxLevel / 2)) and every number below is that rule applied.
+//
+// WHY SOME WEAPONS SHARE ONE. Idol Orbit and Chain Lash both want Wide Reach;
+// Return Cut and Meteor Call both want Long Haul. That is the point rather than
+// a shortage of ideas — a build that commits to reach should be able to evolve
+// the two weapons that ARE reach, and a rack of five weapons pointing at five
+// unrelated upgrades could never evolve more than three of them. Sharing is what
+// makes "an area build" or "a crit build" a thing you can actually finish.
+//
+// The relic-based EVOLUTIONS table is a different, older system and still works
+// exactly as it did — see the header of data/evolutions.js for how the two
+// relate now that they draw from the same upgrade pool.
 
 /** Hard cap. Slot 0 is ALWAYS the character's own auto-attack. */
 export const WEAPON_SLOTS = 5;
@@ -105,6 +139,15 @@ export const SIGNATURE_EVOLUTION = {
   desc: 'Your signature attack stops taking breaks. It fires continuously, ' +
         'at triple size, and a standing halo of the same element burns anything ' +
         'that closes on you.',
+  // The signature's entry fee is Rapid Fire, and it is the same for every
+  // character in the roster on purpose. A per-character requirement would have
+  // to live in characters.js, which means twenty-odd separate answers to a
+  // question the player asks once — and the answer is the same one every time,
+  // because PERPETUAL is not "your attack, bigger", it is "your attack, with the
+  // gaps taken out". Rapid Fire is that sentence written as an upgrade. It also
+  // costs you an offensive slot before the run has really started, which is the
+  // trade: slot 0 is free, evolving slot 0 is not.
+  requires: { upgrade: 'rapid_fire', level: 3 },
   stats: { damage: 3.40, rate: 3.20, area: 1.90, count: 3, pierce: 3, persist: true,
            auraRadius: 110, auraDps: 0.55 },
 };
@@ -167,6 +210,9 @@ const BLADE_ARC = {
     visual: { shape: 'crescent', color: '#ffd76a', accent: '#7a3a00', size: 28, rotates: true, glow: true },
     desc: 'The swing never stops. A full 360 degree blade sweeps around you ' +
           'continuously at 190px, and anything it touches is thrown.',
+    // The sword's own edge. Nothing else in the arsenal is this literally a
+    // question of how sharp the thing is.
+    requires: { upgrade: 'sharp_edge', level: 3 },
     stats: { damage: 78, interval: 0.16, radius: 190, arc: 6.283, count: 1, knockback: 190, spin: 5.2 },
   },
   codex: 'The first lesson is where to stand. The last lesson is that it stopped mattering.',
@@ -204,6 +250,10 @@ const IDOL_ORBIT = {
     // the first draft of this evolution managed to be weaker than the level it
     // evolved from. The balance harness caught it; the fix is coverage, not
     // damage.
+    // A ring is a radius, and Wide Reach is the upgrade that is only ever about
+    // radius. Shared with Chain Lash, which is the same sentence with a different
+    // shape on the end of it.
+    requires: { upgrade: 'wide_reach', level: 3 },
     stats: { damage: 62, interval: 0.42, count: 12, radius: 122, duration: 1.0, speed: 6.2,
              pierce: 99, persist: true },
   },
@@ -241,6 +291,9 @@ const KUNAI_FAN = {
     // full circle covers three rays; a tight seven-knife fan into a crowd covers
     // far more, which is how the first draft of this evolution came out WEAKER
     // than level 8. Ten rays plus unlimited pierce fixes the coverage.
+    // It is a knife that does not stop at the first body. Ask for the upgrade
+    // that says exactly that.
+    requires: { upgrade: 'piercing_will', level: 3 },
     stats: { damage: 46, interval: 0.11, count: 10, arc: 6.283, speed: 820, pierce: 99, life: 1.2 },
   },
   codex: 'Counted them once. Gave up at four hundred. The count was not the point.',
@@ -265,6 +318,10 @@ const STORM_RING = {
     visual: { shape: 'ring', color: '#ffffff', accent: '#2a5a7a', size: 30, glow: true },
     desc: 'The storm stops arriving and simply stays. A standing 230px field burns ' +
           'everything inside it, and the shock still lands on top.',
+    // PERMASTORM is the fantasy of being dangerous to stand next to, and
+    // Vengeance is the upgrade that already sells that fantasy. Both of them pay
+    // out for letting the crowd close, which no other pairing in this file does.
+    requires: { upgrade: 'vengeance', level: 3 },
     stats: { damage: 96, interval: 0.9, radius: 230, knockback: 260, persist: true,
              fieldDps: 46, fieldRadius: 230 },
   },
@@ -298,6 +355,9 @@ const SPIRIT_BELL = {
     visual: { shape: 'ring', color: '#ffd0ff', accent: '#3a1a5a', size: 26, glow: true },
     desc: 'The bell never stops ringing. A permanent 270px field holds everything ' +
           'in place at half speed while ring after ring rolls out of you.',
+    // The bell's whole argument is that nothing gets to touch you: it holds the
+    // ones it catches, and Phantom Step covers the ones it does not.
+    requires: { upgrade: 'phantom_step', level: 3 },
     stats: { damage: 58, interval: 0.55, radius: 270, count: 2, slow: 0.55, slowTime: 1.2,
              persist: true, fieldDps: 30, fieldRadius: 270 },
   },
@@ -331,6 +391,10 @@ const WISP_FLOCK = {
     visual: { shape: 'circle', color: '#ffe14a', accent: '#7a2000', size: 11, glow: true },
     desc: 'The flock never thins. Wisps pour out continuously, each one hotter ' +
           'than the last thing it burned.',
+    // You never aim this weapon — the wisps do the looking. Keen Eye is the
+    // upgrade about noticing where a thing is weakest, which is the job you have
+    // already handed over.
+    requires: { upgrade: 'keen_eye', level: 3 },
     stats: { damage: 46, interval: 0.22, count: 3, speed: 470, turnRate: 7.0,
              burn: 26, burnTime: 4.0, life: 3.4 },
   },
@@ -363,6 +427,9 @@ const CHAIN_LASH = {
     name: 'ENDLESS LASH', icon: '⛓',
     visual: { shape: 'capsule', color: '#ffd76a', accent: '#3a2a00', size: 14, rotates: true, glow: true },
     desc: 'Six chains, whipping without pause at 330px. Nothing gets close enough to matter.',
+    // The reach weapon asks for the reach upgrade. Shared with Idol Orbit: an
+    // area build should get to finish both of the weapons it is actually about.
+    requires: { upgrade: 'wide_reach', level: 3 },
     stats: { damage: 70, interval: 0.18, radius: 330, arc: 1.15, count: 6, knockback: 250 },
   },
   codex: 'Range is a defensive stat if you are honest about what you are doing with it.',
@@ -387,6 +454,10 @@ const METEOR_CALL = {
     visual: { shape: 'star', color: '#ffd76a', accent: '#5a1500', size: 15, glow: true },
     desc: 'The sky stops taking turns. Shells land continuously across the whole ' +
           'screen and each one leaves burning ground.',
+    // Everything this weapon does happens somewhere else. Long Haul is the only
+    // upgrade in the pool whose entire subject is how far away "somewhere else"
+    // is allowed to be.
+    requires: { upgrade: 'long_haul', level: 3 },
     stats: { damage: 130, interval: 0.30, count: 2, blast: 165, range: 760,
              fieldDps: 36, fieldTime: 2.4 },
   },
@@ -432,6 +503,9 @@ const THORN_BED = {
     visual: { shape: 'star', color: '#ffe14a', accent: '#3a3a00', size: 12, rotates: true, glow: true },
     desc: 'The ground never stops. Beds go down four times a second and a living ' +
           'seam runs under your feet between them, so there is no gap left to walk through.',
+    // The only weapon whose output is a function of where your feet have been.
+    // Swift Boots is the upgrade that changes where your feet have been.
+    requires: { upgrade: 'swift_boots', level: 3 },
     stats: { damage: 44, interval: 0.30, radius: 118, duration: 5.0, count: 10, persist: true },
   },
   codex: 'Groundskeeping filed a complaint. The ground filed one back.',
@@ -477,6 +551,10 @@ const ARC_CONDUIT = {
     // grounding out, so the escalation never stops at the edge of the pack.
     desc: 'The wire refuses to ground out. Fourteen jumps, three times a second, ' +
           'and when it runs out of new bodies it doubles back onto the ones it has.',
+    // This is the escalation weapon: the tail of the chain hits for six times
+    // the head. Killing Blow is the escalation upgrade — the one that is
+    // worthless on its own and enormous on top of something that already multiplies.
+    requires: { upgrade: 'killing_blow', level: 3 },
     stats: { damage: 62, interval: 0.30, count: 14, radius: 300, range: 780, gain: 0.50,
              knockback: 70, loop: true },
   },
@@ -521,6 +599,11 @@ const POD_VOLLEY = {
     // count is high — the shards go everywhere anyway, so the pods should too.
     desc: 'Pods pour out in every direction three times a second, pass through ' +
           'anything, and each one comes apart into twelve shards.',
+    // TWO levels, not three, and that is the rule rather than a favour: Extra
+    // Shot only has four levels in it at all, so min(3, ceil(4/2)) is 2. It is
+    // the one upgrade that literally adds a projectile to the one weapon whose
+    // projectiles have children.
+    requires: { upgrade: 'extra_shot', level: 2 },
     stats: { damage: 52, interval: 0.34, count: 4, shards: 12, speed: 520, fuse: 0.42,
              blast: 118, pierce: 99, ring: true },
   },
@@ -576,6 +659,10 @@ const RETURN_CUT = {
     // the next three passes were going to use. The balance harness had this
     // evolution at 82% of its own level 8 until the shove came off it — an
     // evolution that scatters its own targets is a downgrade wearing gold.
+    // The disc has to make the whole trip or the catch — the bigger half —
+    // never happens. Long Haul is the throw, and it is the same upgrade Meteor
+    // Call asks for: both weapons are about the distance between you and it.
+    requires: { upgrade: 'long_haul', level: 3 },
     stats: { damage: 60, interval: 0.24, count: 3, speed: 700, radius: 460, pierce: 99, blast: 100,
              arc: 1.10, knockback: 40, returnMult: 2.05 },
   },
@@ -623,8 +710,33 @@ const DYNAMO_CORE = {
     // radius and damage both read the LIVE charge, so a nearly-full core is
     // something you can see burning around you before it goes off.
     desc: 'The core never empties all the way. It hums as a standing field that ' +
-          'burns harder the fuller it gets, and it discharges twelve arcs at 340px.',
-    stats: { damage: 34, interval: 0.16, radius: 240, charge: 20, blast: 340, surge: 540,
+          'burns harder the fuller it gets, then dumps the whole bank at once — ' +
+          'up to four charges in a single 340px discharge with twelve arcs off it.',
+    // The meter is fed by kills, from any source, anywhere in the run.
+    // Bloodthirst is the other thing in the game that pays you per body rather
+    // than per hit, and a build that wants one wants the other.
+    requires: { upgrade: 'bloodthirst', level: 3 },
+    // WHY THE HUM IS SLOWER THAN IT USED TO BE, AND HITS FOR MORE.
+    //
+    // This row read `damage: 34, interval: 0.16, charge: 20` and was reported
+    // from play as "laggy ... too many visual problems ... shakes the screen too
+    // much and is overall too annoying to use". That was not a rendering
+    // problem, it was arithmetic: a 240px hum ticking 6.25 times a second banks
+    // one point of charge per enemy it touches, so in any real crowd it cleared
+    // a 20-point meter EVERY SINGLE TICK. Six full discharges a second — six
+    // novas, seventy-five arc beams, six explosion samples and six
+    // `shake.medium()` calls per second against a trauma decay of 1.02/s, which
+    // pins the shake at maximum and simply leaves it there.
+    //
+    // 0.28 and 58 is the same DPS out of half as many ticks (34/0.16 = 212.5,
+    // 58/0.28 = 207) and therefore half as many area scans, half as many damage
+    // numbers and half as many charge events. `charge` halves with it, 20 -> 12,
+    // so the meter still fills at the rate it always did. The impl then does the
+    // rest: it will not pay out more than twice a second, and it pays whatever
+    // it banked in the meantime out in ONE lump instead of four small ones.
+    // Measured over the 6s/26-enemy harness case, total damage moved 620k -> 667k
+    // while the discharge count went 37 -> 10. A nerf to noise, not to damage.
+    stats: { damage: 58, interval: 0.28, radius: 240, charge: 12, blast: 340, surge: 540,
              count: 12, persist: true },
   },
   codex: 'It is not a battery. It is an opinion about where the energy should go.',
@@ -678,6 +790,10 @@ const HOLLOW_STAR = {
     // around your own body.
     desc: 'Wells collapse every 0.7s — and the pull never lets up, anchored on ' +
           'YOU. Everything comes to you now, which is the deal you just took.',
+    // EVENT HORIZON drags the whole fight onto your body. Lodestone is the other
+    // upgrade in the game whose entire effect is "things come to you", and it is
+    // the one that turns the drag from a cost into a harvest.
+    requires: { upgrade: 'lodestone', level: 3 },
     stats: { damage: 168, interval: 0.70, radius: 270, duration: 0.55, blast: 260, count: 2,
              range: 690, pull: 340, knockback: 250, persist: true,
              dragRadius: 300, dragForce: 135 },

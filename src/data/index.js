@@ -116,6 +116,22 @@ function attachSprites() {
   join('character', characters.CHARACTERS);
   join('enemy', enemies.ENEMIES);
   join('boss', bosses.BOSSES);
+  // ALTERNATE FORMS. A character that becomes something else for the duration of
+  // an ability declares the second silhouette as `altForm` (Alicia's dragon is
+  // the only one today). It is keyed on its OWN `spriteId`, never the character
+  // id: the atlas keys pixel sprites on the descriptor id, so reusing hers would
+  // hand back the cached human at dragon size with no error anywhere — the same
+  // trap portraitFor() documents.
+  //
+  // Degrades on purpose. If sprites.js carries no entry for the form yet,
+  // spriteFor returns null, the visual keeps its procedural capsule, and the
+  // form still renders — just not yet as art.
+  for (const c of characters.CHARACTERS) {
+    const f = c.altForm;
+    if (!f || !f.visual || !f.spriteId) continue;
+    const d = spriteFor('character', { id: f.spriteId });
+    if (d) { f.visual.pixel = d; n++; }
+  }
   return n;
 }
 
@@ -151,7 +167,14 @@ const portraitsAttached = attachPortraits();
 export function allVisuals() {
   const out = [];
   const push = (v) => { if (v) out.push(v); };
-  for (const c of characters.CHARACTERS) { push(c.visual); push(c.portrait); }
+  for (const c of characters.CHARACTERS) {
+    push(c.visual);
+    push(c.portrait);
+    // The transformed silhouette bakes with everything else. It is cast exactly
+    // once per run, at the loudest moment in the game, and that is the worst
+    // possible frame to discover a sprite has never been rastered.
+    if (c.altForm) push(c.altForm.visual);
+  }
   for (const e of enemies.ENEMIES) push(e.visual);
   for (const v of weapons.weaponVisuals()) push(v);
   for (const b of bosses.BOSSES) push(b.visual);
@@ -175,8 +198,98 @@ export function validate() {
 
   for (const c of characters.CHARACTERS) {
     has(relics.RELICS_BY_ID, c.signatureRelic, `character ${c.id}.signatureRelic`);
+    // The relic has to point back. A signature relic names its owner and the
+    // owner names the relic, and only checking one direction lets a relic sit
+    // on the roster owned by somebody who has never heard of it — which the
+    // resonance bonus then pays to the wrong character, silently.
+    const sig = relics.RELICS_BY_ID[c.signatureRelic];
+    if (sig && sig.owner !== c.id) {
+      problems.push(`character ${c.id}.signatureRelic "${c.signatureRelic}" is owned by "${sig.owner}"`);
+    }
     for (const k of ['autoAttack', 'special', 'escape', 'passive']) {
       if (!c[k] || !c[k].id) problems.push(`character ${c.id} is missing ${k}`);
+    }
+    // An alternate form names the ability it lasts for, in both directions, so
+    // that renaming either half fails the boot instead of leaving a character
+    // who transforms into nothing.
+    if (c.altForm) {
+      const f = c.altForm;
+      if (!f.visual) problems.push(`character ${c.id}.altForm has no visual to draw or pre-raster`);
+      if (!f.spriteId) problems.push(`character ${c.id}.altForm declares no spriteId`);
+      else if (f.spriteId === c.id) {
+        problems.push(`character ${c.id}.altForm.spriteId must differ from the character id`);
+      }
+      const owns = ['autoAttack', 'special', 'escape', 'passive']
+        .some((k) => c[k] && c[k].id === f.id);
+      if (!owns) problems.push(`character ${c.id}.altForm "${f.id}" is not one of her own abilities`);
+    }
+  }
+
+  // RARITY BUCKETS. CHARACTERS_BY_RARITY is the only place membership is written
+  // down and every character also carries its own `rarity`; two hand-kept tables
+  // that must agree is exactly the shape of edit that gets half-done. Akane's
+  // ★5 -> ★6 promotion had to touch both and Usaki's authoring had to add to
+  // both, so the disagreement is caught here, at boot, rather than on the pull
+  // screen — where a character in two buckets rolls off two different rates and
+  // prints two different beam colours for one result.
+  const bucketOf = {};
+  for (const r of [3, 4, 5, 6]) {
+    for (const id of characters.CHARACTERS_BY_RARITY[r] || []) {
+      const c = characters.CHARACTERS_BY_ID[id];
+      if (!c) { problems.push(`CHARACTERS_BY_RARITY[${r}]: unknown character "${id}"`); continue; }
+      if (c.rarity !== r) problems.push(`character ${id} declares rarity ${c.rarity} but sits in bucket ${r}`);
+      if (bucketOf[id] !== undefined) {
+        problems.push(`character ${id} sits in rarity buckets ${bucketOf[id]} and ${r} at once`);
+      }
+      bucketOf[id] = r;
+    }
+  }
+  for (const c of characters.CHARACTERS) {
+    if (bucketOf[c.id] === undefined) {
+      problems.push(`character ${c.id} is in no rarity bucket and can never be pulled`);
+    }
+  }
+
+  // GACHA POOLS. Every banner is a third hand-written copy of the roster, so the
+  // same promotion that desynchronises the buckets desynchronises these — and a
+  // pool holding an id at the wrong rarity is not a rarer character, it is a bug
+  // the pull screen cannot report.
+  for (const b of gacha.BANNERS) {
+    const pool = b.pool || {};
+    for (const r of [3, 4, 5, 6]) {
+      for (const id of pool[r] || []) {
+        const c = characters.CHARACTERS_BY_ID[id];
+        if (!c) { problems.push(`banner ${b.id} pool[${r}]: unknown character "${id}"`); continue; }
+        if (c.rarity !== r) problems.push(`banner ${b.id} pool[${r}] holds ${id}, who is ★${c.rarity}`);
+      }
+    }
+    if (b.featured6) {
+      const c = characters.CHARACTERS_BY_ID[b.featured6];
+      if (!c) problems.push(`banner ${b.id}.featured6: unknown character "${b.featured6}"`);
+      else if (c.rarity !== 6) problems.push(`banner ${b.id} features ★${c.rarity} ${b.featured6} as its ★6`);
+      else if ((pool[6] || []).indexOf(b.featured6) < 0) {
+        // Losing the 50/50 draws from the pool, and `guaranteedOnLoss` then
+        // promises the featured character next. If she is not IN the pool the
+        // banner advertises a character its own roll can never return.
+        problems.push(`banner ${b.id} features ${b.featured6} but omits her from its ★6 pool`);
+      }
+    }
+    for (const id of b.featured5 || []) {
+      const c = characters.CHARACTERS_BY_ID[id];
+      if (!c) { problems.push(`banner ${b.id}.featured5: unknown character "${id}"`); continue; }
+      // A ★6 in a featured5 list is unreachable code — the ★5 branch never draws
+      // her — and the banner copy promises a result the roll cannot return. That
+      // is precisely what Akane's promotion left behind in the Tournament Arc.
+      if (c.rarity !== 5) problems.push(`banner ${b.id} features ★${c.rarity} ${id} among its ★5s`);
+    }
+    const rp = pool.relics;
+    if (rp) {
+      for (const id of rp) has(relics.RELICS_BY_ID, id, `banner ${b.id} relic pool`);
+      // A stale `completesAt` retires the banner one relic early and the last
+      // relic becomes unbankable with no error anywhere.
+      if (b.completesAt !== rp.length) {
+        problems.push(`banner ${b.id}.completesAt is ${b.completesAt} but its pool holds ${rp.length} relics`);
+      }
     }
   }
   for (const s of stages.STAGES) {

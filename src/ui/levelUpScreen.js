@@ -78,6 +78,30 @@ class LevelUpScreen {
     ui.title('LEVEL ' + run.player.level, W / 2, H * 0.17, { size: 46, align: 'center' });
     ui.text('choose one', W / 2, H * 0.17 + 34, { size: 14, color: PALETTE.textDim, align: 'center' });
 
+    // THE CADENCE HAS TO BE VISIBLE OR IT READS AS THE GAME BEING BROKEN.
+    //
+    // Weapons used to be on two of the three cards. They are now on one screen
+    // in three (WEAPON_OFFERS in data/upgrades.js), and a player who does not
+    // know that is a player watching stat card after stat card go by, deciding
+    // the weapon pool has bugged out. So the screen says when the next one is
+    // due — and says nothing at all on the screens that are carrying one,
+    // because a weapon card announces itself perfectly well.
+    const wait = weaponOfferWait(run, choices);
+    if (wait > 0) {
+      ui.text(`next weapon offer in ${wait} ${wait === 1 ? 'level' : 'levels'}`,
+              W / 2, H * 0.17 + 54, {
+        size: 12, color: PALETTE.accent2, align: 'center', weight: 800, mono: true,
+      });
+    }
+    // And the second clock: WHEN THE RACK MAY GET WIDER. See arsenalUnlockWait.
+    const slotWait = arsenalUnlockWait(run);
+    if (slotWait > 0) {
+      ui.text(`weapon slot ${run.weapons.count + 1} unlocks in ${slotWait} ` +
+              `${slotWait === 1 ? 'level' : 'levels'}`, W / 2, H * 0.17 + 71, {
+        size: 11, color: PALETTE.textFaint, align: 'center', weight: 800, mono: true,
+      });
+    }
+
     // Cards are no longer a uniform width, so the row is laid out by walking a
     // running x rather than by multiplying one constant.
     let gap = 20;
@@ -635,6 +659,47 @@ class LevelUpScreen {
     ui.text('ESC to resume', W / 2, H - 30, { size: 12, color: PALETTE.textFaint, align: 'center' });
     ui.end();
   }
+}
+
+/**
+ * HOW MANY MORE LEVEL-UPS UNTIL A WEAPON CAN BE OFFERED. 0 means "one is on
+ * this screen right now".
+ *
+ * Reads the CARDS rather than predicting from the cadence alone, so it can
+ * never claim a weapon is coming on a screen that is already carrying one, and
+ * can never promise one that the roll declined to produce.
+ *
+ * DEPENDS ON `levelUpIndex` NAMING THE SCREEN ON DISPLAY, not the one after it.
+ * That is now guaranteed — Run advances the counter when the screen is
+ * dismissed, and the field's comment there explains why — but this arithmetic
+ * is where a regression would surface first, as a hint that counts 2, 1, 3
+ * instead of 2, 1, weapon.
+ */
+function weaponOfferWait(run, choices) {
+  for (const c of choices) if (WEAPON_KINDS[c.kind]) return 0;
+  const every = run.data.upgrades.WEAPON_OFFERS.everyNth;
+  return every - ((run.levelUpIndex || 0) % every);
+}
+
+/**
+ * HOW MANY MORE LEVEL-UPS UNTIL THE RACK MAY GET WIDER. -1 means "it may
+ * already", which includes the case where there is nothing left to widen into.
+ *
+ * The weapon cadence and the arsenal budget are two different clocks and a
+ * player who only sees the first one draws the wrong conclusion from it: they
+ * are offered a weapon card every three levels, every one of those cards is a
+ * LEVEL on something they already carry, and the obvious reading is that the
+ * game has run out of weapons. It has not — it is holding the next slot back.
+ * Say so, in the same place, in the same breath.
+ *
+ * Mirrors Run.mayExpandArsenal: the budget is `2 + floor(index / newEveryNth)`,
+ * so it next exceeds the weapons held at index `(held - 1) * newEveryNth`.
+ */
+function arsenalUnlockWait(run) {
+  const ws = run.weapons;
+  if (ws.full || run.mayExpandArsenal()) return -1;
+  const n = run.data.upgrades.WEAPON_OFFERS.newEveryNth;
+  return Math.max(1, (ws.count - 1) * n - (run.levelUpIndex || 0));
 }
 
 /** The authored one-liner for a specific weapon level. */
