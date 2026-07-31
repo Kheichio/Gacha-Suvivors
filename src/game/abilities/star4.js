@@ -208,7 +208,7 @@ const SUB_AWAY = { mode: 'densestCluster', range: 620 };
 // ---------------------------------------------------------------------------
 
 /** The great fireball runs down the wire and sets what it touches alight. */
-function igniteWire(e) { H.applyBurn(e.st, SCRATCH.fireDps, 3); }
+function igniteWire(e) { H.applyBurn(e.st, SCRATCH.fireDps, 2.5); }
 
 /** Grapple Line S5: the line refunds instantly if it killed something. */
 function noteKill(e) { if (e.hp <= 0 || e.dying) SCRATCH.killed = true; }
@@ -477,9 +477,17 @@ registerAll({
         owner: o,
       });
       if (wire) {
-        SCRATCH.fireDps = H.autoDamage(run, p, 18, opts);
-        H.coneDamage(run, o.x, o.y, t.angle, 1.2, H.area(p, 190),
-                     H.autoDamage(run, p, 60, opts), H.SRC.AUTO, FIREBALL_CONE);
+        // THE FIREBALL IS A GARNISH, NOT THE KIT. Authored at 190px/60/18-per-second
+        // it was a 60-damage nova plus a three-second burn on the whole screen
+        // every 2.6 seconds, and the balance sweep answered immediately: 440 DPS
+        // against the 93 he had before, +64% survival, a FOUR-star sitting second
+        // on the board above a six-star. He is a single-target assassin whose
+        // damage is supposed to be on Chidori and on the thing he is pointed at,
+        // so the cone is now a wire-bound flare that softens a crowd rather than
+        // clearing one.
+        SCRATCH.fireDps = H.autoDamage(run, p, 11, opts);
+        H.coneDamage(run, o.x, o.y, t.angle, 1.2, H.area(p, 130),
+                     H.autoDamage(run, p, 34, opts), H.SRC.AUTO, FIREBALL_CONE);
         H.particles.cone(o.x, o.y, t.angle, 1.2, 14, CLAN_FIRE, FIREBALL_FX);
         H.flash.fire(CLAN_FIRE, 0.12, 7);
         H.audio.play('explode');

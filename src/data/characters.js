@@ -232,8 +232,8 @@ const YAMIKAGE = {
     id: 'shuriken_volley', name: 'Shuriken & Wire',
     desc: '3 shuriken in a tight spread, 15 damage each, pierce 1, every 0.65s. ' +
           'Every 4th volley is wire-strung and curves back through — and the fire ' +
-          'goes down the wire with it: a 190px cone for 60 damage that burns for ' +
-          '18 damage/s over 3s.',
+          'goes down the wire with it: a 130px cone for 34 damage that burns for ' +
+          '11 damage/s over 2.5s.',
     interval: 0.65, damage: 15, targeting: { mode: 'nearest' },
   },
   special: {

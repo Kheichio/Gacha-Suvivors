@@ -57,41 +57,59 @@ whole run — so a single seed is a sample, not a measurement, and chasing a
 single-seed swing is chasing nothing. Every table below is a three-seed average
 and every future one should be.
 
-### Current table — 24 characters, 14 weapons (2026-07-28)
+### Current table — 25 characters, 14 weapons (2026-07-31)
 
 | Character | Survived | Δ median | DPS (all) | kills/s | Level | Read |
 |---|---:|---:|---:|---:|---:|---|
-| yukine | 872.0s | +31% | 299 | 9.67 | 35 | |
-| kira | 854.9s | +29% | 891 | 29.53 | 51 | throughput arc |
-| mirel | 847.1s | +28% | 409 | 13.16 | 40 | ★6 |
-| hikari | 846.5s | +28% | 861 | 28.40 | 51 | free revive |
-| unit_09 | 846.0s | +28% | 839 | 26.63 | 51 | |
-| wren | 845.7s | +27% | 1382 | 48.63 | 58 | highest throughput on the board |
-| sovereign_alicia | 776.2s | +17% | 470 | 15.08 | 37 | ★6, expected |
-| aoi | 730.3s | +10% | 295 | 9.95 | 32 | **was −55%** — see §52 |
-| han | 707.2s | +7% | 438 | 15.45 | 36 | was −45% before weapons |
-| sora | 706.3s | +6% | 191 | 6.40 | 27 | **was −57%** — see §52 |
-| shiro_same | 683.8s | +3% | 228 | 7.55 | 28 | |
-| **kagura** | **663.4s** | **median** | 113 | 4.36 | 26 | |
-| uzu | 650.7s | −2% | 454 | 18.01 | 37 | |
-| yamikage | 639.8s | −4% | 237 | 8.75 | 26 | |
-| hoshino_rei | 626.9s | −6% | 239 | 9.06 | 27 | |
-| akane | 594.2s | −10% | 107 | 4.18 | 19 | |
-| niten | 518.8s | −22% | 90 | 4.06 | 18 | |
-| brant | 515.3s | −22% | 259 | 8.95 | 23 | |
-| reika | 502.7s | −24% | 253 | 10.23 | 25 | |
-| rin | 481.4s | −27% | 63 | 3.15 | 14 | |
-| nekromina | 443.2s | −33% | 118 | 6.87 | 17 | inside ±35%, barely |
-| alto | 344.6s | −48% | 32 | 2.38 | 8 | OUTLIER — ★3 starter |
-| mochi | 340.9s | −49% | 23 | 1.76 | 7 | OUTLIER — ★3 starter |
-| captain_yuli | 287.8s | −57% | 22 | 1.67 | 6 | OUTLIER — melee-only, bot kites |
+| hikari | 848.2s | +66% | 597 | 18.33 | 45 | OUTLIER — free revive |
+| kira | 767.9s | +51% | 1016 | 31.63 | 50 | OUTLIER — throughput arc |
+| wren | 763.0s | +50% | 740 | 21.83 | 44 | OUTLIER — highest throughput |
+| sovereign_alicia | 730.2s | +43% | 227 | 7.26 | 27 | OUTLIER — ★6, expected |
+| uzu | 723.3s | +42% | 385 | 13.70 | 35 | OUTLIER — reworked kit |
+| pekora | 690.9s | +36% | 857 | 26.82 | 40 | OUTLIER |
+| hoshino_rei | 660.9s | +30% | 124 | 5.39 | 22 | |
+| yamikage | 602.8s | +18% | 240 | 7.94 | 26 | reworked; tuned back into band |
+| reika | 581.0s | +14% | 292 | 10.46 | 27 | |
+| unit_09 | 572.7s | +12% | 385 | 13.05 | 26 | |
+| shiro_same | 527.9s | +4% | 99 | 4.43 | 19 | |
+| yukine | 517.2s | +1% | 152 | 6.38 | 21 | |
+| **mirel** | **509.7s** | **median** | 167 | 8.09 | 22 | ★6 |
+| han | 488.8s | −4% | 217 | 9.08 | 24 | |
+| brant | 473.0s | −7% | 30 | 1.50 | 10 | |
+| akane | 447.7s | −12% | 43 | 2.72 | 13 | |
+| nekromina | 437.9s | −14% | 95 | 5.58 | 16 | |
+| aoi | 412.5s | −19% | 100 | 4.90 | 15 | |
+| rin | 317.1s | −38% | 32 | 2.18 | 8 | OUTLIER |
+| sora | 295.5s | −42% | 26 | 1.97 | 8 | OUTLIER |
+| niten | 293.1s | −42% | 27 | 2.14 | 7 | OUTLIER |
+| mochi | 265.3s | −48% | 18 | 1.52 | 7 | OUTLIER — ★3 starter |
+| alto | 223.0s | −56% | 14 | 1.32 | 5 | OUTLIER — ★3 starter |
+| kagura | 199.9s | −61% | 17 | 1.60 | 9 | OUTLIER — **bot artifact, see below** |
+| captain_yuli | 90.9s | −82% | 3 | 0.31 | 2 | OUTLIER — melee-only, bot kites |
 
-Throughput check (kira): **6.50 k/s early → 61.26 k/s late**, a 9.4x acceleration.
+Throughput check (kira): **7.52 k/s early → 64.22 k/s late**, an 8.5x acceleration.
 
-**Three outliers, down from ten** — and the three that remain are precisely the
-three this file has always said to leave alone: the two ★3 starters and the
-melee-only character the bot refuses to play. Every character the harness *can*
-play now sits inside SECTION 17's ±35%.
+**Thirteen outliers.** The whole board sits lower and wider than the 2026-07-28
+table above it, and most of that is not a regression in any character — it is the
+mid-boss HP curve and the ×10 finale multiplier landing at the same time, which
+made the back half of a run genuinely harder for everyone. Compare ORDER, not
+absolute seconds, against any earlier version of this file.
+
+**kagura is a measurement artifact and must not be tuned.** Her warp is
+cooldown-free by design now (a 2–3 charge pool that refills on a timer), and this
+file's own warning at the top — *"uses every ability the instant it comes off
+cooldown"* — is exactly what that meets: the bot burns a charge the moment one
+exists and spends the run teleporting instead of fighting. Measured directly, with
+the warp suppressed so the bot cannot press it, she runs **278.0s at 20.5 DPS**
+against **199.9s at 16.7** with it available. Her damage did not move; the bot's
+use of one button did. Hand-play her before touching a number.
+
+**yamikage is the one number this sweep actually caught.** The reworked kit first
+measured 836.5s / +64% / 440 DPS — a ★4 sitting second on the whole board, above a
+★6 — because the clan fireball on his wire volley was a 190px, 60-damage nova with
+a 3s burn every 2.6 seconds. Cut to 130px / 34 / 11-per-second over 2.5s he lands
+at +18% and below Sovereign Alicia, which is the ordering a ★4 is supposed to have.
+That is the sweep doing its job: the defect was in the RANK, not in the seconds.
 
 Two of the seven that left the outlier list did so because the sweep found
 genuine defects rather than because anything was tuned to fit the bot — see
