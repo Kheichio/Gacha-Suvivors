@@ -257,16 +257,20 @@ registerAll({
       // falloff toward the edge is the eruption's own shape, not a magic curve.
       const reach = H.area(p, DISGORGE_RADIUS);
       const each = H.abilityDamage(run, p, DISGORGE_TOTAL / DISGORGE_COUNT);
+      // Extra Shot adds OBJECTS to the eruption. Still fired through the raw pool
+      // rather than `H.spread`, and still for the original reason — this is a
+      // 360° ring, and fanning each of twenty objects would apply the upgrade
+      // twenty times over and quintuple the special. What grows is the RING, once,
+      // so the most expensive upgrade in the game is no longer inert here.
+      const objects = DISGORGE_COUNT + H.extraShots(p);
       const d = DISGORGE_SHOT;
       d.owner = p;
       d.damage = each;
       d.pierce = H.pierce(p, 6);
-      for (let i = 0; i < DISGORGE_COUNT; i++) {
+      for (let i = 0; i < objects; i++) {
         const obj = H.runRng.pick(SPIT_OBJECTS);
-        const a = (i / DISGORGE_COUNT) * H.TAU + H.runRng.range(-0.14, 0.14);
+        const a = (i / objects) * H.TAU + H.runRng.range(-0.14, 0.14);
         const speed = H.projSpeed(p, obj.speed);
-        // Fired through the raw pool on purpose: Extra Shot must not multiply a
-        // fixed-count eruption into 100 objects and 5x the special's damage.
         d.speed = speed;
         d.life = reach / speed;
         d.radius = obj.size * p.stats.areaMult;

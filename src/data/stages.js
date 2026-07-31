@@ -28,17 +28,23 @@
 //                   the Zenith Stage's Grand Finale modifier has always done with
 //                   the six stage bosses.
 //
-//                   Combined with the boss HP-over-time scaling in game/boss.js
-//                   the fights land at roughly 1.8x each other. Wall Amaris:
-//                   2,526 -> 4,752 -> 8,944 -> 14,913 for the finale.
+//                   WHERE a rung is fought now sets what it costs. game/boss.js
+//                   reads MIDBOSS_HP_CURVE (below) instead of the flat +6%/min,
+//                   because the flat curve made the EARLIEST mini-boss the
+//                   hardest fight in the run â€” measured, and by 18x. The third
+//                   stage now reads 1,097 -> 8,910 -> 42,504 across its three
+//                   mid-boss beats: the opener got CHEAPER and the closer got
+//                   eight times heavier, which is what "the ladder climbs" was
+//                   always supposed to mean.
 //
-//                   The FINALE now stands apart from that staircase on purpose:
-//                   game/boss.js applies `def.finaleHpMult` (2.5 on every stage
-//                   boss and on nothing else) when the closer walks on, so Wall
-//                   Amaris actually reads 2,526 -> 4,752 -> 8,944 -> 37,283. The
-//                   mid-boss rungs are untouched, and keeping them untouched is
-//                   the entire reason the multiplier lives on the boss rather
-//                   than in `hp`.
+//                   The FINALE stands well clear of that staircase on purpose:
+//                   game/boss.js applies `def.finaleHpMult` (10 on every stage
+//                   boss and on nothing else) when the closer walks on, so the
+//                   third stage's finale is 148,635 â€” 3.5x its own heaviest
+//                   mid-boss. Every stage lands between 3.0x and 10.8x. `hp`
+//                   itself still does not move: it is what the Grand Finale's x8
+//                   elite pass multiplies, and that pass goes through
+//                   Run.spawnElite / scaledHp, which never sees finaleHpMult.
 //
 //                   `midBosses` is a fallback list only — the authored timelines
 //                   in waves.js are what actually place these fights, and the
@@ -192,7 +198,13 @@ export const STAGES = [
       { id: 'rubble_golem', weight: 16, from: 300 },
       // The stage is built entirely out of slow. One of these is not.
       { id: 'splinter_husk', weight: 14, from: 540 },
-      { id: 'siege_husk', weight: 8, from: 720 },
+      // Weight 8 from minute twelve put twenty-plus mortars on the field at
+      // once, because a Siege Husk under Titan's Shadow carries 420 effective
+      // HP and simply outlives every husk around it. The salvo gate caps the
+      // shell RATE; this is what stops the gate sitting pinned at its ceiling
+      // for the last eight minutes of the stage. Matches the share the Zenith
+      // Stage already gives it.
+      { id: 'siege_husk', weight: 5, from: 780 },
     ],
     elite: 'abnormal',
     midBoss: 'the_armored',
@@ -482,11 +494,21 @@ export const HAZARDS = {
   collapsing_walls: {
     name: 'Collapsing Walls',
     kind: 'debris',
-    desc: 'Rubble drops every 9s: 60 damage in a 170px zone, then 25s of cover that ' +
-      'blocks enemies — and you.',
-    telegraph: 1.2,
+    desc: 'Three 170px rubble zones every 9s, 0.35s apart and never on your feet. ' +
+      '60 damage, then 25s of cover that blocks enemies — and you.',
+    // 1.5s, AND IT IS READ NOW. game/hazards.js hardcoded feel.telegraphLethal
+    // (1.0s) and this field was decoration — the same dead-data failure the
+    // header of that file documents for the hazard kinds themselves. The floor
+    // is 170/168 (slowest character) + 0.07 accel + 0.25 reaction = 1.33s.
+    telegraph: 1.5,
     params: {
       interval: 9, zones: 3, radius: 170, damage: 60, damagesEnemies: true,
+      // NEVER ON YOUR FEET. The inner radius is wider than the blast, so a
+      // volley is always something you route around rather than something you
+      // are already standing in. It also has to be this wide for the spacing to
+      // work: at 200px the two closest sectors were a 272px chord apart, which
+      // is narrower than the 340px two 170px discs need to not overlap.
+      minRange: 300, maxRange: 620, spacing: 340, stagger: 0.35,
       // The wreck is registered as a static blocker; enemies steer around it
       // rather than path around it (DECISIONS.md §18).
       obstacleRadius: 110, obstacleLifetime: 25, blocksPathing: true,
@@ -1048,6 +1070,50 @@ export const SCALING = {
   xp: 0.09,
   spawnRate: 0.18,
 };
+
+// -----------------------------------------------------------------------------
+// MID-BOSS HP â€” [minutes into the run, multiplier on `def.hp`].
+//
+// THIS REPLACES THE FLAT +6%/MIN FOR MID-BOSSES, and it exists because that flat
+// curve had the difficulty of a run running BACKWARDS. Play report: "mini bosses
+// that spawn around the map are harder to kill than the final match boss."
+// Measured, headlessly, four characters x three seeds on the 20-minute stage:
+//
+//   fight                      effective HP   MEDIAN TTK   implied single-target DPS
+//   opener      (minute 5.2)          1,443       76.9s      19
+//   signature   (minute 10.0)         2,800       16.4s     171
+//   closer      (minute 15.6)         5,227        8.0s     653
+//   FINALE      (minute 19.1)        21,450        4.2s   5,107
+//
+// Eighteen times the fight for a fifteenth of the health bar. The opener was the
+// hardest thing in the run and the finale was the easiest, and on the two late
+// stages â€” which borrow a 6,400-HP rung for their minute-4 opener â€” that same
+// fight measured 361s and 644s. Player damage compounds ~270x across a run
+// against an HP curve that grows 2.1x, and the pre-boss calm CLEARS THE FIELD,
+// so every point of a build's area damage lands on the finale while a mid-boss
+// soaks a fraction of it through a 200-enemy crowd.
+//
+// So "much more HP" cannot be a flat multiplier: it would double a fight that is
+// already a ten-minute wall. It is a CURVE â€” an opener is cheap because nothing
+// can kill it yet, a closer is ten times its base because by minute 16 the
+// player deletes the old number in eight seconds. Re-measured on the same twelve
+// samples, this table gives 36.1s / 27.5s / 33.5s against a 49.5s finale.
+//
+// Linear between points, flat outside them â€” the same shape as the WaveDirector's
+// density curve. Retune THIS, not SCALING.hp: mid-bosses are the only thing that
+// reads it, and fodder HP must keep growing slower than player DPS (Â§14).
+// -----------------------------------------------------------------------------
+export const MIDBOSS_HP_CURVE = [
+  [0,   0.35],
+  [4,   0.45],
+  [6,   0.65],
+  [8,   1.60],
+  [10,  3.00],
+  [13,  6.00],
+  [16, 10.00],
+  [20, 15.00],
+  [25, 20.00],
+];
 
 // Written out literally rather than built by a loop — this file stays pure data.
 export const STAGES_BY_ID = {

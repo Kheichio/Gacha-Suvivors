@@ -5,7 +5,7 @@
 // write '+12% damage (now +36% total)'." Every card here computes both numbers
 // from the data, so a card can never drift from what it actually grants.
 
-import { ui, PALETTE, RARITY_COLOR, wrapText, fitSize, ellipsize } from './widgets.js';
+import { ui, PALETTE, RARITY_COLOR, RARITY_NAME, wrapText, fitSize, ellipsize } from './widgets.js';
 import { displayName } from '../core/config.js';
 import { input, ACT } from '../core/input.js';
 import { audio } from '../core/audio.js';
@@ -418,8 +418,18 @@ class LevelUpScreen {
                    i < choice.level ? col : 'rgba(255,255,255,0.14)', 1);
       }
       if (choice.level >= maxL) {
-        ui.text('next pick: EVOLUTION', x + w / 2, y + h - 28, {
-          size: 11, color: '#ffd76a', align: 'center', weight: 800,
+        // THIS USED TO SAY 'next pick: EVOLUTION', WHICH IS A PROMISE THE GAME
+        // DOES NOT KEEP. Maxing a weapon is half the recipe; the other half is
+        // the generic upgrade named in `evolution.requires`. A player told the
+        // evolution is one pick away and then never shown an evolve card decides
+        // the feature is broken — and a player who happens to be holding the
+        // upgrade already decides that MAX LEVEL ALONE evolves a weapon, which
+        // is exactly the bug that gets reported. Print the fee instead; evoHint()
+        // owns which of the two sentences applies.
+        const hint = ws.evoHint(wpn);
+        ui.text(hint || 'next pick: EVOLUTION', x + w / 2, y + h - 28, {
+          size: 11, color: ws.evoReady(wpn) ? '#ffd76a' : PALETTE.textFaint,
+          align: 'center', weight: 800, mono: true,
         });
       } else {
         ui.text(`WEAPON SLOT · ${ws.count}/${ws.max} used`, x + w / 2, y + h - 28, {
@@ -427,9 +437,29 @@ class LevelUpScreen {
         });
       }
     } else if (isEvo) {
-      ui.text(ws.nameOf(wpn).split(' [')[0] + ' is MAXED', x + w / 2, y + h - 28, {
-        size: 11, color: PALETTE.textFaint, align: 'center', weight: 700,
+      // The card the player waited a whole run for should say what BOUGHT it, or
+      // the entry fee stays invisible in the one moment it is being collected —
+      // which is how "I evolved a weapon by maxing it" becomes the player's
+      // model of the system.
+      const req = ws.evoRequirement(wpn);
+      const rup = ws.evoUpgradeOf(req);
+      ui.text(req ? 'MAXED  +  ' + (rup ? rup.name : req.upgrade) + ' ' + req.level
+                  : ws.nameOf(wpn).split(' [')[0] + ' is MAXED',
+              x + w / 2, y + h - 28, {
+        size: 11, color: PALETTE.textFaint, align: 'center', weight: 700, mono: true,
       });
+    } else {
+      // A weapon you do not own yet is where the fee matters MOST: it is the last
+      // moment the player can decline to buy into an upgrade they were never
+      // going to take. evoRequirementOf() exists for exactly this card — it reads
+      // the fee off a DEFINITION, because a weapon being offered for the first
+      // time has no slot record yet.
+      const newHint = ws.evoHintOf(ws.evoRequirementOf(def));
+      if (newHint) {
+        ui.text(newHint, x + w / 2, y + h - 28, {
+          size: 11, color: PALETTE.textFaint, align: 'center', weight: 700, mono: true,
+        });
+      }
     }
     ui.text('[' + (index + 1) + ']', x + w / 2, y + h - 13, {
       size: 11, color: PALETTE.textFaint, align: 'center', mono: true,
@@ -592,7 +622,14 @@ class LevelUpScreen {
     ui.begin(r, 'pause');
     ui.focusGrid(1);
 
-    ui.title('PAUSED', W / 2, H * 0.16, { size: 44, align: 'center' });
+    // THE CHARACTER SHEET owns the left edge, and it is laid out FIRST because
+    // everything under this line is centred in whatever is left over. It returns
+    // 0 when the viewport cannot carry both, and then this screen is laid out
+    // exactly as it always was.
+    const sheetR = this._pauseSheet(r, run);
+    const cx = sheetR > 0 ? sheetR + (W - sheetR) / 2 : W / 2;
+
+    ui.title('PAUSED', cx, H * 0.16, { size: 44, align: 'center' });
 
     const p = run.player;
     const colW = 460;
@@ -602,30 +639,38 @@ class LevelUpScreen {
     // "this one is maxed, take the evolve card" moment has to be legible before
     // the card shows up rather than after.
     ui.text('WEAPONS  ' + run.weapons.count + ' / ' + run.weapons.max,
-            W * 0.5, H * 0.20, { size: 14, color: PALETTE.accent2, align: 'center', weight: 800 });
+            cx, H * 0.20, { size: 14, color: PALETTE.accent2, align: 'center', weight: 800 });
     let wy = H * 0.24;
     for (const w of run.weapons.slots) {
       const maxL = run.weapons.maxLevel(w);
       const done = w.evolved;
-      const ready = run.weapons.isMaxed(w);
-      const col = done ? '#ffd76a' : ready ? '#7bf59a' : PALETTE.text;
+      const maxed = run.weapons.isMaxed(w);
+      // MAXED IS HALF THE RECIPE, AND THIS ROW USED TO PROMISE THE WHOLE THING.
+      // `ready` was `isMaxed(w)` alone, so a weapon sitting at level 8 with its
+      // required upgrade untouched was told it could evolve, in green, on the
+      // one screen a player opens specifically to ask that question. It cannot,
+      // and it will sit there for the rest of the run.
+      const need = run.weapons.evoNeed(w);
+      const ready = maxed && run.weapons.evoReady(w);
+      const col = done ? '#ffd76a' : ready ? '#7bf59a' : maxed ? '#ffd23f' : PALETTE.text;
       const tail = done ? 'EVOLVED'
                  : ready ? 'MAX — can evolve into ' + run.weapons.evolutionOf(w).name
-                 : 'Lv ' + w.level + ' / ' + maxL;
+                 : maxed ? 'MAX — needs ' + need
+                 : 'Lv ' + w.level + ' / ' + maxL + (need ? '   needs ' + need : '');
       ui.text(`${run.weapons.iconOf(w)}  ${run.weapons.nameOf(w).split(' [')[0]}`,
-              W / 2 - colW / 2, wy, { size: 13, color: col, weight: 700 });
-      ui.text(tail, W / 2 + colW / 2, wy, { size: 12, color: col, align: 'right' });
+              cx - colW / 2, wy, { size: 13, color: col, weight: 700 });
+      ui.text(tail, cx + colW / 2, wy, { size: 12, color: col, align: 'right' });
       wy += 19;
     }
     for (let i = run.weapons.count; i < run.weapons.max; i++) {
-      ui.text('·  empty weapon slot', W / 2 - colW / 2, wy,
+      ui.text('·  empty weapon slot', cx - colW / 2, wy,
               { size: 13, color: PALETTE.textFaint });
       wy += 19;
     }
 
     // Evolution recipes live here. SECTION 10: "A hidden recipe is a wasted recipe."
     const hints = run.data.evolutions.EVOLUTION_HINTS;
-    ui.text('EVOLUTIONS', W * 0.5, wy + 14, { size: 14, color: PALETTE.accent, align: 'center', weight: 800 });
+    ui.text('EVOLUTIONS', cx, wy + 14, { size: 14, color: PALETTE.accent, align: 'center', weight: 800 });
     let y = wy + 34;
     for (const hint of hints) {
       const evo = run.data.evolutions.EVOLUTIONS_BY_ID[hint.id];
@@ -636,13 +681,19 @@ class LevelUpScreen {
                   : (haveUp || haveRelic) ? PALETTE.text : PALETTE.textFaint;
       const mark = done ? '✔' : (haveUp && haveRelic) ? '▶' : '·';
       ui.text(`${mark}  ${hint.upgradeName}${haveUp ? ' ✓' : ''}  +  ${hint.relicName}${haveRelic ? ' ✓' : ''}  →  ${hint.resultName}`,
-              W / 2 - colW / 2, y, { size: 13, color });
+              cx - colW / 2, y, { size: 13, color });
       y += 20;
     }
 
     const bw = 260, bh = 46;
-    const bx = W / 2 - bw / 2;
-    let by = y + 26;
+    const bx = cx - bw / 2;
+    // THE THREE BUTTONS MUST BE ON THE SCREEN. The column above them grows with
+    // the arsenal (5 rows) and the evolution list (8 rows), so the buttons start
+    // at 0.24H + 289 and ABANDON RUN ends at 0.24H + 463 — which on a 600px
+    // viewport is y=617, off the bottom, on the only way out of a run that does
+    // not involve dying. Clamped DOWNWARD only, so every viewport that already
+    // fitted (H >= 649) is pixel-for-pixel untouched.
+    let by = Math.min(y + 26, H - 40 - (bh * 3 + 20));
     if (ui.button('resume', bx, by, bw, bh, 'RESUME', { size: 16 })) {
       run.state = RUN_STATE.PLAYING;
     }
@@ -656,10 +707,253 @@ class LevelUpScreen {
       run.wantQuit = true;
     }
 
-    ui.text('ESC to resume', W / 2, H - 30, { size: 12, color: PALETTE.textFaint, align: 'center' });
+    ui.text('ESC to resume', cx, H - 30, { size: 12, color: PALETTE.textFaint, align: 'center' });
     ui.end();
   }
+
+  // --- the pause character sheet ------------------------------------------------
+  /**
+   * EVERYTHING ABOUT THE CHARACTER YOU ARE PLAYING, down the left edge.
+   *
+   * The middle column of this screen is about the RUN — the arsenal you built,
+   * the recipes still open to you. Nothing on it was ever about the CHARACTER,
+   * and four minutes in there is no way to find out what your special actually
+   * does, what its cooldown really is after every modifier, or whether the S5
+   * you paid for has unlocked, short of abandoning the run for the Codex. TAB
+   * answers the live stats and the build; it has never answered the kit.
+   *
+   * Returns the x the menu column may start from — this panel's right edge plus
+   * a gutter — or 0 when the viewport cannot carry both, in which case nothing
+   * is drawn at all and the menu centres on the screen exactly as it used to.
+   *
+   * GEOMETRY IS SCALED BY HAND; TEXT SIZES ARE NOT. `ui.text` multiplies every
+   * size by `ui.scale` itself, so a size passed here as `12 * s` would render at
+   * 12 * s * s and outgrow a panel that only grew by s. Same rule as
+   * runScene._eventBanner; do not "fix" it to match the surrounding style.
+   */
+  _pauseSheet(r, run) {
+    const p = run.player;
+    const W = r.w, H = r.h;
+    const s = ui.scale || 1;
+    const M = 14;
+    const PAD = Math.round(14 * s);
+    const GUT = Math.round(20 * s);
+
+    // --- how wide, and whether at all ----------------------------------------
+    // The menu beside this is a 460px column and wants air on both sides. The
+    // sheet takes what is left, between a width it stops being readable under
+    // and one past which it is only a wider margin.
+    const MENU_NEED = 460 + 56;
+    let w = clamp(Math.round(W * 0.30), Math.round(214 * s), Math.round(360 * s));
+    const room = W - M - GUT - MENU_NEED;
+    if (w > room) w = room;
+    if (w < Math.round(196 * s)) return 0;
+    const x = M;
+    const iw = w - PAD * 2;
+
+    // --- the metrics every block is measured AND drawn with ------------------
+    const TOP  = Math.round(15 * s);   // panel top + PAD -> the first baseline
+    const NAME = Math.round(22 * s);
+    const SUB  = Math.round(16 * s);
+    const TAG  = Math.round(15 * s);
+    const HEAD = Math.round(20 * s);   // a section label, its rule and the gap
+    const ROW  = Math.round(15 * s);   // one stat row
+    const TTL  = Math.round(16 * s);   // an ability's name line
+    const MET  = Math.round(13 * s);   // an ability's numbers line
+    const LN   = Math.round(13 * s);   // one wrapped description line
+    const GAP  = Math.round(7 * s);
+    const TAGW = Math.round(52 * s);   // the AUTO/SPECIAL/ESCAPE/PASSIVE gutter
+    const ELW  = Math.round(96 * s);   // reserved for the element, right-aligned
+    const IND  = Math.round(14 * s);   // the star rows hang off their mark
+
+    // --- what the four pillars say -------------------------------------------
+    const auto = p.def.autoAttack, sp = p.def.special, es = p.def.escape;
+    // The auto-attack's REAL interval, by the same arithmetic run.js does every
+    // tick — attack speed, the flag bonus, and the signature weapon's rate — so
+    // this can never drift from what the character is actually doing.
+    const eff = Math.max(0.05, auto.interval /
+      (p.stats.attackSpeedMult * (p.flags.attackSpeedBonus || 1) * run.weapons.mods.rate));
+    KIT[0].def = auto;
+    KIT[0].meta = `every ${eff.toFixed(2)}s  ·  ${auto.damage} dmg  ·  base ${auto.interval.toFixed(2)}s` +
+                  `  ·  ${(auto.targeting && auto.targeting.mode) || 'nearest'}`;
+    KIT[1].def = sp;
+    KIT[1].meta = (p.special.ready ? 'READY' : p.special.remaining.toFixed(1) + 's') +
+                  `  ·  cd ${p.special.duration.toFixed(1)}s  ·  base ${sp.cooldown}s` +
+                  (p.special.maxCharges > 1 ? `  ·  ${p.special.charges}/${p.special.maxCharges}` : '');
+    KIT[2].def = es;
+    KIT[2].meta = (p.escape.ready ? 'READY' : p.escape.remaining.toFixed(1) + 's') +
+                  `  ·  cd ${p.escape.duration.toFixed(1)}s  ·  ${(es.iframes || 0).toFixed(1)}s i-frames` +
+                  (p.escape.maxCharges > 1 ? `  ·  ${p.escape.charges}/${p.escape.maxCharges}` : '');
+    KIT[3].def = p.def.passive;
+    KIT[3].meta = 'always on';
+    for (const e of KIT) e.lines = wrapText(r, (e.def && e.def.desc) || '', iw, 11, 600);
+
+    const su = p.def.starUpgrades || NO_STARS;
+    const s3 = wrapText(r, su.s3 || '—', iw - IND, 11, 600);
+    const s5 = wrapText(r, su.s5 || '—', iw - IND, 11, 600);
+
+    // --- fit ------------------------------------------------------------------
+    const headerH = TOP + NAME + SUB + TAG + GAP;
+    const statsH = HEAD + 6 * ROW + GAP;
+    const totalFor = (n) => {
+      let t = PAD * 2 + headerH + statsH + HEAD;
+      for (const e of KIT) t += TTL + MET + Math.min(n, e.lines.length) * LN + GAP;
+      t += GAP + HEAD;
+      t += TTL + Math.min(n, s3.length) * LN + GAP;
+      t += TTL + Math.min(n, s5.length) * LN + GAP;
+      return t;
+    };
+    // ONE KNOB ABSORBS EVERY VIEWPORT: how many lines of a description survive.
+    // Everything else here is a fixed number of rows, so the descriptions are
+    // the only thing that can give — and a truncated line that SAYS it was
+    // truncated is worth more than a sheet that runs off its own panel.
+    let dm = 6;
+    const availH = H - 16;
+    while (dm > 1 && totalFor(dm) > availH) dm--;
+    const h = Math.min(totalFor(dm), availH);
+    const y = Math.round((H - h) / 2);
+
+    // --- draw -----------------------------------------------------------------
+    const rar = RARITY_COLOR[p.def.rarity] || PALETTE.border;
+    ui.panel(x, y, w, h, {
+      radius: 8, color: 'rgba(12,16,28,0.97)', borderColor: rar, borderWidth: 2,
+    });
+    // The one viewport short enough to defeat even a one-line description loses
+    // the bottom of the sheet rather than painting over the menu beside it.
+    r.clipRect(x, y, w, h);
+
+    const tx = x + PAD;
+    let yy = y + PAD + TOP;
+
+    const nm = displayName(p.def).split(' [')[0];
+    ui.text(ellipsize(r, nm, iw, 20, 800), tx, yy, {
+      size: fitSize(r, nm, iw, 20, 800), color: rar, weight: 800, display: true,
+    });
+    yy += NAME;
+    ui.text(ellipsize(r, p.def.epithet || '', iw, 12, 600), tx, yy,
+            { size: 12, color: PALETTE.accent });
+    yy += SUB;
+    const tags = `${RARITY_NAME[p.def.rarity] || ''}  ·  S${p.starLevel}  ·  ${p.def.archetype}`;
+    ui.text(ellipsize(r, tags, iw - ELW, 11, 700), tx, yy,
+            { size: 11, color: PALETTE.textDim, weight: 700 });
+    const el = run.data.elements.ELEMENTS[p.def.element];
+    ui.text(el ? el.icon + ' ' + el.name.toUpperCase() : String(p.def.element || ''),
+            tx + iw, yy, {
+      size: 11, color: el ? el.color : PALETTE.textFaint,
+      weight: 800, mono: true, align: 'right',
+    });
+    yy += TAG + GAP;
+
+    // --- live stats, two columns ----------------------------------------------
+    // Twelve rows in one column is half the panel. Two columns of six is the
+    // same information in half the height, and every label is short enough that
+    // its value can still be right-aligned against the column edge.
+    yy = this._sheetHead(r, 'LIVE STATS', tx, yy, iw, s);
+    STATS[0][1] = Math.ceil(p.hp) + ' / ' + Math.round(p.maxHp);
+    STATS[1][1] = p.stats.armor.toFixed(1);
+    STATS[2][1] = p.stats.moveSpeed.toFixed(0) + ' px/s';
+    STATS[3][1] = p.stats.pickupRadius.toFixed(0) + ' px';
+    STATS[4][1] = 'x' + p.stats.damageMult.toFixed(2);
+    STATS[5][1] = 'x' + (p.stats.damageMult * p.stats.autoDamageMult).toFixed(2);
+    STATS[6][1] = 'x' + p.stats.attackSpeedMult.toFixed(2);
+    STATS[7][1] = 'x' + p.stats.areaMult.toFixed(2);
+    STATS[8][1] = (p.stats.critChance * 100).toFixed(1) + '%';
+    STATS[9][1] = 'x' + p.stats.critMult.toFixed(2);
+    STATS[10][1] = 'x' + p.stats.cooldownMult.toFixed(2);
+    STATS[11][1] = p.stats.luck.toFixed(1);
+    const cw = Math.round((iw - Math.round(16 * s)) / 2);
+    for (let i = 0; i < STATS.length; i++) {
+      ui.statRow(STATS[i][0], STATS[i][1], (i & 1) ? tx + iw - cw : tx,
+                 yy + (i >> 1) * ROW, cw);
+    }
+    yy += 6 * ROW + GAP;
+
+    // --- the kit --------------------------------------------------------------
+    yy = this._sheetHead(r, 'KIT', tx, yy, iw, s, PALETTE.accent2);
+    for (const e of KIT) {
+      ui.text(e.tag, tx, yy, { size: 10, color: PALETTE.textFaint, weight: 800, mono: true });
+      const an = displayName(e.def).split(' [')[0];
+      ui.text(ellipsize(r, an, iw - TAGW, 13, 800), tx + TAGW, yy,
+              { size: 13, color: e.color, weight: 800 });
+      yy += TTL;
+      ui.text(ellipsize(r, e.meta, iw, 11, 700), tx, yy,
+              { size: 11, color: PALETTE.accent2, weight: 700, mono: true });
+      yy += MET;
+      yy = this._sheetLines(r, e.lines, dm, tx, yy, iw, LN, PALETTE.textDim) + GAP;
+    }
+
+    // --- the star upgrades, and whether this star level has them --------------
+    yy += GAP;
+    yy = this._sheetHead(r, 'STAR UPGRADES', tx, yy, iw, s, PALETTE.accent);
+    yy = this._sheetStar(r, 'S3', s3, p.starLevel >= 3, dm, tx, yy, iw, IND, TTL, LN, GAP);
+    this._sheetStar(r, 'S5', s5, p.starLevel >= 5, dm, tx, yy, iw, IND, TTL, LN, GAP);
+
+    r.unclip();
+    return x + w + GUT;
+  }
+
+  /** A section label and its hairline rule. Returns the next baseline. */
+  _sheetHead(r, label, x, y, w, s, color) {
+    ui.text(label, x, y, { size: 10, color: color || PALETTE.textFaint, weight: 800, mono: true });
+    r.drawRect(x, y + Math.round(7 * s), w, 1, 'rgba(150,170,225,0.22)', 1);
+    return y + Math.round(20 * s);
+  }
+
+  /**
+   * The wrapped body of a description, capped at `max` lines. A cap that simply
+   * stopped would read as a description that ends mid-sentence, so the last line
+   * of a truncated one carries an ellipsis and the Codex holds the rest.
+   */
+  _sheetLines(r, lines, max, x, y, w, lh, color) {
+    const n = Math.min(max, lines.length);
+    for (let i = 0; i < n; i++) {
+      const cut = i === n - 1 && n < lines.length;
+      ui.text(cut ? ellipsize(r, lines[i] + ' …', w, 11, 600) : lines[i],
+              x, y + i * lh, { size: 11, color, weight: 600 });
+    }
+    return y + n * lh;
+  }
+
+  /**
+   * One star upgrade, and whether the star level you are PLAYING AT has it.
+   * The thresholds are abilities/index.js's own: s3 at star >= 3, s5 at >= 5.
+   */
+  _sheetStar(r, label, lines, unlocked, max, x, y, w, ind, ttl, lh, gap) {
+    ui.text((unlocked ? '✔  ' : '·  ') + label + (unlocked ? '   ACTIVE' : '   LOCKED'),
+            x, y, {
+      size: 11, color: unlocked ? PALETTE.good : PALETTE.textFaint,
+      weight: 800, mono: true,
+    });
+    return this._sheetLines(r, lines, max, x + ind, y + ttl, w - ind, lh,
+                            unlocked ? PALETTE.textDim : PALETTE.textFaint) + gap;
+  }
 }
+
+/**
+ * THE PAUSE SHEET'S SCRATCH RECORDS.
+ *
+ * The pause screen redraws every rendered frame it is up, and the rule the rest
+ * of this project holds to is that a per-frame path does not allocate. The four
+ * kit entries and the twelve stat rows are therefore ONE set of records,
+ * rewritten in place on every use — every field that varies is written every
+ * time, so nothing can survive from the frame before it. The wrapped
+ * description arrays are the one thing that still allocates and they have to:
+ * they depend on the panel width, which depends on the window.
+ */
+const KIT = [
+  { tag: 'AUTO',    def: null, meta: '', lines: null, color: PALETTE.text },
+  { tag: 'SPECIAL', def: null, meta: '', lines: null, color: PALETTE.pink },
+  { tag: 'ESCAPE',  def: null, meta: '', lines: null, color: PALETTE.accent2 },
+  { tag: 'PASSIVE', def: null, meta: '', lines: null, color: PALETTE.good },
+];
+const STATS = [
+  ['HP', ''], ['Armour', ''], ['Speed', ''], ['Pickup', ''],
+  ['Damage', ''], ['Auto dmg', ''], ['Atk spd', ''], ['Area', ''],
+  ['Crit', ''], ['Crit dmg', ''], ['Cooldown', ''], ['Luck', ''],
+];
+
+/** A character that declared no star upgrades. All 25 declare both; belt and braces. */
+const NO_STARS = {};
 
 /**
  * HOW MANY MORE LEVEL-UPS UNTIL A WEAPON CAN BE OFFERED. 0 means "one is on

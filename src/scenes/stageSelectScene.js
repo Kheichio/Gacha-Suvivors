@@ -730,7 +730,8 @@ export const stageSelectScene = {
       cy = this._ability(r, c, 'SPECIAL', c.special,
         c.special.cooldown + 's cooldown', x, cy, innerW, PALETTE.accent);
       cy = this._ability(r, c, 'ESCAPE', c.escape,
-        c.escape.cooldown + 's cd · ' + (c.escape.iframes || 0) + 's i-frames', x, cy, innerW, PALETTE.good);
+        (c.escape.cooldown > 0 ? c.escape.cooldown + 's cd' : 'no cd') +
+        ' · ' + (c.escape.iframes || 0) + 's i-frames', x, cy, innerW, PALETTE.good);
       cy = this._ability(r, c, 'PASSIVE', c.passive, '', x, cy, innerW, PALETTE.pink);
 
       ui.text('BUILD PATHS', x + 16, cy, { size: 11, color: PALETTE.textFaint, weight: 800 });

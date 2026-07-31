@@ -925,6 +925,9 @@ const FORM_SHARD = {
   damage: 0, speed: 560, life: 0.55, radius: 9, pierce: 1,
   motion: H.MOTION.STRAIGHT, element: 'lightning',
   visual: V_SHARD, trailColor: C_LILAC, tag: 'form_shard',
+  // A 360° ring grows by adding SPOKES, not by fanning each spoke — see the
+  // `fixedCount` note on H.spread. The cast below grows the count itself.
+  fixedCount: true,
 };
 const FORM_STEP = { color: C_LILAC, src: H.SRC.ESCAPE };
 const FORM_AWAY = { mode: 'densestCluster', range: 540 };
@@ -1025,10 +1028,13 @@ registerAll({
       // of them get one, because this is a flourish for the THROW and not a
       // decoration on every projectile in it.
       const shown = n < RELEASE_MAX ? n : RELEASE_MAX;
-      const fan = n > 1 ? SAUCER_FAN : 0;
       saucerSwing = -saucerSwing;
       for (let i = 0; i < shown; i++) {
-        const a = shown > 1 ? t.angle - fan * 0.5 + (i / (shown - 1)) * fan : t.angle;
+        // Sampled evenly across the REAL fan rather than re-fanned over its own
+        // count, so every sweep still lands on a saucer that exists however wide
+        // Extra Shot has opened the throw.
+        const k = shown > 1 ? Math.round(i * (n - 1) / (shown - 1)) : 0;
+        const a = H.fanAngle(k, n, t.angle, SAUCER_FAN);
         SAUCER_RELEASE.sweep = (i & 1) ? -saucerSwing : saucerSwing;
         H.effects.sweepSprite(o.x, o.y, a, RELEASE_ARC, RELEASE_RADIUS, SP_SAUCER, SAUCER_RELEASE);
       }
@@ -1038,7 +1044,7 @@ registerAll({
       // has watched her hold on to it three times.
       TRAY_SWING.sweep = saucerSwing;
       H.effects.sweepSprite(o.x, o.y, t.angle, TRAY_ARC, TRAY_RADIUS, SP_TRAY, TRAY_SWING);
-      H.particles.cone(o.x, o.y, t.angle, SAUCER_FAN, 5, C_PORCELAIN, THROW_SPRAY);
+      H.particles.cone(o.x, o.y, t.angle, H.fanWidth(n, SAUCER_FAN), 5, C_PORCELAIN, THROW_SPRAY);
       H.audio.play('shoot');
     },
   },
@@ -1431,8 +1437,15 @@ registerAll({
       const base = (t.found ? t.angle : (o.facing || 0)) + ctx.spin;
       const len = H.projSpeed(p, FLOURISH_LINE_LENGTH);
       const lineDmg = H.autoDamage(run, p, FLOURISH_LINE_DAMAGE, opts);
-      for (let i = 0; i < FLOURISH_LINES; i++) {
-        const a = base + i * THIRD;
+      // Extra Shot adds LINES. This is an emitter that happens to throw beams
+      // rather than bodies, and "one more of the thing you throw" is exactly as
+      // meaningful here as it is for a knife — so three lines 120° apart become
+      // up to nine, and the step divides by the real count so the pattern stays
+      // evenly spread instead of overlapping the first three.
+      const lines = FLOURISH_LINES + H.extraShots(p);
+      const step = H.TAU / lines;
+      for (let i = 0; i < lines; i++) {
+        const a = base + i * step;
         const x1 = o.x + Math.cos(a) * len;
         const y1 = o.y + Math.sin(a) * len;
         H.lineDamage(run, o.x, o.y, x1, y1, H.area(p, 15), lineDmg, H.SRC.AUTO, FLOURISH_LINE);
@@ -1681,8 +1694,13 @@ registerAll({
       const r = H.area(p, FORM_SHARD_RADIUS);
       H.effects.shockwave(p.x, p.y, r, C_CHALK, FORM_FX);
       FORM_SHARD.damage = H.abilityDamage(run, p, FORM_SHARD_DAMAGE);
-      for (let i = 0; i < FORM_SHARDS; i++) {
-        H.spread(run, p, p.x, p.y, (i / FORM_SHARDS) * H.TAU, 1, 0, FORM_SHARD);
+      // Extra Shot adds SHARDS to the barrier: eight becomes fourteen at the cap.
+      // The ring gets denser and hits harder, which is the upgrade doing
+      // something visible, without each of the eight becoming a fan of its own
+      // and multiplying an escape by five.
+      const shards = FORM_SHARDS + H.extraShots(p);
+      for (let i = 0; i < shards; i++) {
+        H.spread(run, p, p.x, p.y, (i / shards) * H.TAU, 1, 0, FORM_SHARD);
       }
       H.particles.ring(p.x, p.y, 14, C_LILAC, r * 1.6);
 

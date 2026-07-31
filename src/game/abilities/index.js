@@ -133,6 +133,11 @@ class AbilityDriver {
         ctx.t -= dt;
         if (ctx.t <= 0) {
           ctx.active = false;
+          // Out of the form before end() runs, so the ability's own wind-down is
+          // drawn on the body it leaves the player standing in.
+          if (p.baseSprite && p.def.altForm && p.def.altForm.id === def.id) {
+            p.sprite = p.baseSprite;
+          }
           if (impl && impl.end) impl.end(run, p, ctx);
           continue;
         }
@@ -229,6 +234,14 @@ class AbilityDriver {
     ctx.def = def;
     const ok = impl.cast(run, p, ctx);
     if (ok === false) return false;
+    // THE SECOND SILHOUETTE. A character whose data declares an `altForm` for
+    // THIS ability wears it for exactly as long as the ability runs. The join is
+    // by id in both directions (see data/index.js validate()), so the driver
+    // matches ids and never learns whose they are — and an ability written next
+    // month is covered the moment its character declares a form for it.
+    if (ctx.active && p.formSprite && p.def.altForm && p.def.altForm.id === def.id) {
+      p.sprite = p.formSprite;
+    }
     this._markDuration(ctx);
     if (kind === 'special' && p.def.barks && runRng.chance(0.25)) run.bark(p.def.barks.spawn);
     return true;

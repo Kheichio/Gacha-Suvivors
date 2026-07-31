@@ -77,7 +77,7 @@ import { floaters } from '../render/damageNumbers.js';
 import { shake, flash } from '../render/screenShake.js';
 import { clamp, dirTo, V, dist2, TAU, lerp, angleTo, rotateToward } from '../core/math.js';
 import { damagePlayer, SRC } from './damage.js';
-import { applyStun, applyBurn, applyPull, addShield, applyVulnerable } from './statusEffects.js';
+import { applyStun, applyBurn, applyPull, addShield, applyVulnerable, applyInvuln } from './statusEffects.js';
 import { MOTION } from './projectile.js';
 
 /**
@@ -85,7 +85,32 @@ import { MOTION } from './projectile.js';
  * its own; mid-bosses and elites fall through to this, which is deliberately
  * small — a mid-boss break should register without stopping the run dead.
  */
-const DEFAULT_TRANSITION = { stagger: 0.7, vuln: 1.6, vulnTail: 0.8, slowmo: 0.5, slowmoT: 0.28 };
+const DEFAULT_TRANSITION = {
+  invuln: 0.35, stagger: 0.7, vuln: 1.6, vulnTail: 0.8, slowmo: 0.5, slowmoT: 0.28,
+};
+
+/**
+ * The mid-boss HP multiplier for this point in the run.
+ *
+ * The SHAPE is data (data/stages.js MIDBOSS_HP_CURVE) and this is only the
+ * lookup, exactly like waveDirector's density curve. Read off `run.data` rather
+ * than imported, because this file deliberately imports nothing from the data
+ * layer â€” render/prewarm.js's import graph goes circular the moment it does.
+ *
+ * The fallback is the old flat curve, so a data layer without the table still
+ * produces the pre-change numbers instead of a NaN health bar.
+ */
+function midBossHpMult(run, minutes) {
+  const C = run.data && run.data.stages && run.data.stages.MIDBOSS_HP_CURVE;
+  if (!C || C.length < 2) return 1 + 0.06 * minutes;
+  for (let i = 1; i < C.length; i++) {
+    if (minutes <= C[i][0]) {
+      const a = C[i - 1], b = C[i];
+      return a[1] + (b[1] - a[1]) * ((minutes - a[0]) / Math.max(1e-6, b[0] - a[0]));
+    }
+  }
+  return C[C.length - 1][1];
+}
 
 export class BossController {
   constructor(run) {
@@ -123,14 +148,39 @@ export class BossController {
     const e = run.enemies.spawn(def, x, y, { isBoss: !isMidBoss, isMidBoss: !!isMidBoss });
     if (!e) return null;
     e.knockbackImmune = true;
-    // THE FINALE MULTIPLIER, and the one place it is allowed to exist. See the
-    // header: `def.hp` stays the number the codex quotes and the number the
-    // Grand Finale's x8 elite pass multiplies, so a recap elite is still a
-    // recap elite and not a wall.
-    const finaleMult = isMidBoss ? 1 : (def.finaleHpMult || 1);
-    e.hp = e.maxHp = def.hp * finaleMult * run.difficultyMult.hp * (run.stage.hpMult || 1) *
-                     (1 + 0.06 * (run.time / 60));
+    // THE TWO HP CURVES, and the one place either is allowed to exist.
+    //
+    // A FINALE AND A MID-BOSS ARE NOT ON THE SAME CURVE, because they are not
+    // fought against the same amount of player damage. Play report: "mini bosses
+    // that spawn around the map are harder to kill than the final match boss."
+    // They were, and by 18x: four characters x three seeds on the 20-minute
+    // stage put the 1,443-HP opener at a MEDIAN 77 SECONDS and the 21,450-HP
+    // finale at 4.2. Two things cause that and neither is the HP number.
+    // Single-target damage compounds ~270x across a run against a curve that
+    // grew 2.1x; and the pre-boss calm CLEARS THE FIELD, so every point of a
+    // build's area damage lands on the finale while a mid-boss soaks a fraction
+    // of it through two hundred other bodies.
+    //
+    // So the flat +6%/min is gone for mid-bosses. They read MIDBOSS_HP_CURVE,
+    // authored directly against that measured damage curve: an opener is cheap
+    // because nothing can kill it yet, a closer is ten times its base because by
+    // minute 16 the player deletes the old number in eight seconds.
+    //
+    // `def.hp` still does not move for either. It is what the codex quotes and
+    // what the Grand Finale's x8 elite pass multiplies â€” and that pass runs
+    // through Run.spawnElite, which never comes here, so a recap elite is still
+    // a recap elite and not a wall.
+    const minutes = run.time / 60;
+    const scale = run.difficultyMult.hp * (run.stage.hpMult || 1);
+    e.hp = e.maxHp = isMidBoss
+      ? def.hp * scale * midBossHpMult(run, minutes)
+      : def.hp * (def.finaleHpMult || 1) * scale * (1 + 0.06 * minutes);
     e.radius = (def.visual.size || 60);
+    // Bosses take their raw authored size as a radius, which runs to 150 â€” past
+    // the old fixed 140px broadphase pad, so the outer body of the biggest boss
+    // in the game was never returned by a small AoE's query. The adaptive pad
+    // covers it, but only if it is told the instant the radius is overwritten.
+    run.enemies.noteRadius(e);
     e.bossDef = def;
 
     this.active = e;
@@ -270,11 +320,21 @@ export class BossController {
     const color = enraged ? '#ff3a5e' : '#ffd76a';
 
     this._cancelAttack();
-    this.staggerT = this.staggerTotal = tr.stagger || 0;
+    // THE SHELL, then the break. Two beats, not one.
+    //
+    // `transition.invuln` is a short window where NOTHING lands, and it is the
+    // half of a phase change a player can read without watching a health bar: a
+    // break that is only ever free damage teaches you to ignore the animation it
+    // is attached to. It is folded into the stagger so the boss is inert for the
+    // whole thing, and the vulnerable window is lengthened by exactly the shell
+    // so the payout beat is not spent behind it.
+    const inv = tr.invuln || 0;
+    this.staggerT = this.staggerTotal = inv + (tr.stagger || 0);
     this.attackCd = this.staggerT + (tr.recover || 1.0);
 
     // Broken open: it stops, it takes more, and the numbers say so.
     applyStun(e.st, this.staggerT);
+    if (inv > 0) applyInvuln(e.st, inv);
     applyVulnerable(e.st, tr.vuln || 1.6, this.staggerT + (tr.vulnTail || 0.8));
 
     // 1. THE PAUSE.
@@ -535,6 +595,13 @@ export class BossController {
     if (this.staggerT > 0 && this.staggerTotal > 0) {
       const k = this.staggerT / this.staggerTotal;
       r.strokeCircle(e.x, e.y, e.radius * (1.15 + (1 - k) * 0.5), '#ffd76a', 5, 0.35 + k * 0.5);
+      // While the shell is up nothing lands, so it gets the white of the
+      // telegraph language and a ring fat enough that it cannot be read as the
+      // gold one underneath it.
+      if (e.st.invulnT > 0) {
+        r.strokeCircle(e.x, e.y, e.radius * 1.34, '#ffffff', 8, 0.9);
+        r.strokeCircle(e.x, e.y, e.radius * 1.06, '#ffffff', 3, 0.55);
+      }
     }
     // Weak point marker, when a phase exposes one.
     const ph = this.phase;

@@ -33,11 +33,25 @@ import {
 } from './statusEffects.js';
 import { nearestTo } from './targeting.js';
 import { MINION_ROLE } from './minion.js';
-// NOTE: this file deliberately does NOT import the ability registry. A relic
-// that needs to re-fire an auto-attack asks the Run to do it (`run.fireExtraAuto`)
-// rather than reaching into the registry — otherwise every consumer of
-// relicHooks (including the test runner) drags the whole 170KB ability layer in
-// at module-load time just to read HOOK_NAMES.
+// `helpers.js` is a LEAF of the ability folder: it imports the engine (damage,
+// projectiles, targeting, status, hazards, effects) and never index.js or
+// registry.js, so pulling `spread` in costs nothing this file was not already
+// loading. It is imported because a relic that throws a projectile has to honour
+// Extra Shot, Long Haul, Wide Reach and Piercing Will exactly like an ability
+// that throws one, and the only way to guarantee that is the shared funnel.
+import { spread } from './abilities/helpers.js';
+// NOTE: this file still deliberately does NOT import the ability REGISTRY. A
+// relic that needs to re-fire an auto-attack asks the Run to do it
+// (`run.fireExtraAuto`) rather than reaching into the registry — otherwise every
+// consumer of relicHooks (including the test runner) drags the whole 170KB
+// ability layer in at module-load time just to read HOOK_NAMES.
+
+/** The stone. Module scope: an every-Nth-shot path must not allocate. */
+const BOULDER = {
+  damage: 0, speed: 300, life: 2, radius: 20, knockback: 90,
+  pierce: 2, tag: 'boulder',
+  visual: { shape: 'circle', color: '#8a7b63', accent: '#3a3226', size: 20 },
+};
 
 export const HOOK_NAMES = [
   'onInterval', 'onAutoAttack', 'onNthAutoAttack', 'onHit', 'onCrit', 'onKill',
@@ -239,12 +253,11 @@ const RELIC_IMPL = {
       if (shotIndex % n !== 0) return;
       const t = nearestTo(run, p.x, p.y, 700, null);
       const a = t ? angleTo(p.x, p.y, t.x, t.y) : p.facing;
-      run.projectiles.fire(p.x, p.y, a, {
-        damage: p.def.autoAttack.damage * (params.damageMult || 4) * p.autoDamageMultiplier(),
-        speed: 300, life: 2, radius: 20 * p.stats.areaMult, knockback: 90,
-        pierce: 2, owner: p, tag: 'boulder',
-        visual: { shape: 'circle', color: '#8a7b63', accent: '#3a3226', size: 20 },
-      });
+      // Through `spread`, so a relic-thrown projectile honours the same four
+      // upgrades an ability-thrown one does. The numbers are raw on purpose —
+      // the helper applies area, speed, life and pierce itself.
+      BOULDER.damage = p.def.autoAttack.damage * (params.damageMult || 4) * p.autoDamageMultiplier();
+      spread(run, p, p.x, p.y, a, 1, 0, BOULDER);
       audio.play('explode');
     },
   },

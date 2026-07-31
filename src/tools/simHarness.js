@@ -44,6 +44,7 @@ class Bot {
   constructor(run) {
     this.run = run;
     this.threatX = 0; this.threatY = 0;
+    this.escapeT = 0;
   }
 
   /** SECTION 14's spec: moves away from the densest cluster, uses abilities off cooldown. */
@@ -98,7 +99,17 @@ class Bot {
 
     // --- abilities off cooldown --------------------------------------------
     if (p.special.ready) input.press(ACT.SPECIAL);
-    if (p.escape.ready) input.press(ACT.ESCAPE);
+    // The escape is pressed at a HUMAN cadence, not whenever it happens to be
+    // available. One escape in the roster has no cooldown at all (Torii Warp),
+    // and "press it whenever it is ready" means pressing it sixty times a
+    // second — which is not a player, and would make that character's survival
+    // number a measurement of the bot rather than of the kit. Every other escape
+    // is on a 4-9s cooldown, so this floor never touches them.
+    this.escapeT -= DT;
+    if (p.escape.ready && this.escapeT <= 0) {
+      this.escapeT = 1.2;
+      input.press(ACT.ESCAPE);
+    }
   }
 
   clearInput() {

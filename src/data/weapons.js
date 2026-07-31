@@ -123,7 +123,7 @@ export const SIGNATURE_LEVELS = [
   { damage: 2.40, rate: 1.56, area: 1.44, count: 2, pierce: 1,
     note: 'a second extra projectile / strike' },
   { damage: 2.85, rate: 1.78, area: 1.58, count: 2, pierce: 2,
-    note: 'MAXED. It can evolve now.' },
+    note: 'MAXED. Rapid Fire unlocks its evolution.' },
 ];
 
 /**

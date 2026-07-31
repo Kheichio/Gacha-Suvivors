@@ -71,7 +71,15 @@ export function runPerfTest(game, data) {
     const a = runRng.angle();
     const d = runRng.range(60, 1400);
     const e = run.enemies.spawn(def, run.player.x + Math.cos(a) * d, run.player.y + Math.sin(a) * d);
-    if (!e) break;
+    // A null is now ambiguous: it can mean the arena is full (stop) or that this
+    // one mob is at its own `maxAlive` (skip it and take the next). Breaking on
+    // the second would fill the arena to ~1,700 instead of 2,500 and report a
+    // PASS for a load nobody plays â€” which is the exact failure this whole file
+    // exists to stop.
+    if (!e) {
+      if (run.totalEntities() >= CONFIG.MAX_ENTITIES) break;
+      continue;
+    }
     spawned++;
   }
   // A handful of elites, because gold outlines and health bars cost draw calls.

@@ -234,6 +234,101 @@ export class ObstacleField {
   }
 
   /**
+   * IS A CIRCLE AT (x, y, radius) INSIDE ANYTHING?
+   *
+   * The broad reject is the whole method. `this.r[i]` is a valid bounding radius
+   * for BOTH forms â€” the circle's own radius, and `hypot(hw, hh)` for a box, set
+   * in addBox â€” so one squared-distance compare rules a piece out without ever
+   * entering _penetration. For a point in open ground on a full field that is 128
+   * multiplies and no branch taken, which is what makes it affordable on the drop
+   * path.
+   */
+  overlaps(x, y, radius) {
+    for (let i = 0; i < this.count; i++) {
+      const dx = x - this.x[i], dy = y - this.y[i];
+      const reach = this.r[i] + radius;
+      if (dx * dx + dy * dy > reach * reach) continue;
+      if (this._penetration(i, x, y, radius, PUSH) > 0) return true;
+    }
+    return false;
+  }
+
+  /**
+   * PUSH A POINT OUT OF THE GEOMETRY, TO THE NEAREST FREE SPOT.
+   *
+   * NOTHING MAY REST ON A WALL. Everything the game drops is spawned at the
+   * position of whatever produced it â€” an enemy that died, an event marker, a
+   * boss that fell over â€” and not one of those is obliged to have been standing
+   * somewhere the player can reach. enemy.js only steers what is ON SCREEN, and
+   * even that is a soft lateral push rather than a block, so a mob killed by an
+   * off-screen orbital dies inside a wall as often as not.
+   *
+   * For an XP gem that was merely ugly: the magnet drags it out through the wall.
+   * For everything else it was a LOST DROP. A chest, a relic, a weapon crate and
+   * a heart are all collected by TOUCHING them, and the player is hard-resolved
+   * out of static geometry at `radius + 6` â€” so a chest at the centre of even a
+   * small scattered box sits ~37px from the closest the player can stand and
+   * needs to be inside 35. It could be seen and it could never be taken.
+   *
+   * Three tiers, cheapest first, because this runs on EVERY drop:
+   *
+   *   1. One broad-phase pass. Nothing overlaps -> return false, nothing written.
+   *      This is the answer for the overwhelming majority of drops.
+   *   2. Relaxation. _penetration already exits a box along its SHALLOWER axis
+   *      and a circle along its radius, which is the shortest way out and stays
+   *      correct at any depth â€” so "deep inside a large wall" is handled by a
+   *      single push, not by iteration. The passes exist for the other case:
+   *      leaving one piece can enter its neighbour, and hazard-dropped rubble
+   *      does pile up.
+   *   3. A ring search around the ORIGINAL point, for a pocket walled in on every
+   *      side. Fixed directions from a table â€” no RNG, no wall clock, no trig â€”
+   *      so a replayed seed puts the drop in exactly the same place.
+   *
+   * @param x,y     where the drop wanted to land
+   * @param radius  clearance to hold off the surface (the drop's own radius)
+   * @param out     {x, y} scratch, written with the corrected position
+   * @returns true if it had to move, in which case `out` holds the new position
+   */
+  pushOut(x, y, radius, out) {
+    out.x = x; out.y = y;
+    if (this.count === 0) return false;
+    if (!this.overlaps(x, y, radius)) return false;
+
+    // Tier 2 â€” relax. The extra 0.5px per push is slop: landing EXACTLY on the
+    // surface leaves the next compare at the mercy of float error.
+    let px = x, py = y;
+    for (let pass = 0; pass < 4; pass++) {
+      let moved = false;
+      for (let i = 0; i < this.count; i++) {
+        const dx = px - this.x[i], dy = py - this.y[i];
+        const reach = this.r[i] + radius;
+        if (dx * dx + dy * dy > reach * reach) continue;
+        const pen = this._penetration(i, px, py, radius, PUSH);
+        if (pen > 0) {
+          px += PUSH.x * (pen + 0.5);
+          py += PUSH.y * (pen + 0.5);
+          moved = true;
+        }
+      }
+      if (!moved) { out.x = px; out.y = py; return true; }
+    }
+
+    // Tier 3 â€” boxed in. Walk a ring outward from where it wanted to be, so the
+    // drop still lands as close as possible to the kill that paid for it.
+    for (let step = 1; step <= RING_STEPS; step++) {
+      const rad = radius + step * RING_GAP;
+      for (let k = 0; k < RING.length; k += 2) {
+        const cx = x + RING[k] * rad, cy = y + RING[k + 1] * rad;
+        if (!this.overlaps(cx, cy, radius)) { out.x = cx; out.y = cy; return true; }
+      }
+    }
+    // Nothing free inside RING_STEPS * RING_GAP. Keep the RELAXED position: one
+    // wall out beats dead centre even when it is not clear of everything.
+    out.x = px; out.y = py;
+    return true;
+  }
+
+  /**
    * Soft steering for enemies: look one body-length ahead, and if that point is
    * inside an obstacle, add a lateral push. Cheap, allocation-free, and it reads
    * as "the horde flows around the rubble".
@@ -371,3 +466,30 @@ const PUSH = { x: 0, y: 0 };
 
 /** Scratch for the weighted form roll in scatter(). Never read across calls. */
 const WEIGHTS = [];
+
+/**
+ * The eight directions pushOut's ring fallback tries, as unit vectors.
+ *
+ * A table rather than Math.cos/Math.sin in the loop. This is SIM code and the
+ * run has to replay identically from a seed, so the constants are written out
+ * rather than computed; the path is rare enough that 128 bytes of literal is
+ * free either way.
+ */
+const RING = [
+  1, 0,
+  0.7071067811865476, 0.7071067811865476,
+  0, 1,
+  -0.7071067811865476, 0.7071067811865476,
+  -1, 0,
+  -0.7071067811865476, -0.7071067811865476,
+  0, -1,
+  0.7071067811865476, -0.7071067811865476,
+];
+/**
+ * Eight rings 44px apart reaches 352px from the original point. The widest thing
+ * on any stage is the shifting-rooms slab at 220 half-extents, and its SHORT axis
+ * is 26 â€” the first ring already clears it, because escaping a long wall never
+ * means walking its length.
+ */
+const RING_STEPS = 8;
+const RING_GAP = 44;

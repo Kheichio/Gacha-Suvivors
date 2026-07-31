@@ -146,10 +146,18 @@ export class Renderer {
     this.stats.sprites++;
   }
 
-  /** Same, but with an explicit rotation for sprites the atlas did not pre-rotate. */
-  drawSpriteRotated(sprite, x, y, rot, scale, alpha, flash) {
+  /**
+   * Same, but with an explicit rotation for sprites the atlas did not pre-rotate.
+   *
+   * `anim` is the animation frame within a multi-frame sheet. The flame sheet is
+   * the one caller that needs BOTH: a plume aims anywhere, so its angle cannot be
+   * snapped to a baked rotation step, and it changes shape every frame, so frame 0
+   * is not enough. Omit it and this reads frame 0, exactly as every prop always has.
+   */
+  drawSpriteRotated(sprite, x, y, rot, scale, alpha, flash, anim) {
     if (x < this.cullMinX || x > this.cullMaxX || y < this.cullMinY || y > this.cullMaxY) { this.stats.culled++; return; }
-    const img = flash ? sprite.flashAt(0, 0) : sprite.frameAt(0, 0);
+    const f = anim === undefined ? 0 : anim;
+    const img = flash ? sprite.flashAt(0, f) : sprite.frameAt(0, f);
     if (!img) return;
     const c = this.ctx;
     const s = scale === undefined ? 1 : scale;

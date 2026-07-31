@@ -593,13 +593,30 @@ describe('abilities / live execution at star 5 (S3 + S5 branches active)', () =>
   it('the run-scoped shrine upgrades really are applied somewhere', () => {
     // The flip side: exempting them from the stat check must not become a place
     // for a genuinely dead upgrade to hide.
+    //
+    // THE REWARD HALF USED TO BE ASSERTED AS `difficultyMult.reward > 1`, and that
+    // is the exact shape of the bug this whole suite exists to catch: the field
+    // was assigned and read by nothing at all, so Curse's advertised "+8% all
+    // rewards" paid zero for the life of the project while this line stayed green.
+    // A field being SET is not a feature. It is now asserted where a player would
+    // actually notice it â€” on the gold and the XP a fixed drop is worth.
     freshSave(1);
+    save.data.shrine = {};
+    const plain = makeRun('rin', 65);
+    plain.grantGold(1000);
+    plain.grantXp(1000);
+    const plainGold = plain.stats.gold, plainXp = plain.stats.xp;
+    plain.dispose();
+
     save.data.shrine = { rerolls: 3, banish: 3, curse: 5 };
     const run = makeRun('rin', 65);
     assert.atLeast(run.rerollsLeft, 3, 'Shrine Rerolls granted no rerolls');
     assert.atLeast(run.banishesLeft, 3, 'Shrine Banish granted no banishes');
     assert.ok(run.difficultyMult.count > 1, 'Shrine Curse did not raise enemy count');
-    assert.ok(run.difficultyMult.reward > 1, 'Shrine Curse did not raise rewards');
+    run.grantGold(1000);
+    run.grantXp(1000);
+    assert.ok(run.stats.gold > plainGold, 'Shrine Curse paid no extra gold');
+    assert.ok(run.stats.xp > plainXp, 'Shrine Curse paid no extra XP');
     run.dispose();
     save.data.shrine = {};
   });

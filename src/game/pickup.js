@@ -135,7 +135,9 @@ export class PickupSystem {
    */
   dropWeapon(x, y, def) {
     const p = this.dropPickup(x, y, 'weapon_crate', def);
-    if (p) particles.ring(x, y, 14, '#6ad8ff', 240);
+    // p.x, not x: the crate may have been pushed off a wall on its way down, and
+    // a burst ring left behind at the requested spot points at nothing.
+    if (p) particles.ring(p.x, p.y, 14, '#6ad8ff', 240);
     return p;
   }
 
@@ -148,7 +150,7 @@ export class PickupSystem {
     p.payload = relicId;
     this._place(p, x, y, relic.visual || RELIC_VISUAL);
     p.popT = 0.35;
-    particles.ring(x, y, 16, '#ffd76a', 260);
+    particles.ring(p.x, p.y, 16, '#ffd76a', 260);
     audio.play('relic');
     return p;
   }
@@ -162,12 +164,30 @@ export class PickupSystem {
     return this.pool.spawn();
   }
 
+  /**
+   * NOTHING EVER LANDS ON A WALL.
+   *
+   * Every drop in the game funnels through here â€” dropGem, dropGold, dropPickup
+   * and therefore dropChest and dropWeapon, and dropRelic â€” so this is the one
+   * place the rule has to be stated. See ObstacleField.pushOut for why a drop
+   * inside static geometry is not a cosmetic problem: a chest, a relic, a weapon
+   * crate and a heart are collected by TOUCH, and the player cannot get close
+   * enough to a drop at the centre of a blocker to take it.
+   *
+   * The visual is resolved BEFORE the push because the clearance is the drop's
+   * own radius: a crate has to end up a crate's width off the wall, not with its
+   * centre exactly on the surface and half its sprite still buried.
+   */
   _place(p, x, y, visual) {
-    p.x = p.px = x; p.y = p.py = y;
-    p.vx = 0; p.vy = 0;
     p.visual = visual;
     p.sprite = this._sprite(visual);
     p.radius = (visual.size || 8) + 4;
+    const obstacles = this.run.obstacles;
+    if (obstacles.count > 0 && obstacles.pushOut(x, y, p.radius, FREE)) {
+      x = FREE.x; y = FREE.y;
+    }
+    p.x = p.px = x; p.y = p.py = y;
+    p.vx = 0; p.vy = 0;
     p.scale = 1;
     p.magnetT = 0;
     p.merged = 0;
@@ -175,8 +195,35 @@ export class PickupSystem {
     p.used = false;
   }
 
+  /**
+   * PUSH EVERY PICKUP OUT OF THE GEOMETRY, ONCE.
+   *
+   * For the case where the WALL ARRIVES ON TOP OF THE LOOT rather than the other
+   * way round: the collapsing-walls hazard drops a blocking circle wherever it
+   * telegraphed, and the shifting-rooms hazard clears the field and builds new
+   * corridors on top of whatever was lying there. Either can bury a chest that
+   * has been on the floor for two minutes.
+   *
+   * O(pickups x obstacles) and therefore NOT a per-frame call. It runs once per
+   * wall event â€” a few times a minute on the two stages that have one.
+   */
+  evictFromObstacles() {
+    const obstacles = this.run.obstacles;
+    if (obstacles.count === 0) return;
+    const items = this.pool.items;
+    for (let i = 0; i < this.pool.count; i++) {
+      const g = items[i];
+      if (obstacles.pushOut(g.x, g.y, g.radius, FREE)) {
+        // px/py too, or the render interpolation slides it across the new wall.
+        g.x = g.px = FREE.x;
+        g.y = g.py = FREE.y;
+      }
+    }
+  }
+
   update(dt) {
     const run = this.run;
+    const obstacles = run.obstacles;
     const p = run.player;
     const items = this.pool.items;
     const pickupR = p.stats.pickupRadius;
@@ -203,6 +250,18 @@ export class PickupSystem {
         g.popT -= dt;
         g.x += g.vx * dt; g.y += g.vy * dt;
         g.vx *= 1 - 7 * dt; g.vy *= 1 - 7 * dt;
+        // THE POP CAN UNDO THE PUSH-OUT. It is a random direction at 130 px/s for
+        // 0.28s — up to ~25px of travel _place knew nothing about, and roughly
+        // half of those directions point back at the wall the drop was just moved
+        // clear of. Re-resolve on the ONE tick the pop ENDS rather than on every
+        // tick of it: this is the only tick whose position anything keeps, and
+        // doing it per-tick would be 128 compares per popping gem per frame.
+        if (g.popT <= 0 && obstacles.count > 0 &&
+            obstacles.pushOut(g.x, g.y, g.radius, FREE)) {
+          g.x = g.px = FREE.x;
+          g.y = g.py = FREE.y;
+          g.vx = 0; g.vy = 0;
+        }
         continue;
       }
 
@@ -433,6 +492,12 @@ const WEAPON_LABEL_SUB = {
   size: 11, weight: 800, color: '#6ad8ff', align: 'center', baseline: 'middle',
   outline: true,
 };
+
+/**
+ * Scratch for the obstacle push-out. Module-level and never read across calls,
+ * for the same reason PUSH is in obstacles.js: a drop must not allocate.
+ */
+const FREE = { x: 0, y: 0 };
 
 const GOLD_VISUAL = { shape: 'circle', color: '#ffd76a', accent: '#7a5200', size: 6, glow: true };
 const RELIC_VISUAL = { shape: 'star', color: '#ffd76a', accent: '#6b4200', size: 15, glow: true };

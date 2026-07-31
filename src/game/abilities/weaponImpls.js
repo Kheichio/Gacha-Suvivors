@@ -196,7 +196,12 @@ WEAPON_IMPLS.orbit = {
   fire(run, p, w, s) {
     const dmg = H.abilityDamage(run, p, s.damage);
     const radius = H.area(p, s.radius);
-    const n = s.count;
+    // Extra Shot adds SHARDS to the ring. An orbit is a projectile weapon in
+    // every sense the upgrade cares about — the shards are pooled projectiles,
+    // they pierce, they carry a visual, they are released when spent — and it
+    // was the one such weapon the bonus never reached. The two-ring split below
+    // picks the extra shards up for free.
+    const n = s.count + extra(p);
     // TWO RINGS once there are enough shards for it.
     //
     // A single ring is a fence at exactly one distance: push the radius out to
@@ -282,7 +287,7 @@ WEAPON_IMPLS.spread = {
     const base = full ? (w.phase = (w.phase || 0) + 0.41) : aimAt(run, p, 760);
     for (let i = 0; i < n; i++) {
       const a = full ? base + (i / n) * TAU
-              : n === 1 ? base : base - s.arc / 2 + (i / (n - 1)) * s.arc;
+              : H.fanAngle(i, n, base, s.arc);
       PROJ_OPTS.speed = H.projSpeed(p, s.speed);
       PROJ_OPTS.damage = dmg;
       PROJ_OPTS.life = s.life * p.stats.projectileSpeedMult;
@@ -407,17 +412,114 @@ function burnOnHit(pr, e, run) {
 // ---------------------------------------------------------------------------
 // LASH — long thin cones in the cardinal directions. The reach weapon: it hits
 // things that are not near you yet, which is a defensive stat wearing a hat.
+//
+// AND IT IS DRAWN AS AN ACTUAL CHAIN NOW.
+// ---------------------------------------
+// It used to call the same `slash()` every sword in the game calls: a wedge of
+// coloured light that appeared at full reach on the frame it spawned, swept, and
+// blinked out. Nothing about that says chain. The weapon whose entire identity
+// is 290px of hanging iron read as a slightly longer sword swing, and the
+// evolution's six of them read as a strobe.
+//
+// A chain is not energy, so it is no longer drawn as energy. It is a row of
+// pre-rastered LINK PAIRS — SHAPES.chain bakes one ring face-on and the next
+// rolled a quarter turn and seen on edge, which is the alternation that stops a
+// chain reading as beads — laid along a path that pays out from the fist, and
+// every link takes the angle the hand had a fraction of a lifetime EARLIER. The
+// swing therefore arrives at the tip last, the body trails behind it in a bow,
+// and at the end the links are reeled back in from the tip instead of all
+// vanishing together. The maths lives in `effects.chainLash`; the numbers it
+// needs live here.
+//
+// NOTHING ABOUT THE DAMAGE MOVED. Same cone, same radius, same arc, same
+// knockback, same cadence, same one effect spawned per lash. This pass spends
+// draw calls and nothing else.
 // ---------------------------------------------------------------------------
 const LASH_DIRS = [0, Math.PI, -Math.PI / 2, Math.PI / 2, -Math.PI / 4, Math.PI * 0.75];
+
+/**
+ * HOW BIG A LINK IS, AND HOW THE SCALE FALLS OUT OF IT.
+ *
+ * Links are a FIXED WORLD SIZE. A 290px lash is a LONGER chain than a 130px one,
+ * not the same chain drawn bigger — so the pair count is the reach divided by
+ * CHAIN_PAIR_PX, and the scale each pair is blitted at comes from the segment it
+ * has to fill rather than from a tuned constant.
+ *
+ * `SHAPES.chain` spans the full +/- r of its painter along X, so a pair's drawn
+ * length is `2 * size * scale` whatever padding the atlas put around it — which
+ * is why this divides by the DECLARED SIZE and never by `sprite.w`. 1.12 is a
+ * 12% overlap: links that merely abut read as a string of beads.
+ *
+ * CHAIN_LINK_SIZE is resolution, not size on screen: it is divided straight back
+ * out below, so raising it buys a crisper bake and changes nothing else — as
+ * long as prewarm.js's copy of the descriptor is raised with it.
+ */
+const CHAIN_PAIR_PX = 36;
+const CHAIN_LINK_SIZE = 18;
+const CHAIN_SCALE_PER_PX = 1.12 / (2 * CHAIN_LINK_SIZE);
+const CHAIN_PAIRS_MIN = 3;
+/** The draw-call budget, not an aesthetic. Six evolved lashes at 10 pairs is 60
+ *  rotated blits per activation; effects.js clamps anything larger anyway. */
+const CHAIN_PAIRS_MAX = 10;
+
+/**
+ * THE LINK PAIR, IN TWO FINISHES.
+ *
+ * Field-for-field copies of the two entries in prewarm.js's EFFECT_VISUALS.
+ * `flash` and `size` are both part of the atlas key, so a descriptor that
+ * differs here by one property rasters a SECOND copy on the first swing of the
+ * run — a hitch at the worst possible moment, and something tests/renderSmoke.js
+ * fails the build over. Registered at module scope so neither import order costs
+ * a frame: `register` is a cache hit if the boot pass got here first and an
+ * ordinary raster if this module loaded before it.
+ *
+ * `flash: false` because nothing can hit a chain, so the white twin is memory
+ * nothing will ever read. `rotates` is deliberately absent: `drawSpriteRotated`
+ * turns on the context, so one baked frame is all a prop ever needs — the same
+ * reasoning as the scythe and the girder.
+ */
+const CHAIN_STEEL = { shape: 'chain', color: '#e8e8f0', accent: '#2a2a3a', size: CHAIN_LINK_SIZE, flash: false };
+const CHAIN_GOLD = { shape: 'chain', color: '#ffd76a', accent: '#3a2a00', size: CHAIN_LINK_SIZE, flash: false };
+const CHAIN_SPRITE = H.atlas.register(CHAIN_STEEL);
+const CHAIN_SPRITE_EVO = H.atlas.register(CHAIN_GOLD);
+
+/** The cone's damage bag and the chain's option bag. Module scope, mutated. */
+const LASH_HIT = { knockback: 0 };
+const LASH_FX = {
+  tier: 0, life: 0.3, sweep: 1, pairs: 5, scale: CHAIN_SCALE_PER_PX,
+  width: 0, color2: null,
+};
+/** Alternates so consecutive lashes crack in opposite directions. */
+let LASH_DIR = 1;
+
 WEAPON_IMPLS.lash = {
   fire(run, p, w, s) {
     const dmg = H.abilityDamage(run, p, s.damage);
+    // Resolved ONCE: the reach the cone will really use, after Wide Reach and
+    // the signature weapon. The aim, the damage and the chain are all measured
+    // against it, so they cannot disagree about how long the lash is.
+    const reach = H.area(p, s.radius);
     // Face the crowd, then lash out around that axis, so the first two lashes
     // are never wasted on empty ground.
-    const base = aimAt(run, p, H.area(p, s.radius) + 200);
+    const base = aimAt(run, p, reach + 200);
+    const tier = tierOf(w);
+    const sprite = w.evolved ? CHAIN_SPRITE_EVO : CHAIN_SPRITE;
+    const color = visualOf(w).color;
+    const pairs = H.clamp(Math.round(reach / CHAIN_PAIR_PX), CHAIN_PAIRS_MIN, CHAIN_PAIRS_MAX);
+    LASH_HIT.knockback = s.knockback;
     for (let i = 0; i < s.count; i++) {
-      slash(run, p, p.x, p.y, base + LASH_DIRS[i % LASH_DIRS.length],
-            s.arc, s.radius, dmg, visualOf(w).color, s.knockback, tierOf(w));
+      const a = base + LASH_DIRS[i % LASH_DIRS.length];
+      // The identical cone `slash()` was resolving, minus its per-call options
+      // literal — this weapon fires up to six of these five times a second.
+      H.coneDamage(run, p.x, p.y, a, s.arc, reach, dmg, SRC.AUTO, LASH_HIT);
+      LASH_DIR = -LASH_DIR;
+      LASH_FX.tier = tier;
+      LASH_FX.sweep = LASH_DIR;
+      LASH_FX.pairs = pairs;
+      LASH_FX.life = tier ? 0.34 : 0.3;
+      LASH_FX.width = Math.max(3, reach * 0.045);
+      LASH_FX.color2 = tier ? '#fff3b0' : null;
+      H.effects.chainLash(p.x, p.y, a, s.arc, reach, color, sprite, LASH_FX);
     }
     H.audio.play('slash');
   },
@@ -451,7 +553,11 @@ WEAPON_IMPLS.mortar = {
     METEOR.time = s.fieldTime || 0;
     METEOR.color = visualOf(w).color;
     METEOR.radius = blast * 0.8;
-    for (let i = 0; i < s.count; i++) {
+    // Extra Shot buys SHELLS. The mortar throws real pooled projectiles on a
+    // ballistic arc; that they are aimed at a POINT rather than down a bearing is
+    // why `H.spread` cannot serve it, not a reason the upgrade should miss it.
+    const shells = s.count + extra(p);
+    for (let i = 0; i < shells; i++) {
       // Scatter the salvo so five shells are five craters, not one.
       const a = H.runRng.angle();
       const d = i === 0 ? 0 : H.runRng.range(30, 40 + blast * 0.9);
@@ -685,7 +791,7 @@ WEAPON_IMPLS.shrapnel = {
 
     for (let i = 0; i < n; i++) {
       const a = ring ? base + (i / n) * TAU
-              : n === 1 ? base : base - 0.42 + (i / (n - 1)) * 0.84;
+              : H.fanAngle(i, n, base, 0.84);
       POD_OPTS.speed = H.projSpeed(p, s.speed);
       POD_OPTS.damage = dmg;
       // The pod must OUTLIVE its own fuse by a tick, or the pop never happens
@@ -821,7 +927,7 @@ WEAPON_IMPLS.boomerang = {
     DISC.tier = tier;
 
     for (let i = 0; i < n; i++) {
-      const a = n === 1 ? base : base - s.arc / 2 + (i / (n - 1)) * s.arc;
+      const a = H.fanAngle(i, n, base, s.arc);
       THROW_OPTS.speed = speed;
       THROW_OPTS.damage = dmg;
       THROW_OPTS.life = out;

@@ -59,20 +59,26 @@ export const SHIP_NAMES = {
   hoshiyomi_penlight: 'Star Gazer Penlight',
 
   // Yamikage
-  amaterasu: 'Blackflame',
-  body_flicker: 'Flashstep',
+  chidori: 'Thousand Birds',
+  lions_barrage: 'Rising Heel Combo',
   sharingan: 'Foresight Eye',
   susanoo_fragment: 'Guardian Ribcage',
-  // Not an ability id — the named VFX on Body Flicker's afterimage. Pre-authored
-  // in DECISIONS.md §22.3, so it is carried verbatim and keyed by its own term.
-  chidori: 'Thousand Birds',
+  // No longer ability ids. They are kept because a rename table is a HISTORY as
+  // well as a lookup: a save, a screenshot or a codex entry from an older build
+  // can still hand one of these ids to `shipNameOf`, and answering with the
+  // safe name costs nothing while answering with `undefined` would fall back to
+  // the source-IP string this file exists to keep off the screen.
+  amaterasu: 'Blackflame',
+  body_flicker: 'Flashstep',
 
   // Uzu
   kage_bunshin_barrage: 'Clone Barrage',
-  shadow_clone_jutsu: 'Clone Legion',
   substitution_jutsu: 'Log Swap',
   nine_tails_chakra: 'Ninefold Cloak',
-  // Not an ability id — the S3 upgrade's named slam. Pre-authored in §22.3.
+  // His special outright, not a term inside an upgrade card: the rename was
+  // pre-authored in §22.3 before the ability existed, and now it has an id to
+  // hang on. `shadow_clone_jutsu` was retired with the old special — the clones
+  // are his AUTO-ATTACK, which is what `kage_bunshin_barrage` above renames.
   rasengan: 'Spiral Sphere',
 
   // Captain Yuli

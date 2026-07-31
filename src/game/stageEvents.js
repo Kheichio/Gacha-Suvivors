@@ -106,6 +106,8 @@ const RESULT_HOLD = 3.2;
 const MAX_MOTES = 12;
 /** Touch radius for a mote. Generous on purpose — this is not a precision test. */
 const MOTE_REACH = 52;
+/** Scratch for the mote push-out. Never read across calls. */
+const FREE = { x: 0, y: 0 };
 
 // THE POP-UP'S CLOCK.
 //
@@ -313,11 +315,40 @@ export class StageEventSystem {
       // guaranteed failure banner.
       const a = (i / n) * TAU + runRng.range(-0.35, 0.35);
       const d = P.radius * runRng.range(0.30, 0.85);
-      this.moteX[i] = clamp(this.x + Math.cos(a) * d, b.minX + 60, b.maxX - 60);
-      this.moteY[i] = clamp(this.y + Math.sin(a) * d, b.minY + 60, b.maxY - 60);
+      let mx = clamp(this.x + Math.cos(a) * d, b.minX + 60, b.maxX - 60);
+      let my = clamp(this.y + Math.sin(a) * d, b.minY + 60, b.maxY - 60);
+      // A MOTE INSIDE A BLOCKER IS AN UNWINNABLE OBJECTIVE. MOTE_REACH is 52 and
+      // the player is hard-resolved out of static geometry at 15px of clearance,
+      // so a mote at the centre of any piece thicker than ~37px cannot be
+      // touched â€” and `gather` needs ALL of them. That is a guaranteed failure
+      // banner with nothing on screen that would ever explain it.
+      if (this.run.obstacles.count > 0 && this.run.obstacles.pushOut(mx, my, 16, FREE)) {
+        mx = FREE.x; my = FREE.y;
+      }
+      this.moteX[i] = mx;
+      this.moteY[i] = my;
       this.moteLive[i] = 1;
     }
     this.moteCount = n;
+  }
+
+  /**
+   * Push live motes back out of the geometry.
+   *
+   * Only the shifting-rooms hazard needs this: it clears the obstacle field and
+   * rebuilds it mid-event, which can drop a corridor wall on a mote that was
+   * placed legally forty seconds earlier.
+   */
+  evictMotes() {
+    const obstacles = this.run.obstacles;
+    if (obstacles.count === 0 || this.moteCount === 0) return;
+    for (let i = 0; i < this.moteCount; i++) {
+      if (!this.moteLive[i]) continue;
+      if (obstacles.pushOut(this.moteX[i], this.moteY[i], 16, FREE)) {
+        this.moteX[i] = FREE.x;
+        this.moteY[i] = FREE.y;
+      }
+    }
   }
 
   _tick(dt) {
@@ -372,8 +403,23 @@ export class StageEventSystem {
     // attached to it if that run was never disposed. Checking the run is what
     // stops a dead objective counting kills from a live one.
     if (run !== this.run || this.phase !== EVENT_PHASE.ACTIVE || this.kind !== 'cull') return;
+    // INSIDE THE RING, AND NOWHERE ELSE.
+    //
+    // `e.x/e.y` is still the DEATH position here even though the slot is
+    // already back in the pool: run.onEnemyDeath -> enemies.onDeath releases it
+    // BEFORE damage.js emits ENEMY_KILLED, but the pool's reset never touches
+    // x or y, and the freed slot cannot be claimed until the next spawn, which
+    // is a later tick.
     if (dist2(e.x, e.y, this.x, this.y) > this.radius * this.radius) return;
     this.progress++;
+    // ONE SPARK PER COUNTED KILL. The rule above was already enforced and
+    // completely invisible: the only way to learn that the kill you made on the
+    // way to the ring did nothing was to watch a number that had not moved,
+    // which reads as "the objective is broken" rather than as "that one was
+    // outside". A kill that counts now says so, where it happened, in the
+    // event's own colour.
+    particles.burst(e.x, e.y, 4, this.color,
+                    { speed: 130, life: 0.28, size: 0.42, additive: true });
   }
 
   _resolve(success) {

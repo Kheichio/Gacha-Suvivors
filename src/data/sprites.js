@@ -43,14 +43,16 @@
  *              (+ earColor, earInner)
  *   headgear   crown, hat:'tricorn'|'topHat'|'beret' (+hatColor, hatTrim,
  *              hatPlume), headband (+headbandPlate), headdress
- *              (+headdressRibbon), halo, hairpin:'star'
+ *              (+headdressRibbon), halo, hairpin:'star'|'bell'
  *   face       eyes, eyeGlow, eyeSigil, visor, mask, eyepatch:'left'|'right'
  *              (+eyepatchColor, eyepatchStrap), scar:'left'|'right', whiskers,
  *              blush:false
  *   garment    coat (+coatTrim, coatLapels, coatCuffs, coatButtons,
  *              coatPattern:'check'|'stripe', coatPattern2, coatRagged),
  *              pinafore (+pinaforeTrim), hoodDown, highCollar,
- *              skirt, shorts, sash (+sashBuckle), belt, scarf, tie, neckBow,
+ *              skirt, shorts, hakama (the LONG pleated DIVIDED one; `skirt` is
+ *              a four-row mini at the hip and this is not a length setting on
+ *              it), sash (+sashBuckle), belt, scarf, tie, neckBow,
  *              harness, pauldrons (colour) + pauldron:'left'|'right' (one side
  *              only), gauntlets, gloves, cuffs, armWraps, detachedSleeves,
  *              boots, bootHeight:'knee'|'thigh', barefoot, sleeve, legColor,
@@ -149,28 +151,47 @@ export const CHARACTER_SPRITES = {
     boots: '#121c44', bootHeight: 'knee',
     aura: '#ffe14a', weapon: 'mic', weaponColor: '#e8ecf5',
   },
-  // The avenger, corrected against the brief: a dark blue STAND COLLAR, WHITE
-  // ARM WRAPS, swept duck-tail hair and red eyes carrying a ring sigil. The face
-  // wrap the previous pass gave him belongs to a different ninja entirely, and
-  // taking it off is what lets the eyes do the work they are supposed to do.
+  // The avenger, drawn at the age the whole kit is written for: a dark blue
+  // STAND COLLAR, the round clan crest, WHITE ARM WRAPS, BLACK SHORTS, swept
+  // duck-tail hair and red eyes carrying a ring sigil. The face wrap an earlier
+  // pass gave him belongs to a different ninja entirely, and taking it off is
+  // what lets the eyes do the work they are supposed to do.
+  //   `young`   a real proportion change (bigger head, narrower shoulders), not
+  //             a scale. He is a boy, and he stands next to his rival on the
+  //             roster grid, so it has to survive being 30px tall.
+  //   `chest`   the crest belongs on the BACK of the collar; the sprite is
+  //             front-facing and the vocabulary has no back, so it is worn where
+  //             it can actually be read. Same compromise the other crests take.
+  //   `chakram` a ring drawn IN THE AIR beside the head — a thrown blade, which
+  //             is literally his auto-attack. Deliberately not a sword: he has
+  //             no sword at this age, and an empty pair of hands is his rival's
+  //             silhouette, not his.
   yamikage: {
-    body: 'humanoid', hair: 'ducktail', hairColor: '#1a1d2e', skin: '#eec6a4',
+    body: 'humanoid', young: true,
+    hair: 'ducktail', hairColor: '#1a1d2e', skin: '#eec6a4',
     outfit: '#243050', accent: '#e8e8f0', eyes: '#ff3a3a', eyeGlow: '#ff6f6f',
-    eyeSigil: '#14141c', highCollar: '#1c2740', armWraps: '#e8e8f0',
-    sash: '#4a5578', gloves: '#1c2740', boots: '#1c2740', blush: false,
-    weapon: 'katana', weaponColor: '#dfe8f5',
+    eyeSigil: '#14141c', highCollar: '#1c2740', chest: '#c81e3a',
+    armWraps: '#e8e8f0', shorts: '#14161f', sash: '#4a5578',
+    gloves: '#1c2740', boots: '#1c2740', bootHeight: 'knee', blush: false,
+    weapon: 'chakram', weaponColor: '#c8d2e6',
   },
   // His opposite number in every way: blond spikes instead of a dark sweep, a
   // plated forehead band, THREE whisker marks on each cheek, an orange-and-black
-  // jumpsuit and three spirit tails. Bare-faced and unarmed, on purpose.
+  // jumpsuit and ONE spirit tail. Bare-faced and unarmed, on purpose.
+  //
+  // `young` because he is: the brief is the child, not the man he becomes, and
+  // the bigger head on the narrower frame is what says so beside a rival who is
+  // drawn at full adult proportions. One tail rather than three for the same
+  // reason — the extra tails belong to a later version of this character.
   uzu: {
     // A shade deeper than the other orange gi on purpose: they are the only two
     // orange characters and they sit next to each other on the roster grid.
-    body: 'humanoid', hair: 'spiky', hairColor: '#f5d14a', skin: '#f5cba0',
+    body: 'humanoid', young: true,
+    hair: 'spiky', hairColor: '#f5d14a', skin: '#f5cba0',
     outfit: '#ef7318', accent: '#1a1d2e', eyes: '#4aa8ff',
     whiskers: true, headband: '#1a1d2e', headbandPlate: '#c8d2e0',
     sleeve: '#1a1d2e', sash: '#1a1d2e', chest: '#e8e8f0',
-    tails: 3, tailColor: '#ff6a1a',
+    tails: 1, tailColor: '#ff6a1a',
     // No gauntlets: with the obi, the sleeves and the gloves all in the same
     // near-black, one more black band at the waist joined them into a single
     // bar across the whole figure.
@@ -186,16 +207,43 @@ export const CHARACTER_SPRITES = {
     chest: '#8ab0d8', gloves: '#e8e4dc', boots: '#3a3628', bootHeight: 'knee',
     blush: false, weapon: 'dual', weaponColor: '#cfd8e6',
   },
-  // Shrine fox. Long pink hair, GOLD ears rather than pink ones, NINE tails,
-  // a blue-and-white shrine robe with DETACHED SLEEVES, and the polished bronze
-  // mirror she actually carries instead of the war fan she does not.
+  // Shrine fox, rebuilt line by line against the brief.
+  //
+  // VERY LONG ROSE TWIN-TAILS with gold ties â€” long loose hair was half of it
+  // and the half that was missing is the half you can name her by. Large
+  // GOLDEN-BLONDE fox ears rather than pink ones. NINE tails. A modernised
+  // shrine outfit: a white top with wide DETACHED SLEEVES over a VERMILION
+  // HAKAMA, which is the signature colour of the whole design and which the
+  // previous pass had as a blue mini â€” `skirt` was the only garment the
+  // vocabulary had and it says "school uniform", so the one thing the costume
+  // is famous for was both the wrong shape and the wrong colour. Gold at the
+  // ties, the obi plate, the collar and the mirror's rim; a large gold BELL on
+  // the crown between the ears; warm gold-amber eyes; and the polished mirror
+  // she actually carries instead of the war fan she does not.
+  //
+  // 40x54, for the same reason as the captain and the rabbit: at 30x42 the
+  // twin-tail falls, the nine-tail fan and the weapon column all want the same
+  // six columns and two of the three have to lose.
+  //
+  // The tails run PALE GOLD and not her hair's pink, which is the one place the
+  // drawing argues with the reference and wins. Nine tails in the same pink as
+  // forty rows of hair hanging through the same rows is one pink mass with no
+  // count in it, and the count is the character; in the ears' gold they read as
+  // the fox half of her and the hair reads as the girl half.
   kagura: {
-    body: 'humanoid', hair: 'long', hairColor: '#ff9ecb', skin: '#fadbc4',
-    outfit: '#eef2ff', accent: '#4a7fd6', eyes: '#ffd23f',
-    detachedSleeves: '#dfe8ff', skirt: '#3f6ad8', shorts: '#2a3f7a',
-    sash: '#4a7fd6', ears: 'fox', earColor: '#e8b64c',
-    tails: 9, tailColor: '#ff9ecb', boots: '#e8e4dc',
-    weapon: 'mirror', weaponColor: '#e8c98a',
+    body: 'humanoid', gridW: 40, gridH: 54,
+    hair: 'twinLong', hairColor: '#ff9ecb', hairTie: '#e8c34a', skin: '#fadbc4',
+    outfit: '#f7f4ec', accent: '#e8c34a', eyes: '#f0a83c',
+    ears: 'fox', earColor: '#f0c24a',
+    detachedSleeves: '#fff0d8',
+    hakama: '#d93a2b', sash: '#a3182f', sashBuckle: '#e8c34a',
+    hairpin: 'bell', hairpinColor: '#f0c24a',
+    tails: 9, tailColor: '#ffe9c0',
+    // The crest is the only red a BUST gets: a head-and-shoulders crop throws
+    // the hakama away entirely, and a portrait of this character with none of
+    // her signature colour in it is a different person in a white shirt.
+    chest: '#d93a2b', boots: '#f0ece2', aura: '#ffd76a',
+    weapon: 'mirror', weaponColor: '#eef2f8',
   },
   // A stream overlay given a body: ribbon aerials shaped like headset ears, a
   // white-and-pink HOODED dress, THIGH-HIGH boots, pink eyes, a status halo that
@@ -591,6 +639,28 @@ export function portraitFor(def) {
   if (!def) return null;
   const src = CHARACTER_SPRITES[def.id];
   if (!src) return null;
+
+  // A BUST IS A HUMAN SHAPE, AND NOT EVERY CHARACTER HAS ONE.
+  //
+  // `portrait` draws head, neck, collar and shoulders on the assumption that
+  // there is a person under them. Forcing it on every roster entry gave the
+  // mascot — a rice-cake blob with no body at all — a human neck and a pair of
+  // shoulders in its HUD icon, wearing its own face like a mask. Nothing
+  // errored, nothing looked broken enough to grep for, and the world sprite
+  // (which is right) sat two inches away disagreeing with it.
+  //
+  // So a non-humanoid keeps its OWN plan and is simply drawn at portrait
+  // resolution. Every non-humanoid plan derives its whole geometry from the
+  // grid it is handed, so 40x40 is free detail on the same silhouette rather
+  // than a second drawing that has to be kept in sync with the first.
+  if (src.body && src.body !== 'humanoid') {
+    return Object.assign({}, src, {
+      id: def.id + '_portrait',
+      noBob: true,
+      gridW: 40, gridH: 40,
+    });
+  }
+
   return Object.assign({}, src, {
     id: def.id + '_portrait',
     body: 'portrait',
@@ -603,6 +673,7 @@ export function portraitFor(def) {
     // the coat and the one-sided shoulder pad, which are all visible in frame.
     // `cuffs` go with the arms they sit on: there are no wrists in a bust.
     weapon: 'none', tails: 0, tail: null, cape: null, skirt: null, shorts: null,
+    hakama: null,
     sash: null, gauntlets: null, boots: null, bootHeight: undefined,
     belt: undefined, harness: null, armWings: null, hipWings: null,
     backpack: null, hologram: null, barefoot: false, detachedSleeves: null,

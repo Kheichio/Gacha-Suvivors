@@ -189,7 +189,16 @@ export const ENEMIES = [
     visual: { shape: 'square', color: '#f2e9dc', accent: '#6a5f52', emoji: '🩹', size: 8 },
     // Tighter, faster wobble than the Chibi Ghost's: at this speed the ghost's
     // 2.2Hz weave reads as a wide arc and the pack stops looking like a pack.
-    params: { packSize: 24, sineAmp: 10, sineFreq: 3.6 },
+    // `maxAlive` is the concurrency ceiling, enforced in game/enemy.js's spawn()
+    // â€” the timeline may ask for 44 of these at once (waves.js) and it will get
+    // 30. `pass*` is the run-THROUGH: at 88px it commits to a heading, crosses
+    // at 1.7x for 0.45s and comes out the far side rather than parking on the
+    // player. Play report: "too many at once causing lag ... make them go at the
+    // player quicker so they dont stack on top of each other." Both halves.
+    params: {
+      packSize: 24, sineAmp: 10, sineFreq: 3.6, maxAlive: 30,
+      passLock: 88, passSpeed: 1.7, passTime: 0.45, passRecover: 0.35,
+    },
     codex: 'Removes what you wrote, then what you meant, then you.',
   },
 
@@ -204,7 +213,10 @@ export const ENEMIES = [
     // built out of 26-to-40 speed walls of Husk Wanderers and Crawler Husks; a
     // knee-high one at 136 is the same silhouette family arriving four times
     // sooner, which is a much nastier surprise than a new silhouette would be.
-    params: { packSize: 26 },
+    params: {
+      packSize: 26, maxAlive: 32,
+      passLock: 90, passSpeed: 1.7, passTime: 0.5, passRecover: 0.35,
+    },
     codex: 'Knee-high, mouth first, and it got here before the tall ones.',
   },
 
@@ -220,7 +232,11 @@ export const ENEMIES = [
     // chaining exploder on a covered screen is a screen-wide detonation with a
     // 0.35s warning, which is the exact thing DECISIONS.md §25 keeps saying no
     // to. Small blast, short fuse, no chain: it is a mine that runs at you.
-    params: { fuse: 1.6, blastRadius: 56, blastDamage: 9, chains: false },
+    // No pass-through: `exploder` owns aiState, and a mine that runs PAST you is
+    // not the enemy this is. It gets the concurrency cap only â€” 34 fast
+    // exploders arriving together (waves.js) is the one case where the count
+    // alone is the problem.
+    params: { fuse: 1.6, blastRadius: 56, blastDamage: 9, chains: false, maxAlive: 24 },
     codex: 'Small, bright, and briefly very close to your face.',
   },
 
@@ -234,7 +250,15 @@ export const ENEMIES = [
     // The fastest and smallest thing in the game. Stage 6's high tide takes 20%
     // off everything's move speed, so this is tuned to still be a harasser at
     // 114 — the trough is when it becomes genuinely difficult to leave behind.
-    params: { packSize: 34, sineAmp: 22, sineFreq: 3.0 },
+    // The fastest thing in the game, and the one the play report is loudest
+    // about: waves.js asks for 52 of these at 0.89 of Stage 6 and 50 more at
+    // 0.89 of Stage 7. 36 is the whole shoal's worth; the 37th simply does not
+    // spawn. 142 * 1.7 * 0.55 = 133px of travel from a 96px lock, so it is
+    // through and past before the second contact tick lands.
+    params: {
+      packSize: 34, sineAmp: 22, sineFreq: 3.0, maxAlive: 36,
+      passLock: 96, passSpeed: 1.7, passTime: 0.55, passRecover: 0.35,
+    },
     codex: 'Not a fish. Four hundred fish agreeing about a direction.',
   },
 
@@ -336,7 +360,10 @@ export const ENEMIES = [
     behavior: 'swarmer',
     element: 'shadow',
     visual: { shape: 'circle', color: '#6b7280', accent: '#171a20', emoji: '💬', size: 10 },
-    params: { packSize: 25 },
+    params: {
+      packSize: 25, maxAlive: 45,
+      passLock: 76, passSpeed: 1.8, passTime: 0.6, passRecover: 0.4,
+    },
     codex: 'Individually harmless. Statistically a wall of text.',
   },
 
@@ -546,7 +573,14 @@ export const ENEMIES = [
     behavior: 'chaser',
     element: 'spirit',
     visual: { shape: 'capsule', color: '#d8c2a6', accent: '#7a2f2f', emoji: '😀', size: 21 },
-    params: {},
+    // The tier-3 member of the same problem: 145 speed, `chaser`, and large
+    // enough (radius 24) that twenty of them parked on the player is a wall of
+    // sprites as well as a wall of hitboxes. Same treatment, wider lock because
+    // it is six times the size of a Bait Ball.
+    params: {
+      maxAlive: 22,
+      passLock: 110, passSpeed: 1.5, passTime: 0.7, passRecover: 0.5,
+    },
     codex: 'There is no reason for it to run. It runs.',
   },
 
@@ -687,8 +721,25 @@ export const ENEMIES = [
     // three stages is inside its range. Weight 15 is a rung under the Rubble
     // Golem, so a knockback build shifts it and does not clear it.
     params: {
-      range: 560, fireInterval: 4.6, telegraph: 1.1,
+      range: 560, fireInterval: 5.4, telegraph: 1.45,
       blastRadius: 145, shellMult: 1.5, lead: 0.55,
+      // THE TELEGRAPH IS AN ARITHMETIC RESULT, NOT A TASTE CALL. To leave a
+      // 145px blast you must cover 145 + 9 (feel.playerHitRadius, which
+      // enemyBlast() actually tests against) = 154px. The slowest character in
+      // the roster runs 168px/s and nothing on this stage slows the player, so
+      // that is 154/168 = 0.92s of running, plus feel.accelTime 0.07s to get up
+      // to speed, plus 0.25s to notice a new mark on a covered screen: 1.24s
+      // minimum. It shipped with 1.1 â€” short, for a mob the stage fields twenty
+      // of. 1.45 clears the floor with 0.21s of margin and STILL punishes a
+      // straight line: keep running and you finish 168 * (1.45 - 0.07) = 232px
+      // out against a lead point 0.55 * 168 = 92px out, 140px apart, inside the
+      // 154px blast. Cutting is still the answer. It is now a possible one.
+      //
+      // `scatter` spreads a salvo over ground instead of stacking it on one
+      // point; `salvoSpacing` is the arena-wide floor between any two mortar
+      // marks, which caps the whole stage at two shells a second however many
+      // Siege Husks are standing. Both are read by the `mortar` archetype.
+      scatter: 130, salvoSpacing: 0.5,
     },
     codex: 'Too slow to catch anybody. Has not needed to catch anybody in years.',
   },
@@ -777,8 +828,14 @@ export const ENEMIES = [
     // reason this stage's ring waves stopped being free, and unlike the Husk it
     // is soft enough (weight 6) that knockback genuinely relocates the problem.
     params: {
-      range: 460, fireInterval: 4.0, telegraph: 1.0,
+      range: 460, fireInterval: 4.0, telegraph: 1.25,
       blastRadius: 118, shellMult: 1.4, lead: 0.45,
+      // The Siege Husk's arithmetic at reef scale: (118 + 9)/168 = 0.76s of
+      // running + 0.07s of ramp + 0.25s to see it = 1.08s minimum against the
+      // 1.0 it shipped with. 1.25 leaves it the same margin the Husk gets.
+      // High tide slows the player 20%, which is exactly why this one gets the
+      // margin rather than the floor.
+      scatter: 105, salvoSpacing: 0.4,
     },
     codex: 'Sits perfectly still. Redecorates everywhere you were thinking of standing.',
   },

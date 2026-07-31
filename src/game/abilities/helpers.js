@@ -118,16 +118,77 @@ export function pierce(p, base) {
 }
 
 /**
+ * HOW WIDE A VOLLEY OPENS — the arithmetic every fan in the game now shares.
+ *
+ * `arc` used to be the WHOLE fan no matter how many bodies went into it, and
+ * that produced two wrong shapes at once.
+ *
+ *   - Six of the fifteen `spread` call sites pass `arc: 0`, because at their own
+ *     count of one there was nothing to fan. Every projectile Extra Shot added
+ *     to those was fired from the same point, on the same bearing, at the same
+ *     speed, with the same life: five shots that are drawn as one shot and
+ *     travel as one body for as long as they live. The damage was all there —
+ *     each carries its own uid, so each one really does hit — and the upgrade was
+ *     still invisible, which is exactly the complaint.
+ *   - The nine sites that DID pass a fan had it SUBDIVIDED, so taking the most
+ *     expensive offensive upgrade in the game made an existing volley tighter.
+ *     Seven shuriken in the 0.26rad meant for three sit 2.5° apart: four pixels
+ *     of separation at a hundred pixels of travel.
+ *
+ * So `arc` is a SPACING now, not a total. The gap the caller's own count implies
+ * is kept exactly, floored so no two projectiles can ever share a bearing, and
+ * the fan GROWS with the number of bodies in it. At the caller's own count the
+ * result is identical to what it always was, down to the last bit — no volley in
+ * the game changes shape until Extra Shot is actually taken.
+ *
+ * MIN_GAP is 0.13rad (7.4°): about 40px of separation at 300px of travel, which
+ * is where two shots stop reading as one. MAX_FAN caps the whole spread at
+ * 1.4rad (80°) so a nine-shot auto is still a volley pointed at something rather
+ * than a nova; past the cap the shots tighten again instead of wrapping around
+ * behind the player.
+ */
+const MIN_GAP = 0.13;
+const MAX_FAN = 1.4;
+
+/** The total angle `n` projectiles occupy, given the caller's requested `arc`. */
+export function fanWidth(n, arc) {
+  if (n <= 1) return 0;
+  let gap = arc > 0 ? arc / (n - 1) : 0;
+  if (gap < MIN_GAP) gap = MIN_GAP;
+  const total = gap * (n - 1);
+  return total > MAX_FAN ? MAX_FAN : total;
+}
+
+/**
+ * The bearing of shot `i` of `n`, fanned around `angle`.
+ *
+ * Exported because `spread` is not the only thing that fans. Three weapon
+ * implementations and two abilities build their own volleys, and every single
+ * one of them carried its own copy of the cramping bug above.
+ */
+export function fanAngle(i, n, angle, arc) {
+  if (n <= 1) return angle;
+  const total = fanWidth(n, arc);
+  return angle - total * 0.5 + (i / (n - 1)) * total;
+}
+
+/**
  * Fire a spread of projectiles. The single most-used helper — it applies Extra
  * Shot, Wide Reach, Long Haul and Piercing Will uniformly so no ability has to
  * remember to.
+ *
+ * `opts.fixedCount` opts a call OUT of Extra Shot, and exists for exactly one
+ * shape: a 360° RING. A ring grows by adding SPOKES — which only the caller can
+ * do, because only the caller knows the ring's geometry — and letting this
+ * helper fan each spoke as well would apply the same upgrade twice and turn an
+ * eight-shard barrier into eight fans of five.
  */
 export function spread(run, p, x, y, angle, count, arc, o) {
   const opts = o || EMPTY;
-  const n = Math.max(1, count + extraShots(p));
-  const total = arc * (n > 1 ? 1 : 0);
+  const base = count > 0 ? count : 1;
+  const n = opts.fixedCount ? base : Math.max(1, base + extraShots(p));
   for (let i = 0; i < n; i++) {
-    const a = n > 1 ? angle - total / 2 + (i / (n - 1)) * total : angle;
+    const a = fanAngle(i, n, angle, arc);
     run.projectiles.fire(x, y, a, {
       speed: projSpeed(p, opts.speed || 460),
       damage: opts.damage,
@@ -149,6 +210,7 @@ export function spread(run, p, x, y, angle, count, arc, o) {
       popTime: opts.popTime,
       popCount: opts.popCount,
       stickTime: opts.stickTime,
+      spin: opts.spin,
       trailColor: opts.trailColor,
       knockback: opts.knockback,
       onHit: opts.onHit,
@@ -242,6 +304,13 @@ const DASH_TRAIL = { color: '#ffffff', life: 0.28, size: 0.9, sizeEnd: 0.1, drag
  * trail behind the leading edge. It no longer pushes into `run.overlays.wedges`,
  * because a one-frame pie slice and an animated swing on the same cast is just
  * the old flash showing through the new one.
+ *
+ * `opts.silent` suppresses the 'slash' sound and NOTHING else. It exists for the
+ * one shape this helper could not express: a character who swings TWO blades in
+ * the same tick calls this twice, `audio.play` has no throttle, and the pair came
+ * out as one doubled click rather than as two blades. Such a caller plays the
+ * sound on the first arc and silences the second. Every existing caller omits the
+ * field and is byte-for-byte unaffected.
  */
 export function meleeArc(run, p, x, y, angle, arcRad, radius, damage, o) {
   const opts = o || EMPTY;
@@ -269,7 +338,7 @@ export function meleeArc(run, p, x, y, angle, arcRad, radius, damage, o) {
     g.life = 0.20;
     effects.impact(x + Math.cos(angle) * r * 0.86, y + Math.sin(angle) * r * 0.86, color, g);
   }
-  audio.play('slash');
+  if (!opts.silent) audio.play('slash');
   return hits;
 }
 

@@ -130,6 +130,55 @@ export class EnemySystem {
     this.splitBudget = CONFIG.SPLIT_BUDGET_PER_RUN;
     // Restarts with the run. See the comment on uidCounter.
     this._nextUid = uidCounter;
+    /**
+     * LIVE POPULATION PER ENEMY ID.
+     *
+     * Every enemy in the game â€” wave events, the baseline trickle, summoners,
+     * splitters, the Splitting affix, stage events â€” is born in `spawn()`, so
+     * one Map maintained here is the whole of `params.maxAlive`. Per-run, never
+     * module-level: the determinism suite replays a seed after an intervening
+     * run and would catch that immediately.
+     */
+    this._alive = new Map();
+    /**
+     * THE BROADPHASE MARGIN, SIZED TO WHAT IS ACTUALLY ALIVE.
+     *
+     * Every hit test in the game is `hash.query(x, y, r + pad)` followed by an
+     * exact test against `r + e.radius`, so the pad must cover the largest
+     * radius on the field or big targets silently stop being hittable â€” with no
+     * error anywhere. It used to be the constant 140, which cost a screen of
+     * 8px fodder a 320x320px gather per projectile and STILL did not cover a
+     * 150-radius boss. Recomputed once per tick in `refreshQueryPad`, and
+     * raised on the spot by anything that grows a radius mid-tick.
+     */
+    this.queryPad = CONFIG.HIT_QUERY_PAD;
+  }
+
+  /**
+   * O(n) over the array the spatial hash was just built from. Called from
+   * run.update immediately after `enemyHash.build`, before anything queries it.
+   * ~800 property reads, under 0.003ms â€” against 0.29ms saved on the projectile
+   * broadphase alone at horde density.
+   */
+  refreshQueryPad() {
+    const items = this.pool.items;
+    let m = 0;
+    for (let i = 0; i < this.pool.count; i++) {
+      const r = items[i].radius;
+      if (r > m) m = r;
+    }
+    m += CONFIG.BROADPHASE_SLACK;
+    this.queryPad = m < CONFIG.BROADPHASE_MIN_PAD ? CONFIG.BROADPHASE_MIN_PAD : m;
+  }
+
+  /**
+   * Raise the pad for an enemy whose radius grew after `spawn` returned â€” the
+   * elite 1.35x in run.spawnElite and the raw boss radius in boss.js. The pad
+   * only ever moves UP here; the per-tick refresh is what brings it back down.
+   */
+  noteRadius(e) {
+    const want = e.radius + CONFIG.BROADPHASE_SLACK;
+    if (want > this.queryPad) this.queryPad = want;
   }
 
   get items() { return this.pool.items; }
@@ -141,6 +190,20 @@ export class EnemySystem {
    */
   spawn(def, x, y, opts) {
     if (this.run.totalEntities() >= CONFIG.MAX_ENTITIES) return null;
+    // CONCURRENCY CAP â€” `params.maxAlive`, authored in data/enemies.js.
+    //
+    // Play report: "the quick moving straight line mobs appear too many at once
+    // causing lag". The timeline asks for up to 60 of one fast swarm mob at a
+    // time (waves.js), and because they outrun the player they all survive to
+    // reach him, so the ask and the population are the same number. Refusing
+    // the spawn here rather than editing 56 wave rows means the cap is a
+    // property of the CREATURE â€” one number next to its speed, honoured by the
+    // wave director, the trickle, summoners and the Splitting affix alike.
+    //
+    // A refusal is not an error: `_spawnBatch` already stops on a null and the
+    // spread-spawn entry expires on its own timer, so nothing spins.
+    const cap = def.params ? def.params.maxAlive : 0;
+    if (cap > 0 && (this._alive.get(def.id) || 0) >= cap) return null;
     const e = this.pool.spawn();
     if (!e) return null;
     const o = opts || EMPTY;
@@ -226,12 +289,32 @@ export class EnemySystem {
     // the first Conductor pulse quietly undo it.
     e.baseDamage = e.damage;
 
+    // After the affixes too: `colossal` doubles the radius, and the broadphase
+    // pad has to know about the doubled one, not the statline one.
+    this._alive.set(def.id, (this._alive.get(def.id) || 0) + 1);
+    this.noteRadius(e);
+
     events.emit(EV.ENEMY_SPAWNED, e);
     return e;
   }
 
-  release(e) { this.pool.release(e); }
-  clear() { this.pool.clear(); this.splitBudget = CONFIG.SPLIT_BUDGET_PER_RUN; }
+  release(e) {
+    // The population counter has to be decremented HERE and not in the pool,
+    // because `clear()` bypasses release entirely. `pool.release` no-ops on an
+    // already-dead slot, so the `active` guard is what keeps a double release
+    // from driving the count negative.
+    if (e.active) {
+      const n = this._alive.get(e.id);
+      if (n > 0) this._alive.set(e.id, n - 1);
+    }
+    this.pool.release(e);
+  }
+  clear() {
+    this.pool.clear();
+    this._alive.clear();
+    this.queryPad = CONFIG.HIT_QUERY_PAD;
+    this.splitBudget = CONFIG.SPLIT_BUDGET_PER_RUN;
+  }
 
   update(dt) {
     const run = this.run;
@@ -379,27 +462,25 @@ export class EnemySystem {
     }
   }
 
-  /** Soft separation. Sampled, not exhaustive — 6 neighbours is plenty. */
+  /**
+   * Soft separation. Sampled, not exhaustive — 6 neighbours is plenty.
+   *
+   * The sampling now happens where the candidates live. This used to call
+   * `hash.query`, which writes every index in the covered cells into the result
+   * buffer before this function reads the first one, and then stopped after six
+   * — so on a spread-out field it was free and inside a fifty-strong pack it
+   * was tens of thousands of wasted writes per tick. `separationPush` walks the
+   * same cells in the same order with the same tests and stops at six; the
+   * displacement is identical and the cost no longer grows with the crowd.
+   */
   _separate(e, dt) {
-    const hash = this.run.enemyHash;
-    const items = this.pool.items;
     const rad = feel.separationRadius + e.radius * 0.5;
-    const n = hash.query(e.x, e.y, rad);
-    let sx = 0, sy = 0, c = 0;
-    for (let k = 0; k < n && c < 6; k++) {
-      const o = items[hash.resultAt(k)];
-      if (o === e || !o.active) continue;
-      const dx = e.x - o.x, dy = e.y - o.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 > rad * rad || d2 < 0.01) continue;
-      const inv = 1 / Math.sqrt(d2);
-      sx += dx * inv; sy += dy * inv;
-      c++;
-    }
+    const c = this.run.enemyHash.separationPush(
+      this.pool.items, e, rad, SEPARATION_SAMPLES, SEP);
     if (c > 0) {
       const f = feel.separationForce * dt / c;
-      e.x += sx * f;
-      e.y += sy * f;
+      e.x += SEP.x * f;
+      e.y += SEP.y * f;
     }
   }
 
@@ -497,8 +578,16 @@ export class EnemySystem {
       // whichever side of 0.5 its grid happened to land on. Small fodder gains
       // the most from that, which is exactly the class that read too small.
       const scale = e.sprite.unit * clamp(e.radius / 14, 0.85, 2.6) * feel.enemyDrawScale;
-      // Idle bob, offset per entity so a pack does not pulse in lockstep.
-      const anim = ((run.time * 5 + e.uid * 0.37) | 0) & 1;
+      // WALK OR IDLE, offset per entity so a pack does not march in lockstep.
+      // `e.uid * 0.37` is the same phase the bob has always used.
+      //
+      // The speed comes in as the SQUARED interpolation delta, which is two
+      // subtracts and two multiplies that the two lines above already paid for.
+      // Not `e.vx`: `_moveToward` maintains it but the `ranged` back-off below
+      // (line 640) and the ambusher's teleports write `e.x` directly and leave
+      // `e.vx` stale, so a strafing enemy would moonwalk.
+      const dxv = e.x - e.px, dyv = e.y - e.py;
+      const anim = e.sprite.animIndexFor(run.time, dxv * dxv + dyv * dyv, e.uid * 0.37);
       r.drawSprite(e.sprite, x, y, e.behavior === 'ranged' || e.isBoss ? e.facing : 0,
                    scale, 1, e.flashT > 0, anim);
 
@@ -586,14 +675,68 @@ const BLAST_HIT = { fromX: 0, fromY: 0 };
 // sower's ground is permanently visible, and neither the conductor nor the
 // tethered mob deals damage of its own at all.
 
+/**
+ * PASS-THROUGH â€” the shared half of `chaser` and `swarmer`, and the answer to
+ * "make them go at the player quicker so they don't stack on top of each other".
+ *
+ * Everything in this file steers at the player's exact position on every tick,
+ * forever. For a mob that is SLOWER than the player that is fine: it never
+ * arrives, so it never has to leave. For the fast ones â€” 124 to 145 base speed
+ * against the player's 165, which SECTION 8's speed scaling passes inside four
+ * minutes â€” it is a design bug wearing a performance bug's clothes. They arrive,
+ * they have nowhere to go, `_separate` packs them into a shell, and the shell
+ * thickens for the rest of the run. That pile is what makes every broadphase
+ * query in the game return ten times as many candidates: the SAME 900 enemies
+ * cost 2.42ms a tick spread out and 4.68ms piled on the player.
+ *
+ * So inside `passLock` they COMMIT: heading locked, speed up, run straight
+ * through and out the far side, then wheel around. A pass is one or two contact
+ * ticks instead of a permanent attachment, the pack sweeps across the screen the
+ * way a shoal does, and the crowd stops being a static wall to path through.
+ *
+ * Entirely data-gated on `params.passLock`, so every mob that does not declare
+ * it is byte-for-byte the enemy it was. Uses aiState/aiT2/aiF â€” never aiT, which
+ * the swarmer's wobble phase owns.
+ *
+ * @returns true if it moved the enemy this tick and the caller must not.
+ */
+function passThrough(e, p, dt, sys) {
+  const lock = e.params.passLock;
+  if (!lock) return false;
+  if (e.aiState === 1) {                      // committed: run the locked heading
+    e.aiT2 -= dt;
+    const s = e.speed * (e.params.passSpeed || 1.6) * dt;
+    e.x += Math.cos(e.aiF) * s;
+    e.y += Math.sin(e.aiF) * s;
+    e.facingTarget = e.aiF;
+    if (e.aiT2 <= 0) { e.aiState = 2; e.aiT2 = e.params.passRecover || 0.35; }
+    return true;
+  }
+  if (e.aiState === 2) {                      // wheel around before the next pass
+    e.aiT2 -= dt;
+    sys._moveToward(e, p.x, p.y, dt, 0.45);
+    if (e.aiT2 <= 0) e.aiState = 0;
+    return true;
+  }
+  if (dist2(e.x, e.y, p.x, p.y) < lock * lock) {
+    e.aiState = 1;
+    e.aiT2 = e.params.passTime || 0.55;
+    e.aiF = Math.atan2(p.y - e.y, p.x - e.x);
+    return true;
+  }
+  return false;
+}
+
 const BEHAVIORS = {
   chaser(e, run, p, dt, sys) {
+    if (passThrough(e, p, dt, sys)) return;
     sys._moveToward(e, p.x, p.y, dt, 1);
   },
 
   swarmer(e, run, p, dt, sys) {
     // Chaser plus a gentle sine weave, so a pack reads as a shoal not a line.
     e.aiT += dt;
+    if (passThrough(e, p, dt, sys)) return;
     const wobble = Math.sin(e.aiT * 3.2 + e.uid) * 0.35;
     if (dirTo(e.x, e.y, p.x, p.y) > 1) {
       const a = Math.atan2(V.y, V.x) + wobble;
@@ -893,13 +1036,38 @@ const BEHAVIORS = {
     if (e.aiState === 0) {
       const fire = range * 1.25;
       if (e.aiT <= 0 && d2p < fire * fire) {
+        // THREE SHELLS IN THE AIR, ARENA-WIDE, AND NOT ONE MORE.
+        // Nothing capped how many mortars could be marking at once, and on
+        // Stage 3 twenty of them alive is ordinary â€” see the note on
+        // HazardSystem.requestSalvo() for the count and where it comes from.
+        if (!run.hazards.requestSalvo(e.params.salvoSpacing || 0.5)) {
+          // Losing the gate must not cost this mortar its turn, or the ones at
+          // the back of the pool would starve behind the ones at the front
+          // forever. A short retry, jittered off `uid` so the queue rotates
+          // deterministically instead of always favouring low pool indices.
+          e.aiT = 0.10 + (e.uid & 7) * 0.02;
+          return;
+        }
         // LEAD THE SHOT. Aiming at the player's feet means a moving player is
         // never hit and a stationary one always is, which is the same enemy
         // twice; leading by half a second means running in a straight line is
         // the thing that gets punished and cutting is the thing that works.
+        //
+        // SCATTER is the other half of that idea and it was missing. The lead
+        // is a pure function of (p, v), so every mortar in range produced a
+        // pixel-IDENTICAL mark: ten circles stacked in one hole instead of ten
+        // circles covering ground. `scatter` is deliberately smaller than the
+        // blast (130 against 145 + 9 of player hitbox), so a player who stands
+        // still is still hit and the archetype keeps its entire job â€” it just
+        // is not a guaranteed dead-centre hit any more, and two shells half a
+        // second apart now land up to 260px apart instead of on top of each
+        // other.
         const lead = e.params.lead || 0.5;
-        e.aiX = clamp(p.x + p.vx * lead, run.bounds.minX, run.bounds.maxX);
-        e.aiY = clamp(p.y + p.vy * lead, run.bounds.minY, run.bounds.maxY);
+        const sc = e.params.scatter || 120;
+        const sa = runRng.angle();
+        const sd = runRng.range(sc * 0.45, sc);
+        e.aiX = clamp(p.x + p.vx * lead + Math.cos(sa) * sd, run.bounds.minX, run.bounds.maxX);
+        e.aiY = clamp(p.y + p.vy * lead + Math.sin(sa) * sd, run.bounds.minY, run.bounds.maxY);
         e.aiState = 1;
         e.aiT = e.params.telegraph || feel.telegraphLethal;
         run.hazards.telegraph(e.aiX, e.aiY, blast, e.aiT, 'red', 'x');
@@ -1173,6 +1341,11 @@ const BEHAVIORS = {
 };
 
 const EMPTY = {};
+
+/** SECTION 3's separation sample size. Six neighbours read as a blob; more do not. */
+const SEPARATION_SAMPLES = 6;
+/** Reused out-vector for separationPush â€” a separation pass may not allocate. */
+const SEP = { x: 0, y: 0 };
 
 /**
  * The Sower's field, as a module-level constant (house rule: no options bag is

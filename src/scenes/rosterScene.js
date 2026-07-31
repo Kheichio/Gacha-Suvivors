@@ -1036,7 +1036,8 @@ export const rosterScene = {
 
     const esc = c.escape;
     mk.t(A, '↯  ESCAPE — ' + displayName(esc), { size: 13, color: PALETTE.text, weight: 800 });
-    mk.t(A, trim1(esc.cooldown) + 's cooldown  ·  ' + trim1(esc.iframes) + 's i-frames',
+    mk.t(A, (esc.cooldown > 0 ? trim1(esc.cooldown) + 's cooldown' : 'NO COOLDOWN') +
+      '  ·  ' + trim1(esc.iframes) + 's i-frames',
       { size: 11, color: PALETTE.accent, mono: true });
     mk.wrap(A, esc.desc, { size: 12 });
     mk.gap(A, 8);

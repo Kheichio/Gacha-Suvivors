@@ -48,6 +48,14 @@ class Sprite {
     this.rotSteps = 1;
     this.animFrames = 1;
     /**
+     * How `frames` splits: [0, idleFrames) is the standing bob and everything
+     * after it is the walk cycle. `walkFrames` is 0, 2 or 4 — always a power of
+     * two, because `animIndexFor` picks a beat with a mask rather than a modulo
+     * and it runs once per entity per frame with two thousand entities up.
+     */
+    this.idleFrames = 1;
+    this.walkFrames = 0;
+    /**
      * The draw scale at which this sprite renders at its DECLARED size.
      *
      * Pixel sprites are rastered at a whole-number upscale of their little
@@ -80,7 +88,59 @@ class Sprite {
     if (this.animFrames > 1) i = i * this.animFrames + (animIndex % this.animFrames);
     return this.flash[i] || this.flash[0] || this.frames[0];
   }
+
+  /**
+   * WHICH FRAME AN ENTITY IS ON — walking or standing. One compare, one
+   * multiply-add-truncate, one mask.
+   *
+   * It lives on the Sprite rather than in each caller because the sprite is the
+   * only thing that knows how many walk frames it was baked with, and because
+   * three call sites (player, enemy, minion) would otherwise each carry their
+   * own copy of the same off-by-one.
+   *
+   * IT TAKES A SQUARED SPEED, and that is not a micro-optimisation: this runs
+   * once per entity per frame against a 2,000-entity target, and a Math.hypot
+   * there is 2,000 square roots a frame for a number that is only ever compared
+   * against a constant. The constant squares just as well as the speed does.
+   *
+   * The unit is PIXELS PER 60Hz TICK, squared, because the callers hand in
+   * `x - px` rather than a velocity field. That is deliberate — `enemy.js`
+   * maintains `e.vx` in `_moveToward` but the `ranged` behaviour's back-off
+   * (enemy.js:640) and the ambusher's two teleports write `e.x` directly and
+   * leave `e.vx` stale, so a strafing enemy would moonwalk. The interpolation
+   * delta is exact for every movement path there is, including knockback, pull
+   * and separation, and the draw loop has already computed it.
+   *
+   * `phase` is any per-entity constant. Without it a pack of forty spawned in
+   * the same wave marches in perfect lockstep, which looks worse than no walk
+   * cycle at all.
+   */
+  animIndexFor(time, step2, phase) {
+    if (this.walkFrames > 1 && step2 > WALK_STEP2) {
+      return this.idleFrames + ((((time * WALK_HZ + phase) | 0) & (this.walkFrames - 1)));
+    }
+    if (this.idleFrames < 2) return 0;
+    return ((time * IDLE_HZ + phase) | 0) & 1;
+  }
 }
+
+/** Standing bob rate, walk rate, and the step² above which a thing is walking. */
+const IDLE_HZ = 4;
+// 10Hz over a four-beat cycle is 2.5 strides a second, which is what a figure
+// crossing an arena at 165 px/s actually does. Slower reads as wading.
+const WALK_HZ = 10;
+// 8 px/s — the same threshold player.js used for its fast bob — expressed as a
+// per-tick displacement and squared: (8/60)^2 = 0.0178.
+const WALK_STEP2 = 0.0178;
+
+/**
+ * The most atlas any ONE pixel sprite may spend, across all of its frames and
+ * their flash twins.
+ *
+ * 1.5 MB is not arbitrary: it is the point at which trimming the raster upscale
+ * pays for a walk cycle exactly. See registerPixel.
+ */
+const RASTER_BUDGET = 1.5 * 1048576;
 
 function makeCanvas(w, h) {
   // A REAL canvas element first, OffscreenCanvas only as a fallback.
@@ -263,7 +323,273 @@ const SHAPES = {
     ctx.lineTo(cx - L * 0.36, cy + h - t);
     ctx.closePath();
   },
+
+  /**
+   * TWO INTERLOCKING CHAIN LINKS, laid end to end along +X.
+   *
+   * THE UNIT OF A CHAIN IS A PAIR, NOT A LINK, and that is the whole trick. A
+   * real chain alternates — one link lying flat, the next rolled a quarter turn
+   * and seen on its edge — and it is that alternation, not the ring shape, that
+   * stops a row of ovals reading as beads on a string. A pair authored
+   * [face, edge] and repeated gives face, edge, face, edge across pair
+   * boundaries for free, so a whole chain costs one sprite and one blit per
+   * pair rather than two of each.
+   *
+   * Both links are the same LENGTH along the chain and differ only ACROSS it,
+   * which is what "the same ring, rolled" actually looks like. They overlap by
+   * about a fifth of a link in the middle, so the pair is joined metal rather
+   * than two ovals that happen to be adjacent — and because the atlas strokes
+   * the whole path with the accent, both outlines are drawn through the overlap,
+   * which is exactly how you draw two rings passing through each other.
+   *
+   * THE PROPORTIONS ARE SET BY THE OUTLINE, NOT BY WHAT A LINK LOOKS LIKE.
+   * `register` strokes every shape at `size * 0.14`, centred on the boundary, so
+   * a band of metal costs 0.14r of stroke before ANY of it is fill: a ring whose
+   * wall is 0.20r wide arrives with 0.06r of colour in it and reads as a smudge.
+   * The face-on ring's wall is therefore 0.26r, which survives with 0.12r of
+   * metal showing, and the edge-on link is drawn SOLID — no hole at all. That is
+   * not a compromise, it is what an edge-on link actually is: you are looking at
+   * the rim of the wire, and there is nothing to see through.
+   *
+   * The face ring is an outer ellipse with a REVERSE-WOUND inner ellipse punched
+   * out of it — the same nonzero-winding hole `ring` uses. Every subpath opens
+   * with an explicit moveTo to its own start point so `ellipse` never draws a
+   * connecting hairline in from the previous subpath (`ring` does; at 26px
+   * nobody ever noticed, and at chain sizes they would).
+   *
+   * THE SPAN IS EXACTLY +/- r ALONG X. Callers size a pair by dividing the world
+   * length they want by `2 * size` — see CHAIN_SCALE_PER_PX in weaponImpls.js.
+   * Changing the 0.46 / 0.54 pair below without keeping that true silently
+   * changes how long every chain in the game is.
+   */
+  chain(ctx, cx, cy, r) {
+    const ax = cx - r * 0.46, bx = cx + r * 0.46;
+    const half = r * 0.54;
+    ctx.beginPath();
+    // FACE-ON: the fat ring, with a hole you can see the stage through.
+    ctx.moveTo(ax + half, cy);
+    ctx.ellipse(ax, cy, half, r * 0.46, 0, 0, TAU);
+    ctx.moveTo(ax + half - r * 0.26, cy);
+    ctx.ellipse(ax, cy, half - r * 0.26, r * 0.20, 0, 0, TAU, true);
+    // EDGE-ON: the same link rolled a quarter turn. Same length, a third of the
+    // height, and solid — a link seen on its edge has no hole facing you.
+    ctx.moveTo(bx + half, cy);
+    ctx.ellipse(bx, cy, half, r * 0.17, 0, 0, TAU);
+    ctx.closePath();
+  },
+
+  /**
+   * A TORII GATE, seen head on, as one closed silhouette: two pillars leaning
+   * inward off their footing stones, the curved KASAGI with its ends swept up,
+   * the straight NUKI below it, and the GAKUZUKA tablet standing between them.
+   *
+   * Five subpaths in one path, exactly like `cross` and `girder`, so the shared
+   * fill and the shared outline treat the whole gate as one object — a gate
+   * whose lintel is outlined separately from its pillars reads as scaffolding.
+   * The upswept ends stop at 0.96r rather than r: the atlas canvas is only
+   * (size + pad) across and the outline is drawn ON the edge, so the last 4% is
+   * the room that stroke needs.
+   */
+  torii(ctx, cx, cy, r) {
+    ctx.beginPath();
+    // the two hashira, and the stone each one stands on
+    for (let s = -1; s <= 1; s += 2) {
+      ctx.moveTo(cx + s * r * 0.78, cy + r * 0.86);
+      ctx.lineTo(cx + s * r * 0.70, cy - r * 0.62);
+      ctx.lineTo(cx + s * r * 0.50, cy - r * 0.62);
+      ctx.lineTo(cx + s * r * 0.54, cy + r * 0.86);
+      ctx.closePath();
+      ctx.rect(cx + s * r * 0.66 - r * 0.20, cy + r * 0.74, r * 0.40, r * 0.12);
+    }
+    // the nuki: straight, and proud of the pillars on both sides
+    ctx.rect(cx - r * 0.86, cy - r * 0.30, r * 1.72, r * 0.16);
+    // the gakuzuka tablet, between the two lintels
+    ctx.rect(cx - r * 0.13, cy - r * 0.60, r * 0.26, r * 0.32);
+    // the kasagi: one beam of even thickness whose ends lift above its middle
+    ctx.moveTo(cx - r * 0.96, cy - r * 0.86);
+    ctx.quadraticCurveTo(cx, cy - r * 0.52, cx + r * 0.96, cy - r * 0.86);
+    ctx.lineTo(cx + r * 0.96, cy - r * 0.72);
+    ctx.quadraticCurveTo(cx, cy - r * 0.38, cx - r * 0.96, cy - r * 0.72);
+    ctx.closePath();
+  },
+
+  /**
+   * An OFUDA — a paper charm: a narrow strip with a swallow-tailed foot. It is
+   * drawn upright rather than along +X like the projectile silhouettes, because
+   * it is given a `spin` and tumbles through its own flight anyway.
+   */
+  ofuda(ctx, cx, cy, r) {
+    const w = r * 0.50, h = r * 0.94;
+    ctx.beginPath();
+    ctx.moveTo(cx - w, cy - h);
+    ctx.lineTo(cx + w, cy - h);
+    ctx.lineTo(cx + w, cy + h * 0.60);
+    ctx.lineTo(cx, cy + h);
+    ctx.lineTo(cx - w, cy + h * 0.60);
+    ctx.closePath();
+  },
+
+  /** A KITSUNEBI flame, laid along +X like `shard` so it leans into its travel. */
+  foxfire(ctx, cx, cy, r) {
+    ctx.beginPath();
+    ctx.moveTo(cx + r, cy);
+    ctx.quadraticCurveTo(cx + r * 0.10, cy - r * 0.86, cx - r * 0.52, cy - r * 0.42);
+    ctx.quadraticCurveTo(cx - r * 0.92, cy - r * 0.16, cx - r * 0.72, cy);
+    ctx.quadraticCurveTo(cx - r * 0.92, cy + r * 0.16, cx - r * 0.52, cy + r * 0.42);
+    ctx.quadraticCurveTo(cx + r * 0.10, cy + r * 0.86, cx + r, cy);
+    ctx.closePath();
+  },
 };
+
+// --- material layers ---------------------------------------------------------
+//
+// A shape painter builds ONE path, which the atlas then fills with one gradient
+// and strokes with one accent. That is the right economy for a projectile and
+// the wrong one for an object made of two materials — a vermilion frame with a
+// hole full of spirit light in it, or paper with ink on it. A painter may
+// therefore declare an `underlay` (painted before the shape) and an `overlay`
+// (painted after it). Both run at BOOT, inside the same offscreen raster as
+// everything else in this file, so the per-entity draw loop still calls nothing
+// but drawImage — and both are skipped for the white-flash twin, which has to
+// stay a clean silhouette of the shape itself.
+
+/** The warp portal standing between the pillars. */
+SHAPES.torii.underlay = function (ctx, cx, cy, r) {
+  const gy = cy + r * 0.16, rx = r * 0.50, ry = r * 0.62;
+  const g = ctx.createRadialGradient(cx, gy - ry * 0.15, r * 0.05, cx, gy, ry);
+  g.addColorStop(0, 'rgba(255,255,255,0.92)');
+  g.addColorStop(0.35, 'rgba(190,236,255,0.60)');
+  g.addColorStop(0.75, 'rgba(120,190,255,0.26)');
+  g.addColorStop(1, 'rgba(120,190,255,0)');
+  ctx.beginPath();
+  ctx.ellipse(cx, gy, rx, ry, 0, 0, TAU);
+  ctx.fillStyle = g;
+  ctx.fill();
+  // Three shimmer bands across it. A plain glowing disc reads as a lamp; bands
+  // read as a surface with something on the other side of it.
+  for (let i = 0; i < 3; i++) {
+    const t = (i + 1) / 4;
+    const yy = gy - ry + ry * 2 * t;
+    const w = rx * (0.94 - Math.abs(t - 0.5) * 0.9);
+    ctx.beginPath();
+    ctx.ellipse(cx, yy, w, Math.max(0.6, r * 0.035), 0, 0, TAU);
+    ctx.fillStyle = i === 1 ? 'rgba(255,255,255,0.55)' : 'rgba(214,244,255,0.32)';
+    ctx.fill();
+  }
+};
+
+/** Lacquer highlights, and two strokes of ink on the name board. */
+SHAPES.torii.overlay = function (ctx, cx, cy, r) {
+  ctx.fillStyle = 'rgba(255,236,206,0.50)';
+  ctx.fillRect(cx - r * 0.84, cy - r * 0.295, r * 1.68, r * 0.045);   // lit top of the nuki
+  ctx.fillRect(cx - r * 0.53, cy - r * 0.58, r * 0.03, r * 1.40);     // inboard face, left pillar
+  ctx.fillRect(cx + r * 0.50, cy - r * 0.58, r * 0.03, r * 1.40);     // ...and right
+  ctx.fillStyle = 'rgba(28,12,16,0.62)';
+  ctx.fillRect(cx - r * 0.09, cy - r * 0.53, r * 0.18, r * 0.045);
+  ctx.fillRect(cx - r * 0.09, cy - r * 0.44, r * 0.18, r * 0.045);
+  ctx.fillRect(cx - r * 0.02, cy - r * 0.53, r * 0.04, r * 0.20);
+};
+
+/** The kanji column inked down the charm, and the vermilion seal under it. */
+SHAPES.ofuda.overlay = function (ctx, cx, cy, r, color, accent) {
+  const w = r * 0.28, t = Math.max(1, r * 0.09);
+  ctx.fillStyle = 'rgba(24,10,14,0.74)';
+  ctx.fillRect(cx - t * 0.5, cy - r * 0.62, t, r * 1.06);
+  ctx.fillRect(cx - w, cy - r * 0.44, w * 2, t);
+  ctx.fillRect(cx - w * 0.72, cy - r * 0.12, w * 1.44, t);
+  ctx.fillRect(cx - w, cy + r * 0.20, w * 2, t);
+  ctx.fillStyle = accent || '#e8452f';
+  ctx.fillRect(cx - r * 0.15, cy + r * 0.42, r * 0.30, r * 0.20);
+};
+
+/** The white-hot heart of the flame. */
+SHAPES.foxfire.overlay = function (ctx, cx, cy, r) {
+  ctx.beginPath();
+  ctx.moveTo(cx + r * 0.62, cy);
+  ctx.quadraticCurveTo(cx, cy - r * 0.44, cx - r * 0.34, cy - r * 0.16);
+  ctx.quadraticCurveTo(cx - r * 0.46, cy, cx - r * 0.34, cy + r * 0.16);
+  ctx.quadraticCurveTo(cx, cy + r * 0.44, cx + r * 0.62, cy);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(255,255,255,0.88)';
+  ctx.fill();
+};
+
+// --- the flame sheet ---------------------------------------------------------
+// The one ANIMATED, pre-rastered thing in the atlas that is not an entity.
+//
+// A breath weapon cannot be built the way the effect layer builds everything
+// else. `effects.js` draws from arcs, wedges and beams, and a wedge is exactly
+// what made the dragon's breath read as a targeting cone rather than as fire:
+// hard edges, one flat fill, a shape that is switched on instead of poured.
+// Fire needs a white-hot core bleeding out through yellow into orange and dying
+// red at its edge, and it needs to be a DIFFERENT SHAPE every frame. Both of
+// those are gradients and paths — the two things that may never happen inside a
+// draw — so they happen here, once, at boot.
+
+/** Tongues in the sheet, and the box each is baked into. */
+const FLAME_FRAMES = 8;
+const FLAME_DIM = 128;
+
+/**
+ * ONE TONGUE OF FIRE, pointing +X, centred in a FLAME_DIM box.
+ *
+ * The outline is a polar sweep with two sine harmonics riding on it, both keyed
+ * to the frame index and turning at different rates — so the licks CRAWL around
+ * the tongue from frame to frame instead of the whole shape pulsing in and out,
+ * which is the difference between fire and a throbbing balloon.
+ *
+ * The colour is one radial ramp whose centre is pushed BACKWARD, toward the
+ * mouth: white at the root, yellow, orange, then deep red running out to
+ * nothing at the tip. It is drawn additively at runtime, so overlapping tongues
+ * blow their shared area out to white on their own — which is exactly what the
+ * inside of a flame does, for free, with no per-frame gradient anywhere.
+ */
+function paintFlameFrame(ctx, dim, f, total) {
+  const cx = dim * 0.5, cy = dim * 0.5, R = dim * 0.5;
+  const ph = (f / total) * TAU;
+
+  ctx.beginPath();
+  const N = 40;
+  for (let i = 0; i <= N; i++) {
+    const a = -Math.PI + (i / N) * TAU;
+    const c = Math.cos(a), s = Math.sin(a);
+    // An egg, long on +X: blunt at the root, drawn out at the tip.
+    const stretch = 0.62 + 0.38 * c;
+    // The licks: one harmonic crawling forward, one crawling back.
+    const lick = 1 + 0.17 * Math.sin(a * 5 + ph * 2) + 0.11 * Math.sin(a * 9 - ph * 3);
+    const rr = R * 0.94 * stretch * lick;
+    const x = cx + c * rr, y = cy + s * rr * 0.72;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+
+  const g = ctx.createRadialGradient(cx - R * 0.34, cy, R * 0.04, cx - R * 0.16, cy, R * 0.98);
+  g.addColorStop(0.00, 'rgba(255,255,246,0.98)');   // the white-hot core
+  g.addColorStop(0.16, 'rgba(255,244,178,0.90)');
+  g.addColorStop(0.36, 'rgba(255,186,60,0.74)');
+  g.addColorStop(0.62, 'rgba(240,108,26,0.46)');
+  g.addColorStop(0.84, 'rgba(196,42,14,0.22)');
+  g.addColorStop(1.00, 'rgba(120,14,4,0)');         // it dies out, it does not stop
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // THREE TIP TONGUES. The body above is a lit mass; these are what make it read
+  // as fire rather than as a glowing cloud, and they are what move furthest
+  // between one frame and the next.
+  for (let k = 0; k < 3; k++) {
+    const a = (k - 1) * 0.42 + 0.16 * Math.sin(ph + k * 2.1);
+    const len = R * (0.55 + 0.18 * Math.sin(ph * 1.7 + k * 1.3));
+    const w = R * (0.15 + 0.05 * Math.cos(ph + k));
+    const bx = cx + Math.cos(a) * R * 0.12, by = cy + Math.sin(a) * R * 0.10;
+    ctx.beginPath();
+    ctx.moveTo(bx, by - w);
+    ctx.quadraticCurveTo(bx + len * 0.6, by - w * 0.5, bx + len, by);
+    ctx.quadraticCurveTo(bx + len * 0.6, by + w * 0.5, bx, by + w);
+    ctx.closePath();
+    ctx.fillStyle = k === 1 ? 'rgba(255,238,170,0.55)' : 'rgba(255,150,44,0.42)';
+    ctx.fill();
+  }
+}
 
 /** Stable key for a visual descriptor. Boot-time only — allocates a string. */
 export function visualKey(v) {
@@ -356,12 +682,30 @@ class SpriteAtlas {
     // 2.6 rather than 2.2: entities read slightly small on a 1080p screen, and
     // because the scale is rounded to an integer this is a genuine step up for
     // most sprites rather than a fractional nudge.
-    const scale = Math.max(1, Math.round((size * 2.6) / built.h));
+    //
+    // AND THEN SPEND WHAT IS LEFT OF THE BUDGET ON FRAMES, NOT ON MAGNIFICATION.
+    // The upscale buys SOURCE RESOLUTION and never on-screen size — `unit` below
+    // divides it straight back out — so its only job is to keep a grid pixel an
+    // integral number of screen pixels. On a boss it does not even do that: the
+    // twelve bosses in the game render 653-1166 world px from a 48-64 row grid,
+    // which is 12-18 screen pixels per GRID pixel, so the browser is already
+    // upscaling well past the 4x-7x raster and the extra megabytes buy nothing
+    // anybody can see. Measured, they buy 15.3 MB of a 19.5 MB pixel atlas.
+    //
+    // Trimming that until each sprite fits RASTER_BUDGET is what pays for the
+    // walk cycle: the two changes together move the pixel atlas 19.46 -> 19.83
+    // MB, +1.9%, for a four-beat walk on every character and legged enemy.
+    const n = built.frames.length;
+    let scale = Math.max(1, Math.round((size * 2.6) / built.h));
+    while (scale > 1 &&
+           built.w * scale * built.h * scale * 4 * n * 2 > RASTER_BUDGET) scale--;
     const W = built.w * scale, H = built.h * scale;
 
     const sp = new Sprite(key, W, H, W / 2, H / 2);
     sp.rotSteps = 1;
-    sp.animFrames = built.frames.length;
+    sp.animFrames = n;
+    sp.idleFrames = built.idle || 1;
+    sp.walkFrames = n - sp.idleFrames;
     sp.pixel = true;
     // The correction from the rounded raster back to `size * 2.6` — see the
     // Sprite constructor. Drawers multiply their gameplay scale by this, and the
@@ -369,14 +713,45 @@ class SpriteAtlas {
     sp.unit = (size * 2.6) / H;
     sp.grid = built.h;
 
-    for (let i = 0; i < built.frames.length; i++) {
+    for (let i = 0; i < n; i++) {
       sp.frames.push(upscale(built.frames[i], W, H));
       sp.flash.push(upscale(flashFrames[i], W, H));
     }
 
     this.map.set(key, sp);
     this.count++;
-    this.bytes += W * H * 4 * built.frames.length * 2;
+    this.bytes += W * H * 4 * n * 2;
+    return sp;
+  }
+
+  /**
+   * THE FLAME SHEET, rastered once and handed out forever.
+   *
+   * Deliberately ONE rotation step and FLAME_FRAMES animation frames: a plume
+   * aims wherever its owner is looking, and a snapped angle would make the whole
+   * jet jump sideways as she turns, so the rotation is done on the context by
+   * `drawSpriteRotated` — the same path the swung props already take — while the
+   * SHAPE comes from the sheet. Eight 128px frames is ~512KB, against 32 baked
+   * rotation steps of the same thing at 2MB that would still look snapped.
+   *
+   * No white-flash twin: fire cannot be hit, so the twin would be memory nothing
+   * will ever read (`flashAt` falls through to frame 0 for anyone who asks).
+   */
+  flameSprite() {
+    const key = 'flame|' + FLAME_FRAMES + '|' + FLAME_DIM;
+    const hit = this.map.get(key);
+    if (hit) return hit;
+    const sp = new Sprite(key, FLAME_DIM, FLAME_DIM, FLAME_DIM / 2, FLAME_DIM / 2);
+    sp.rotSteps = 1;
+    sp.animFrames = FLAME_FRAMES;
+    for (let i = 0; i < FLAME_FRAMES; i++) {
+      const cv = makeCanvas(FLAME_DIM, FLAME_DIM);
+      paintFlameFrame(cv.getContext('2d'), FLAME_DIM, i, FLAME_FRAMES);
+      sp.frames.push(cv);
+    }
+    this.map.set(key, sp);
+    this.count++;
+    this.bytes += FLAME_DIM * FLAME_DIM * 4 * FLAME_FRAMES;
     return sp;
   }
 
@@ -463,6 +838,10 @@ class SpriteAtlas {
     }
 
     const painter = SHAPES[v.shape] || SHAPES.circle;
+    // Material that is not the silhouette — see the material layers below the
+    // SHAPES table. Never for the flash twin: that has to stay a white stamp of
+    // the shape, or a hit flash lights up the hole in the middle of a gate.
+    if (!asFlash && painter.underlay) painter.underlay(ctx, cx, cy, size, color, accent);
     painter(ctx, cx, cy, size);
 
     if (asFlash) {
@@ -481,6 +860,7 @@ class SpriteAtlas {
         ctx.lineJoin = 'round';
         ctx.stroke();
       }
+      if (painter.overlay) painter.overlay(ctx, cx, cy, size, color, accent);
     }
 
     if (v.emoji && this.emojiSupported) {

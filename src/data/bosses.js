@@ -20,27 +20,45 @@
 // by colour alone — SECTION 13 accessibility, and it is not optional.
 //
 // HP LADDER. Boss HP scales geometrically with stage index (~1.57x per stage)
-// from 2,500 to 38,000, which holds the SECTION 14 target of a 25-50s TTK for an
-// average build as player power compounds across the campaign:
+// from 2,500 to 38,000:
 //   S1 2,500  S2 4,000  S3 6,300  S4 9,800  S5 15,200  S6 24,000  S7 38,000
-// Mid-bosses sit at ~42% of their stage boss. Named elites at ~15%.
-// Implied single-target DPS to hit a 40s kill: 63 (S1) rising to 950 (S7).
+// Mid-bosses sit at ~42% of their stage boss. Named elites at ~15%. `hp` is the
+// RUNG, not the fight â€” game/boss.js decides what a rung costs at the minute it
+// is actually walked on.
 //
-// THE FINALE MULTIPLIER. Play report: "make final bosses two-three stages long,
-// make them have much more hp so its harder to kill them." `finaleHpMult` is
-// 2.5 on all seven stage bosses and on nothing else, and game/boss.js applies it
-// in spawn() ONLY when the boss walks on as its own stage's closer:
-//   S1 6,250  S2 10,000  S3 15,750  S4 24,500  S5 38,000  S6 60,000  S7 95,000
-// A 25-50s raw bar becomes 62-125s; each phase break hands back a stagger window
-// worth roughly 10-15% of the fight, so an average build now spends about 55-110
-// SECONDS on a finale instead of 25-50. The number in `hp` deliberately does not
-// move: it is what the Grand Finale's x8 elite pass multiplies (a x2.5 baked in
-// would make four roaming recap elites 300,000-HP roadblocks), it is what the
-// codex quotes, and it is the rung the mid-boss ladder is measured against.
+// THE FINALE MULTIPLIER, TWICE. The first play report was "make final bosses
+// two-three stages long, make them have much more hp", and `finaleHpMult` went
+// to 2.5. The second one was "mini bosses that spawn around the map are harder
+// to kill than the final match boss", and it was CORRECT: measured headlessly,
+// four characters x three seeds on the 20-minute stage, the 1,443-HP opener at
+// minute 5 took a median 76.9 SECONDS and the 21,450-HP finale at minute 19 took
+// 4.2. The 2.5 was never the problem â€” the finale is fought on a field the calm
+// beat has just EMPTIED, so a build's whole area output lands on one target,
+// while a mid-boss soaks a fraction of it through two hundred other bodies.
 //
-// MID-BOSSES DO NOT CARRY THE FIELD, and must not. Their 1,100 -> 15,600
-// staircase is the carefully tuned 1.8x ladder documented in data/stages.js,
-// which borrows rungs across stages; moving one number there moves three fights.
+// `finaleHpMult` is 10 on all seven stage bosses and on nothing else, and
+// game/boss.js applies it in spawn() ONLY when the boss walks on as its own
+// stage's closer:
+//   S1 41,513  S2 85,801  S3 148,635  S4 231,231  S5 413,136  S6 592,020
+//   S7 1,207,830
+// Re-measured on the same twelve samples that produced the 4.2s: the finale now
+// lands at a median 49.5s and is the LONGEST fight on the stage rather than the
+// shortest. `hp` deliberately does not move: it is what the Grand Finale's x8
+// elite pass multiplies (that pass runs through Run.spawnElite and never sees
+// this number), it is what the codex quotes, and it is the mid-boss rung.
+//
+// MID-BOSSES DO NOT CARRY THE FIELD, and must not â€” but the 1,100 -> 15,600
+// staircase is a rung, not a fight. data/stages.js MIDBOSS_HP_CURVE turns a rung
+// into a health bar based on WHEN it is fought, which is why the same Drum Oni
+// is 3,744 as a minute-4 opener and 66,668 as a minute-16 closer. Moving a
+// number in `hp` still moves three fights; moving one in that curve moves all
+// twenty.
+//
+// A MID-BOSS IS ALSO A TWO-PHASE FIGHT NOW, on the same machinery the finales
+// use and not a second one. Every phase-2 block below authors a `transition`
+// with an `invuln` shell, an `attackRateMult`, a `telegraphMult`, and an attack
+// list DISJOINT from phase one's â€” the break has to change what the thing DOES,
+// or 2.5x the health is 2.5x the same forty seconds.
 //
 // A PHASE IS A DIFFERENT FIGHT. Every final boss's phase list is now DISJOINT
 // from the phase before it — not the previous list plus one, which is the shape
@@ -133,7 +151,7 @@ const STUDENT_COUNCIL_PRESIDENT = {
   kind: 'boss',
   stage: 'cherry_academy',
   quote: '"You are four minutes late. I have prepared a form for that."',
-  hp: 2500, finaleHpMult: 2.5, damage: 0, speed: 40, weight: 99, xp: 300, size: 'large',
+  hp: 2500, finaleHpMult: 10, damage: 0, speed: 40, weight: 99, xp: 300, size: 'large',
   element: 'light',
   contactDamage: false,
   telegraphFloor: 0.8,
@@ -233,7 +251,7 @@ const THE_ALGORITHM = {
   kind: 'boss',
   stage: 'neon_akiba',
   quote: '"Users who died to this also died to..."',
-  hp: 4000, finaleHpMult: 2.5, damage: 0, speed: 34, weight: 99, xp: 400, size: 'large',
+  hp: 4000, finaleHpMult: 10, damage: 0, speed: 34, weight: 99, xp: 400, size: 'large',
   element: 'lightning',
   contactDamage: false,
   telegraphFloor: 0.8,
@@ -326,7 +344,7 @@ const THE_COLOSSUS = {
   kind: 'boss',
   stage: 'wall_amaris',
   quote: '"It does not speak. The steam arrives first, and that is the warning."',
-  hp: 6300, finaleHpMult: 2.5, damage: 0, speed: 26, weight: 99, xp: 560, size: 'large',
+  hp: 6300, finaleHpMult: 10, damage: 0, speed: 26, weight: 99, xp: 560, size: 'large',
   element: 'steel',
   contactDamage: false,
   telegraphFloor: 0.8,
@@ -438,7 +456,7 @@ const THE_SEALED_BEAST = {
   kind: 'boss',
   stage: 'hidden_ember',
   quote: '"CHAINS. AGAIN. YOU PEOPLE HAVE NO OTHER IDEAS."',
-  hp: 9800, finaleHpMult: 2.5, damage: 0, speed: 30, weight: 99, xp: 760, size: 'large',
+  hp: 9800, finaleHpMult: 10, damage: 0, speed: 30, weight: 99, xp: 760, size: 'large',
   element: 'fire',
   contactDamage: false,
   telegraphFloor: 0.8,
@@ -581,7 +599,7 @@ const KAGUTSUCHI = {
   kind: 'boss',
   stage: 'tatami_halls',
   quote: '"Four arms. Two blades. Two whips. Watch my eyes and none of it matters."',
-  hp: 15200, finaleHpMult: 2.5, damage: 0, speed: 62, weight: 99, xp: 1000, size: 'large',
+  hp: 15200, finaleHpMult: 10, damage: 0, speed: 62, weight: 99, xp: 1000, size: 'large',
   element: 'fire',
   contactDamage: false,
   telegraphFloor: 0.8,
@@ -707,7 +725,7 @@ const THE_KRAKEN_PRODUCER = {
   kind: 'boss',
   stage: 'sunken_reef',
   quote: '"Take five, everyone! Not you. You I have notes for."',
-  hp: 24000, finaleHpMult: 2.5, damage: 0, speed: 18, weight: 99, xp: 1300, size: 'large',
+  hp: 24000, finaleHpMult: 10, damage: 0, speed: 18, weight: 99, xp: 1300, size: 'large',
   element: 'water',
   contactDamage: false,
   telegraphFloor: 0.8,
@@ -861,7 +879,7 @@ const THE_FINAL_FORM = {
   kind: 'boss',
   stage: 'zenith_stage',
   quote: '"You got this far by being you. Let us see how that goes when I am you too."',
-  hp: 38000, finaleHpMult: 2.5, damage: 0, speed: 78, weight: 99, xp: 1800, size: 'large',
+  hp: 38000, finaleHpMult: 10, damage: 0, speed: 78, weight: 99, xp: 1800, size: 'large',
   element: 'shadow',
   contactDamage: false,
   telegraphFloor: 0.8,
@@ -1073,10 +1091,19 @@ const DELINQUENT_SENPAI = {
     death: 'Tch. Take the roof. It leaks anyway.',
   },
   phases: [
+    // Rung one of the ladder, and the first telegraph most players ever read, so
+    // it is the only mid-boss phase in the file that stays at the authored
+    // wind-up and the authored spacing.
     { name: 'Loitering', hpFrom: 1.0, hpTo: 0.5, speedMult: 1.0,
+      attackRateMult: 1.0, telegraphMult: 1.0,
       attacks: ['hallway_charge', 'desk_toss'] },
-    { name: 'Actually Trying', hpFrom: 0.5, hpTo: 0.0, speedMult: 1.25, enrage: true,
-      attacks: ['hallway_charge', 'desk_toss', 'pipe_spin', 'bad_influence'] },
+    // The desks stop and the pipe comes out. One call-back (the charge) so the
+    // fight is still recognisably his; everything else on the list is new.
+    { name: 'Actually Trying', hpFrom: 0.5, hpTo: 0.0, speedMult: 1.3, enrage: true,
+      attackRateMult: 1.3, telegraphMult: 0.92,
+      transition: { invuln: 0.5, stagger: 1.0, vuln: 2.0, vulnTail: 1.1,
+                    slowmo: 0.45, slowmoT: 0.35, recover: 0.9 },
+      attacks: ['pipe_spin', 'bad_influence', 'hallway_charge'] },
   ],
   attacks: {
     hallway_charge: {
@@ -1135,9 +1162,15 @@ const MASCOT_PRIME = {
   },
   phases: [
     { name: 'Sponsored Content', hpFrom: 1.0, hpTo: 0.5, speedMult: 1.0,
+      attackRateMult: 1.0, telegraphMult: 1.0,
       attacks: ['merch_hug', 'balloon_barrage'] },
-    { name: 'PRIME TIME', hpFrom: 0.5, hpTo: 0.0, speedMult: 1.22, enrage: true,
-      attacks: ['merch_hug', 'balloon_barrage', 'photo_op', 'mascot_stampede'] },
+    // The hug goes away. It stops trying to be near you and starts trying to be
+    // in frame with you, with company.
+    { name: 'PRIME TIME', hpFrom: 0.5, hpTo: 0.0, speedMult: 1.3, enrage: true,
+      attackRateMult: 1.35, telegraphMult: 0.9,
+      transition: { invuln: 0.55, stagger: 1.1, vuln: 2.0, vulnTail: 1.2,
+                    slowmo: 0.42, slowmoT: 0.38, recover: 0.9 },
+      attacks: ['photo_op', 'mascot_stampede', 'balloon_barrage'] },
   ],
   attacks: {
     merch_hug: {
@@ -1203,9 +1236,16 @@ const THE_ARMORED = {
   },
   phases: [
     { name: 'Hardened', hpFrom: 1.0, hpTo: 0.5, speedMult: 1.0,
+      attackRateMult: 1.0, telegraphMult: 1.0,
       attacks: ['exposed_nape', 'hardening_charge', 'plate_shockwave'] },
-    { name: 'Cracked Plating', hpFrom: 0.5, hpTo: 0.0, speedMult: 1.18, enrage: true,
-      attacks: ['exposed_nape', 'hardening_charge', 'plate_shockwave', 'shoulder_guard', 'plate_shatter'] },
+    // Cracked plating sheds shards and braces instead of stamping. The nape
+    // window crosses the boundary because it is a MECHANIC and not an attack â€”
+    // the one exception this file allows, and this is it.
+    { name: 'Cracked Plating', hpFrom: 0.5, hpTo: 0.0, speedMult: 1.24, enrage: true,
+      attackRateMult: 1.35, telegraphMult: 0.9,
+      transition: { invuln: 0.6, stagger: 1.2, vuln: 2.1, vulnTail: 1.2,
+                    slowmo: 0.4, slowmoT: 0.4, recover: 1.0 },
+      attacks: ['exposed_nape', 'plate_shatter', 'shoulder_guard', 'hardening_charge'] },
   ],
   attacks: {
     exposed_nape: {
@@ -1280,9 +1320,15 @@ const THE_TWIN_FANGS = {
   },
   phases: [
     { name: 'Two Fangs', hpFrom: 1.0, hpTo: 0.5, speedMult: 1.0,
+      attackRateMult: 1.0, telegraphMult: 1.0,
       attacks: ['crossing_fangs', 'kunai_web', 'blood_bond'] },
-    { name: 'ONE FANG', hpFrom: 0.5, hpTo: 0.0, speedMult: 1.3, enrage: true,
-      attacks: ['crossing_fangs', 'kunai_web', 'pincer_line', 'survivors_rage'] },
+    // The bond is what it loses at the break, which is the whole encounter's
+    // joke: the shield goes and the wire and the rage arrive in its place.
+    { name: 'ONE FANG', hpFrom: 0.5, hpTo: 0.0, speedMult: 1.35, enrage: true,
+      attackRateMult: 1.4, telegraphMult: 0.9,
+      transition: { invuln: 0.6, stagger: 1.2, vuln: 2.1, vulnTail: 1.3,
+                    slowmo: 0.4, slowmoT: 0.42, recover: 1.0 },
+      attacks: ['pincer_line', 'survivors_rage', 'crossing_fangs'] },
   ],
   attacks: {
     crossing_fangs: {
@@ -1356,9 +1402,15 @@ const THE_DRUM_ONI = {
   },
   phases: [
     { name: 'Downbeat', hpFrom: 1.0, hpTo: 0.5, speedMult: 1.0,
+      attackRateMult: 1.0, telegraphMult: 1.0,
       attacks: ['taiko_shockwave', 'bachi_slam', 'drum_rotate'] },
-    { name: 'DOUBLE TIME', hpFrom: 0.5, hpTo: 0.0, speedMult: 1.3, enrage: true,
-      attacks: ['taiko_shockwave', 'bachi_slam', 'drum_rotate', 'rhythm_lines'] },
+    // He only has four moves, so the break trades one out rather than stacking
+    // one on: the rings stop and the floor starts lighting up in bars.
+    { name: 'DOUBLE TIME', hpFrom: 0.5, hpTo: 0.0, speedMult: 1.35, enrage: true,
+      attackRateMult: 1.45, telegraphMult: 0.88,
+      transition: { invuln: 0.65, stagger: 1.3, vuln: 2.2, vulnTail: 1.3,
+                    slowmo: 0.38, slowmoT: 0.45, recover: 1.0 },
+      attacks: ['rhythm_lines', 'bachi_slam', 'drum_rotate'] },
   ],
   attacks: {
     drum_rotate: {
@@ -1419,9 +1471,16 @@ const TIDE_WARDEN = {
   },
   phases: [
     { name: 'High Tide', hpFrom: 1.0, hpTo: 0.5, speedMult: 1.0,
+      attackRateMult: 1.0, telegraphMult: 1.0,
       attacks: ['bulwark_shell', 'claw_slam', 'bubble_volley'] },
-    { name: 'SHELL CRACKED', hpFrom: 0.5, hpTo: 0.0, speedMult: 1.2, enrage: true,
-      attacks: ['bulwark_shell', 'claw_slam', 'bubble_volley', 'undertow', 'sea_king_call'] },
+    // SHELL CRACKED now means the shell. `bulwark_shell` is what re-applies the
+    // block, and it is gone from this list â€” the flanking exam is over and the
+    // arena exam starts, with a current pulling you into it.
+    { name: 'SHELL CRACKED', hpFrom: 0.5, hpTo: 0.0, speedMult: 1.28, enrage: true,
+      attackRateMult: 1.4, telegraphMult: 0.88,
+      transition: { invuln: 0.7, stagger: 1.4, vuln: 2.2, vulnTail: 1.4,
+                    slowmo: 0.35, slowmoT: 0.48, recover: 1.1 },
+      attacks: ['undertow', 'sea_king_call', 'claw_slam'] },
   ],
   attacks: {
     bulwark_shell: {
@@ -1499,10 +1558,18 @@ const THE_OPENING_ACT = {
     death: 'Curtain. Curtain! Somebody bring the curtain.',
   },
   phases: [
-    { name: 'Three Acts', hpFrom: 1.0, hpTo: 0.34, speedMult: 1.0,
+    { name: 'Three Acts', hpFrom: 1.0, hpTo: 0.5, speedMult: 1.0,
+      attackRateMult: 1.0, telegraphMult: 1.0,
       attacks: ['curtain_up', 'house_lights', 'intermission'] },
-    { name: 'THE LAST ONE STANDING', hpFrom: 0.34, hpTo: 0.0, speedMult: 1.25, enrage: true,
-      attacks: ['house_lights', 'standing_ovation', 'intermission'] },
+    // The break is at HALF, not at a third. Every other mid-boss in the file
+    // turns over at 0.5 and a player reading a health bar should not have to
+    // learn a seventh rule for the seventh fight. The curtain does not go up
+    // twice, so it is the one move that never comes back.
+    { name: 'THE LAST ONE STANDING', hpFrom: 0.5, hpTo: 0.0, speedMult: 1.3, enrage: true,
+      attackRateMult: 1.4, telegraphMult: 0.86,
+      transition: { invuln: 0.8, stagger: 1.5, vuln: 2.3, vulnTail: 1.5,
+                    slowmo: 0.32, slowmoT: 0.55, recover: 1.1 },
+      attacks: ['standing_ovation', 'intermission', 'house_lights'] },
   ],
   attacks: {
     curtain_up: {

@@ -74,8 +74,30 @@ export const CONFIG = {
    * The margin used to be 40, which elites (x1.35), the `colossal` affix (x2)
    * and every boss already exceeded; enemies got bigger in this pass, so it is
    * now sized off the largest radius the game can actually produce.
+   *
+   * IT IS NO LONGER THE PAD. A single constant sized for the biggest thing in
+   * the game is wrong in BOTH directions at once. Too big: on a screen of 8px
+   * fodder every projectile gathers a 320x320px neighbourhood to find a 15px
+   * overlap â€” 73,701 broadphase candidates per tick to produce 572 real hits,
+   * 0.373ms against 0.087ms at a pad of 40 (measured, 700 enemies in a 300px
+   * disc, 330 projectiles). Too small: game/boss.js assigns a boss its raw
+   * `visual.size` as a radius, and the Kraken Producer is 150, so the pad never
+   * covered it. The live margin is now `run.enemies.queryPad`, recomputed once a
+   * tick from the crowd that is actually alive; this value survives only as the
+   * conservative boot value and the ceiling, and is raised to clear 150 + slack.
    */
-  HIT_QUERY_PAD: 140,
+  HIT_QUERY_PAD: 176,
+  /**
+   * The floor for that adaptive pad, and the slack added on top of the largest
+   * live radius. SLACK exists because damage.js's `lineDamage` samples its
+   * segment in discrete steps and measures distance to the SEGMENT, so the
+   * broadphase circle has to reach around the target AND across the sampling
+   * gap; MIN_PAD keeps the number sane on a near-empty arena. Over a full
+   * 19-minute Stage 6 run the live maximum is under 40 for 71% of ticks and
+   * over 60 for 1% â€” the boss fights, where the fodder has been cleared anyway.
+   */
+  BROADPHASE_MIN_PAD: 40,
+  BROADPHASE_SLACK: 16,
   /** Enemies further than this many screens away get recycled to the far side. */
   CULL_SCREENS: 1.5,
 

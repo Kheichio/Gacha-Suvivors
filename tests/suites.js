@@ -549,9 +549,22 @@ describe('data / DEV_MODE and ref containment', () => {
   it('ship-safe names exist for the flagrant source-IP ability names', () => {
     // DECISIONS.md §22.3 — the flag only ever covered CHARACTER names; ability
     // and relic names shipped verbatim regardless.
-    for (const id of ['father_son_kamehameha', 'kaioken', 'amaterasu',
+    for (const id of ['father_son_kamehameha', 'kaioken', 'chidori',
                       'susanoo_fragment', 'nichirin_blade_crimson']) {
       assert.ok(SHIP_NAMES[id], `no ship-safe rename for "${id}"`);
+    }
+  });
+
+  it('every ability id on the roster that needs a rename has one', () => {
+    // The list above is hand-kept and therefore goes stale the moment a kit is
+    // reworked — 'amaterasu' sat in it for a while after the ability had been
+    // removed, so the assertion passed by testing a dead key. This one is
+    // derived: every pillar on every character, checked against the table.
+    for (const c of characters.CHARACTERS) {
+      for (const k of ['autoAttack', 'special', 'escape', 'passive']) {
+        const a = c[k];
+        if (a && a.shipName) assert.equal(a.shipName, SHIP_NAMES[a.id]);
+      }
     }
   });
 
@@ -654,6 +667,11 @@ describe('balance / SECTION 14 targets', () => {
   it('every escape grants i-frames', () => {
     for (const c of characters.CHARACTERS) {
       assert.atLeast(c.escape.iframes, 0.2, `${c.id} escape has no meaningful i-frames`);
+      // EXACTLY ZERO is a design, not a typo: Torii Warp has no cooldown at all
+      // and meters its payload inside the ability instead (DECISIONS.md §53).
+      // Anything with a cooldown at all still has to sit in the band — a 1s or a
+      // 20s escape is the mistake this test is here to catch.
+      if (c.escape.cooldown === 0) continue;
       assert.atMost(c.escape.cooldown, 9, `${c.id} escape cooldown exceeds the 4-9s band`);
       assert.atLeast(c.escape.cooldown, 4, `${c.id} escape cooldown is under the 4-9s band`);
     }

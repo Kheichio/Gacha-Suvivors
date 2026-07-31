@@ -453,7 +453,7 @@ export const SHRINE_UPGRADES = [
     id: 'volley', name: 'Volley', icon: '🔱', maxLevel: 2, specLevels: 0,
     stat: 'projectileCount', perLevel: 1, mode: 'flat',
     baseCost: 5000, costGrowth: 3.00,
-    desc: '+1 projectile per level, two levels only, at 5,000 then 15,000 gold. Your auto-attack and every projectile weapon fire one more shot from minute zero. Melee and field weapons are unaffected.',
+    desc: '+1 projectile per level, two levels only, at 5,000 then 15,000 gold. Everything you throw throws one more from minute zero — auto-attack, special, escape and every projectile weapon. Melee swings and standing fields are unaffected.',
     fmt: '+{v} projectiles',
   },
   {

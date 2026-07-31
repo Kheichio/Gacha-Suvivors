@@ -220,8 +220,8 @@ const YAMIKAGE = {
   name: 'Yamikage',
   epithet: 'The Avenger',
   rarity: 4,
-  archetype: 'Burn Assassin',
-  element: 'shadow',
+  archetype: 'Assassin',
+  element: 'lightning',
   visual: { shape: 'capsule', color: '#2b3a6b', accent: '#c81e3a', emoji: '👁️', size: 16 },
   stats: {
     hp: 95, armor: 0, moveSpeed: 178, pickupRadius: 46,
@@ -229,36 +229,47 @@ const YAMIKAGE = {
     critChance: 0.08, critMult: 2.0, cooldownMult: 1.0, luck: 0,
   },
   autoAttack: {
-    id: 'shuriken_volley', name: 'Shuriken Volley',
+    id: 'shuriken_volley', name: 'Shuriken & Wire',
     desc: '3 shuriken in a tight spread, 15 damage each, pierce 1, every 0.65s. ' +
-          'Every 4th volley is wire-strung and curves back through for a second pass.',
+          'Every 4th volley is wire-strung and curves back through — and the fire ' +
+          'goes down the wire with it: a 190px cone for 60 damage that burns for ' +
+          '18 damage/s over 3s.',
     interval: 0.65, damage: 15, targeting: { mode: 'nearest' },
   },
   special: {
-    id: 'amaterasu', name: 'AMATERASU', cooldown: 26,
-    desc: 'Marks the 5 nearest enemies with black flame: 40 damage/s until they ' +
-          'die. The burn never expires, cannot be cleansed, and spreads to anything ' +
-          'that touches a burning enemy.',
+    // `charges` is a generic, optional field on any special (player.js reads it
+    // the way it already reads the escape's star-5 second charge). It exists
+    // because this move is defined by having a COUNT rather than a rhythm: two
+    // in the pocket, and then you are out until they come back one at a time.
+    id: 'chidori', name: 'CHIDORI', cooldown: 14, charges: 2,
+    desc: 'Two charges, 14s each. He grips a fistful of lightning for 0.3s, then ' +
+          'crosses 340px in a straight line: everything on the path takes 150. ' +
+          'The enemy at the end takes 300 + 8% of its max HP, is stunned for ' +
+          '1.6s, and the impact discharges 140 in a 130px burst. Invulnerable ' +
+          'through the whole run.',
   },
   escape: {
-    id: 'body_flicker', name: 'Body Flicker', cooldown: 5, iframes: 0.4,
-    desc: 'Blinks 190px along your movement direction, leaving a crackling ' +
-          'afterimage that deals 60 damage to everything it passes through.',
+    id: 'lions_barrage', name: "Lion's Barrage", cooldown: 6, iframes: 0.55,
+    desc: 'Vanishes and comes out 190px along your movement direction, cutting for ' +
+          '45 on the way. Whatever is nearest when he lands is pinned and ridden ' +
+          'down: 4 rising hits of 45, then a heel-drop for 110 in a 100px radius.',
   },
   passive: {
     id: 'sharingan', name: 'Sharingan',
-    desc: '+18% dodge chance, and every enemy telegraph appears 0.3s earlier on ' +
-          'screen for him. Not a hint — the tell literally starts sooner.',
+    desc: '+18% dodge chance. Every dodge is a read: the attack comes straight ' +
+          'back as a 120px riposte for 70, and he keeps +7% damage for 5s, ' +
+          'stacking to 5.',
   },
   starUpgrades: {
-    // "burning ground" carries no number in the spec. 20 damage/s for 6s in a
-    // 90px pool authored at half Amaterasu's own 40/s, so the mark stays the
-    // bigger threat and the ground is the mop-up. Every desc ships real numbers
-    // (spec line 1401).
-    s3: 'Amaterasu marks 8 enemies and the flames leave burning ground: ' +
-        '20 damage/s for 6s in a 90px pool.',
-    s5: 'Body Flicker gains a second charge, and ending it beside a burning enemy ' +
-        'detonates the black flame for 150 damage in a 120px radius.',
+    // The cursed seal is deliberately CONDITIONAL and deliberately on the
+    // special: it is a desperate power-up, so it may only be reachable when he
+    // is actually desperate. The unconditional half (the fork) is what keeps S3
+    // from reading as dead on a full health bar.
+    s3: 'Chidori forks: 3 more enemies within 200px take 140 lightning each. And ' +
+        'cast below 45% HP the cursed seal breaks — the thrust hits twice as ' +
+        'hard and he gains +30% damage and +20% move speed for 10s.',
+    s5: "Lion's Barrage gains a second charge, and the heel-drop ignites: a 90px " +
+        'crater burning for 26 damage/s over 5s.',
   },
   signatureRelic: 'susanoo_fragment',
   barks: {
@@ -270,10 +281,11 @@ const YAMIKAGE = {
     idle: 'I cut every bond I had for this. Do not talk to me.',
   },
   buildPaths: [
-    'Inevitable burn — Quick Recovery + Wide Reach + the Inari-style DoT stack; ' +
-    'Amaterasu never expires, so uptime is the whole build',
+    'Assassin — Keen Eye + Killing Blow + Quick Recovery; Chidori is two charges ' +
+    'of "that elite is already dead", and cooldown is what buys the third and fourth',
     'Untouchable duelist — Phantom Step + Vengeance + Guardian Plate; 18% base ' +
-    'dodge plus 40% from Phantom Step means most of the screen simply misses',
+    'dodge plus 40% from Phantom Step means most of the screen simply misses — ' +
+    'and under Sharingan every miss is a counter and a damage stack',
   ],
 };
 
@@ -290,36 +302,50 @@ const UZU = {
     damageMult: 1.0, attackSpeedMult: 1.0, areaMult: 1.0,
     critChance: 0.05, critMult: 2.0, cooldownMult: 1.0, luck: 0,
   },
+  // THE KIT IS BUILT IN THE ORDER HE LEARNED IT.
+  //
+  // Clones are the ATTACK — the one technique he has, thrown constantly, at no
+  // range and with no aim. The sphere is the one thing he had to be TAUGHT, so it
+  // is the special: rare, delivered by hand, and enormous. The log is the academy
+  // trick that buys him a second, and the transformation he lands in is a real
+  // weapon rather than a joke. The passive is the only thing about him that has
+  // never lost a fight.
   autoAttack: {
     id: 'kage_bunshin_barrage', name: 'Kage Bunshin Barrage',
     desc: '3 clones puff into existence AT the nearest enemy and strike for 12 ' +
-          'each, every 0.7s. The only auto-attack in the game with no travel time ' +
-          'and no line of sight.',
+          'each, every 0.7s. No travel time, no line of sight. Every 4th barrage ' +
+          'ends the combo: they kick it up and he comes down heel-first for 24 ' +
+          'extra damage and a 0.6s knockdown.',
     interval: 0.7, damage: 12, targeting: { mode: 'nearest' },
   },
   special: {
-    id: 'shadow_clone_jutsu', name: 'SHADOW CLONE JUTSU', cooldown: 26,
-    desc: '4 clones for 10s. They mirror your auto-attack at 60% damage, taunt ' +
-          'nearby enemies, and have 30 HP each.',
+    id: 'rasengan', name: 'RASENGAN', cooldown: 22,
+    desc: 'A clone spins the sphere into his palm and he closes up to 260px to ' +
+          'drive it in: 300 damage to the body he hits, 150 more in a 120px ' +
+          'spiral that drags everything inward. Invulnerable for the 0.45s charge.',
   },
   escape: {
-    id: 'substitution_jutsu', name: 'Substitution Jutsu', cooldown: 5, iframes: 0.5,
-    desc: 'A log takes the hit. You reappear behind the nearest enemy and land a ' +
-          'guaranteed 250% backstab crit. The log is real, visible, and comically ordinary.',
+    id: 'substitution_jutsu', name: 'Substitution Jutsu', cooldown: 6, iframes: 0.6,
+    desc: 'A log takes the hit and he comes up 200px away as somebody else. ' +
+          'Everything within 150px takes 60 damage and stops dead for 1.4s. The ' +
+          'log is real, visible, and comically ordinary.',
   },
   passive: {
     id: 'never_gives_up', name: 'Never Gives Up',
-    desc: 'Every 10 kills spawns a bonus clone that persists until killed, up to 5. ' +
-          'The army only ever grows.',
+    desc: 'Every 10 kills a clone joins him for good, up to 5. And he does not ' +
+          'go down: every 14s one of him steps in front of the next hit and eats ' +
+          'it whole, then blasts 40 damage out in a 140px ring getting back up.',
   },
   starUpgrades: {
-    s3: 'Shadow Clone Jutsu summons 6 clones, and holding the button converges ' +
-        'them into a RASENGAN slam: 320 damage in a 180px spiral that drags ' +
-        'enemies inward.',
+    // The giant version. 4 clones feed it instead of 1, and it GRINDS instead of
+    // popping — which is the difference the source draws between the two, not a
+    // bigger number on the same move.
+    s3: 'RASENGAN becomes the giant version: 4 clones feed it for 520 damage in ' +
+        'a 200px sphere that then grinds for 1.2s at 120 damage/s.',
     // "the log detonates" carries no number in the spec; 120 / 140px authored to
-    // match the scale of his other burst (Rasengan 320 / 180px).
-    s5: 'Substitution Jutsu gains a second charge and the log detonates for 120 ' +
-        'damage in a 140px radius.',
+    // match the scale of his other burst.
+    s5: 'Substitution leaves 3 doubles that taunt for 4s, and the log detonates ' +
+        'for 120 damage in a 140px radius.',
   },
   signatureRelic: 'nine_tails_chakra',
   barks: {
@@ -329,6 +355,7 @@ const UZU = {
     kill: 'One down! Only about a thousand to go!',
     boss: "HUGE! Great! I'll just make a thousand of me!",
     victory: 'Ramen. I earned ramen. Somebody buy me ramen.',
+    idle: 'Hey. HEY. Are you watching? You have to be watching.',
   },
   buildPaths: [
     'Clone army — Iron Body + Second Wind + Rapid Fire; clones mirror your auto, ' +
@@ -353,8 +380,9 @@ const CAPTAIN_YULI = {
   },
   autoAttack: {
     id: 'twin_blade_cross', name: 'Twin Blade Cross',
-    desc: 'Alternating slashes in a 90° arc, 70px reach, 11 damage every 0.35s. ' +
-          'The highest raw DPS in the game — if you can survive standing that close.',
+    desc: 'Both blades at once — a 90° scissor that starts wide and crosses in ' +
+          'front of him. 70px reach, 11 damage every 0.35s. The highest raw DPS ' +
+          'in the game — if you can survive standing that close.',
     interval: 0.35, damage: 11, targeting: { mode: 'facing' },
   },
   special: {
@@ -423,10 +451,11 @@ const KAGURA = {
           'damage each and set them burning for 3s.',
   },
   escape: {
-    id: 'torii_warp', name: 'Torii Warp', cooldown: 8, iframes: 0.5,
-    desc: 'Press once to plant a torii gate. Press again within 10s to teleport ' +
-          'back to it with a 60-damage purifying burst and knockback. An unused ' +
-          'gate expires and refunds half the cooldown.',
+    id: 'torii_warp', name: 'Torii Warp', cooldown: 0, iframes: 0.5,
+    desc: 'NO COOLDOWN, EVER. She blinks 250px the way she is leaning and leaves ' +
+          'a torii gate standing where she left. Purification — 2 charges, one ' +
+          'back every 4.5s — adds 0.5s invulnerable and a 60-damage purifying ' +
+          'burst on arrival. With none banked the warp still moves her.',
   },
   passive: {
     id: 'purification', name: 'Purification',
@@ -438,10 +467,12 @@ const KAGURA = {
     // Ember Dash trail while the stacked total is what makes the upgrade.
     s3: 'Nine-Tail Blaze wisps leave burning foxfire trails: 12 damage/s for 4s ' +
         'in a 70px path.',
-    // ZERO COOLDOWN exempts her gate (DECISIONS.md §28) — the cooldown is
-    // mechanic-driven, so that evolution gives her a flat -70% instead.
-    s5: 'Torii gates become permanent for the run (max 2) and can be re-used ' +
-        'as often as you like.',
+    // ZERO COOLDOWN still exempts her warp (DECISIONS.md §28, §53). It is now
+    // exempt because there is nothing left to reduce — her escape has no
+    // cooldown at all — and removing the exemption would FLOOR her back up to
+    // 0.6s, turning that evolution into a downgrade for exactly one character.
+    s5: 'Torii Warp holds 3 purification charges instead of 2 and banks one ' +
+        'every 3.0s, and your gates stand for the rest of the run (max 3).',
   },
   signatureRelic: 'inaris_blessing',
   barks: {
@@ -455,8 +486,8 @@ const KAGURA = {
   buildPaths: [
     "Burn stacker — Inari's Blessing + Wide Reach + Sharp Edge; every DoT in the " +
     'kit gets +50% damage and +2s, and the talisman blasts overlap',
-    'Gate teleporter — Quick Recovery + Swift Boots + Lodestone; two permanent ' +
-    'gates make the whole arena a two-second commute',
+    'Warp skirmisher — Swift Boots + Wide Reach + Killing Blow; the blink is ' +
+    'free and the purifying burst lands on arrival, so retreating IS the attack',
   ],
 };
 

@@ -79,6 +79,8 @@ export class HazardSystem {
     this.tideHigh = false;
     this.spotlights = null;
     this.roomT = 0;
+    /** Earliest hazard-clock time the next mortar shell may be marked. See requestSalvo(). */
+    this.salvoT = 0;
   }
 
   // --- telegraphs -----------------------------------------------------------
@@ -129,6 +131,35 @@ export class HazardSystem {
     return t;
   }
 
+  /**
+   * THE MORTAR SALVO GATE â€” one shell marked every `spacing` seconds, arena-wide.
+   *
+   * Play report: "the falling shots in map 3 ... there are 10 at a time on top of
+   * the player." That is literal, and it was two facts multiplying.
+   *
+   * Stage 3's timeline places thirteen Siege Husks and the mob table keeps
+   * rolling more from minute twelve, where at 420 effective HP under Titan's
+   * Shadow they outlive every piece of fodder around them â€” twenty mortars alive
+   * at once is ordinary, not a spike. And every one of them computed the SAME
+   * impact point, `p + v * lead`, from the same player, with no per-shell
+   * variation at all: twenty marks in one hole. Cutting away does not save you,
+   * because the shells fired 0.2s later re-aim off wherever you cut to, and
+   * nobody changes direction ten times in a second.
+   *
+   * This is a TIMESTAMP, not a token pool, and that is deliberate: a mortar
+   * killed between marking and impact cannot leak a slot, and there is nothing
+   * to reconcile when the pool recycles it. The rate is capped at 1/spacing
+   * shells per second no matter how many mortars are alive, which against a
+   * 1.45s telegraph puts at most ceil(1.45 / 0.5) = 3 marks on the floor at once.
+   *
+   * @returns true if the caller may mark a shell now.
+   */
+  requestSalvo(spacing) {
+    if (this.t < this.salvoT) return false;
+    this.salvoT = this.t + (spacing > 0 ? spacing : 0.5);
+    return true;
+  }
+
   // --- fields ----------------------------------------------------------------
   spawnField(x, y, radius, duration, kind, dps, color, opts) {
     const f = this.fields.spawn();
@@ -177,6 +208,13 @@ export class HazardSystem {
     this.visibilityRadius = 0;
     this.tidePhase = 0;
     this.tideHigh = false;
+    this.salvoT = 0;
+    // `_hazT` and `_smokeT` are RUN state and nothing reset them. The headless
+    // harness runs a hundred runs in one process, so every run after the first
+    // inherited the previous stage's countdown and Stage 3's opening rubble
+    // volley landed at a different second every time â€” on the same seed.
+    this._hazT = 0;
+    this._smokeT = 0;
 
     if (!hazardDef) return;
     const run = this.run;
@@ -205,6 +243,11 @@ export class HazardSystem {
         }
         break;
       }
+      case 'debris':
+        // Half an interval of grace. At `_hazT` 0 the first volley fired on tick
+        // one, before the player had moved or read the arena.
+        this._hazT = (this.params.interval || 14) * 0.5;
+        break;
       case 'reconfigure':
         this.roomT = this.params.interval || 45;
         break;
@@ -347,23 +390,77 @@ export class HazardSystem {
       }
 
       // --- Stage 3: collapsing walls ---------------------------------------
+      //
+      // "TOO QUICK TO DODGE, TOO MANY IN ONE PLACE, ALL ON TOP OF ME."
+      // Three separate defects, and only one of them was a number.
+      //
+      // 1. THE CLAMP. `clamp(p.x + cos(a) * d, ...)` drags the mark toward the
+      //    player: at x = minX + 60 with a negative offset the impact lands on
+      //    the player's exact x, and in a corner it lands on them in both axes.
+      //    Hugging the arena edge â€” the natural answer to a horde â€” quietly
+      //    turned a dodgeable hazard into unavoidable damage. The OFFSET is
+      //    reflected per axis now, which preserves |offset| = d exactly, so no
+      //    mark is ever nearer than `minRange` however you stand. The clamp that
+      //    remains is a safety net; the arena is 4000px against a 620px reach,
+      //    so a reflected offset is always in bounds.
+      // 2. THE FREE ANGLE. Every zone rolled its own, so three 170px discs could
+      //    stack in one hole. One zone per equal SECTOR now, jitter bounded to
+      //    +-0.30 rad: two adjacent sectors are at worst 120 - 2*17.2 = 85.6deg
+      //    apart, and at the 300px inner radius that is a chord of
+      //    2 * 300 * sin(42.8deg) = 408px â€” wider than the 340px two 170px discs
+      //    need to not touch. The spacing check below catches the leftovers.
+      // 3. THE TELEGRAPH. It was `feel.telegraphLethal` â€” a hardcoded 1.0s â€”
+      //    while `HAZARDS.collapsing_walls.telegraph` sat next to it in the data
+      //    and NOTHING READ IT, which is exactly the failure this file's header
+      //    documents. Arithmetic: `dropRubble` tests the bare radius, so a mark
+      //    that clips you costs 170px of running. The slowest character in the
+      //    roster is 168px/s, so 170/168 = 1.01s, plus feel.accelTime 0.07s to
+      //    get up to speed, plus 0.25s to notice a new mark on a screen the
+      //    density curve is holding at 250-400 enemies: 1.33s required. It had
+      //    1.0. The data now says 1.5 and the engine now reads it.
+      //
+      // And the three no longer land together â€” `stagger` walks the volley out
+      // so it reads as three impacts instead of one wall.
       case 'debris': {
         this._hazT = (this._hazT || 0) - dt;
         if (this._hazT <= 0) {
           this._hazT = P.interval || 14;
-          const n = P.zones || 3;
+          const r = P.radius || 90;
+          const n = Math.min(P.zones || 3, MARK_X.length);
+          const tel = (this.def && this.def.telegraph) || feel.telegraphLethal;
+          const stagger = P.stagger || 0.35;
+          const minR = P.minRange || r + 130;
+          const maxR = P.maxRange || 620;
+          const sep = P.spacing || r * 2;
+          const b = run.bounds;
+          const base = runRng.angle();
+          let placed = 0;
           for (let i = 0; i < n; i++) {
-            const a = runRng.angle();
-            const d = runRng.range(200, 520);
-            const x = clamp(p.x + Math.cos(a) * d, run.bounds.minX + 60, run.bounds.maxX - 60);
-            const y = clamp(p.y + Math.sin(a) * d, run.bounds.minY + 60, run.bounds.maxY - 60);
-            const r = P.radius || 90;
-            this.telegraph(x, y, r, feel.telegraphLethal, 'red', 'x');
+            let x = 0, y = 0;
+            // Bounded, never a while(true): five nudges around the sector and
+            // then it takes what it has. A hazard may not stall the sim.
+            for (let attempt = 0; attempt < 5; attempt++) {
+              const a = base + (i / n) * TAU + runRng.range(-0.30, 0.30) + attempt * 0.5;
+              const d = runRng.range(minR, maxR);
+              let ox = Math.cos(a) * d, oy = Math.sin(a) * d;
+              if (p.x + ox < b.minX + 60 || p.x + ox > b.maxX - 60) ox = -ox;
+              if (p.y + oy < b.minY + 60 || p.y + oy > b.maxY - 60) oy = -oy;
+              x = clamp(p.x + ox, b.minX + 60, b.maxX - 60);
+              y = clamp(p.y + oy, b.minY + 60, b.maxY - 60);
+              let ok = true;
+              for (let k = 0; k < placed; k++) {
+                if (dist2(x, y, MARK_X[k], MARK_Y[k]) < sep * sep) { ok = false; break; }
+              }
+              if (ok) break;
+            }
+            MARK_X[placed] = x; MARK_Y[placed] = y; placed++;
+            const wait = tel + i * stagger;
+            this.telegraph(x, y, r, wait, 'red', 'x');
             // The wreck it leaves is its OWN radius, not a fraction of the blast:
             // the data separates `radius` (what it hits) from `obstacleRadius`
             // (what it then blocks) precisely because the cover is meant to be
             // smaller than the zone you had to leave to avoid it.
-            run.scheduler.after(feel.telegraphLethal, dropRubble, {
+            run.scheduler.after(wait, dropRubble, {
               run, x, y, r,
               dmg: P.damage || 40,
               life: P.obstacleLifetime || 22,
@@ -460,6 +557,21 @@ export class HazardSystem {
       if (runRng.chance(0.5)) run.obstacles.addBox(x, y, runRng.range(80, 220), 26);
       else run.obstacles.addBox(x, y, 26, runRng.range(80, 220));
     }
+
+    // THE ROOMS MOVED; THE FLOOR DID NOT EMPTY ITSELF FIRST.
+    //
+    // Unlike ObstacleField.scatter, which holds `clearance` around the player's
+    // start and the altar, this rebuild answers to nothing but the player's
+    // CURRENT position â€” so a slab can land squarely on the altar, on a chest, on
+    // a relic, or on a gather mote. Everything that has to be walked to gets
+    // pushed back out.
+    run.pickups.evictFromObstacles();
+    if (run.stageEvents) run.stageEvents.evictMotes();
+    if (run.altar && run.obstacles.pushOut(run.altar.x, run.altar.y, 34, FREE)) {
+      run.altar.x = FREE.x;
+      run.altar.y = FREE.y;
+    }
+
     // "the player is repositioned"
     const a = runRng.angle();
     run.player.x = clamp(cx + Math.cos(a) * 180, run.bounds.minX + 80, run.bounds.maxX - 80);
@@ -473,9 +585,13 @@ export class HazardSystem {
     this.telegraphs.clear();
     this.fields.clear();
     this.kind = null;
+    this.def = null;
     this.lanes = null;
     this.spotlights = null;
     this.visibilityRadius = 0;
+    this.salvoT = 0;
+    this._hazT = 0;
+    this._smokeT = 0;
   }
 
   // --- drawing ---------------------------------------------------------------
@@ -587,9 +703,27 @@ function dropRubble(ctx) {
     damagePlayer(run, dmg, SRC.HAZARD, { fromX: x, fromY: y });
   }
   run.obstacles.addCircle(x, y, blockR > 0 ? blockR : r * 0.62, life);
+  // A WALL JUST ARRIVED ON TOP OF WHATEVER WAS LYING THERE. This is the one
+  // direction ObstacleField.pushOut cannot cover from the drop side: the loot was
+  // legally placed and the geometry moved in afterwards. Bury a chest under a
+  // slab of masonry and it is gone â€” the player is hard-blocked out of the
+  // obstacle and chests are collected by touch.
+  run.pickups.evictFromObstacles();
   particles.burst(x, y, 12, '#6b6f80', { speed: 200, life: 0.6, size: 0.8 });
   run.shakeMedium();
 }
+
+/**
+ * Where this volley's marks went, for the spacing check. Module-level, per the
+ * house rule that a hazard is not allowed to allocate its own bag every nine
+ * seconds. Eight is well over the largest `zones` any stage authors (three), and
+ * the loop clamps to this length so a data typo cannot walk off the end.
+ */
+const MARK_X = new Float64Array(8);
+const MARK_Y = new Float64Array(8);
+
+/** Scratch for the altar's obstacle push-out in _reconfigureRooms. */
+const FREE = { x: 0, y: 0 };
 
 const FIELD_COLOR = ['#ff5f7e', '#6ad8ff', '#ff7a3d', '#c58cff', '#7bf59a', '#ffe9a3'];
 const FIELD_FROM_NAME = { damage: 0, chill: 1, burn: 2, pull: 3, heal: 4, sunlight: 5 };

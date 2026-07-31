@@ -334,7 +334,11 @@ export class WeaponSystem {
         // "Maxed and one upgrade short" is the most useful thing a results
         // screen can tell you about a run you just lost, so it travels with the
         // rest of the record rather than being recomputed from a dead Run.
-        canEvolve: this.evoReady(w),
+        // BOTH HALVES, not just the fee. This was `evoReady(w)` alone, which is
+        // true of a level-2 weapon whose upgrade happens to be in the build —
+        // the field is documented as "maxed and one upgrade short" and has to
+        // mean it.
+        canEvolve: this.isMaxed(w) && this.evoReady(w),
         evoHint: this.evoHint(w),
       });
     }

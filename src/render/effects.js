@@ -28,14 +28,27 @@
 // different every frame is exactly the case pre-rastering cannot serve. Vector
 // primitives cost a few dozen path ops per effect and are free to animate.
 //
-// The two SPRITE kinds at the bottom (`sweepSprite`, `fallSprite`) do not break
-// that rule: the caller hands over an ALREADY-REGISTERED atlas Sprite and this
-// file only blits it. They exist because two things in the game are not energy
-// and cannot be drawn as energy — a scythe swinging through 180 degrees, and a
-// lighting truss falling out of the ceiling. Both are objects, both are the same
-// object every frame, and both are exactly what pre-rastering IS for. They are
+// The three SPRITE kinds at the bottom (`sweepSprite`, `fallSprite`,
+// `chainLash`) do not break that rule: the caller hands over an
+// ALREADY-REGISTERED atlas Sprite and this file only blits it. They exist
+// because three things in the game are not energy and cannot be drawn as energy
+// — a scythe swinging through 180 degrees, a lighting truss falling out of the
+// ceiling, and a chain. Every one of them is the same object in every frame,
+// only somewhere else, which is exactly what pre-rastering IS for. They are
 // blitted in a second, SOURCE-OVER pass after the additive one, because an
 // object lit additively over a dark stage is a white smear.
+//
+// `flameCone` is a fourth sprite kind and the one exception to that pass: it is
+// blitted with everything else in the ADDITIVE block. A scythe composited
+// additively is a white smear, and a flame composited normally is a sticker —
+// each is drawn the way the thing it depicts actually behaves. It exists for the
+// same reason the props do: a tongue of fire has a hot core, a colour ramp and a
+// ragged silhouette, none of which can be assembled out of arcs and wedges, and
+// all of which are free once they are baked (see `atlas.flameSprite`).
+//
+// THE CHAIN IS THE INTERESTING ONE, because the object that repeats is not the
+// whole weapon but one LINK PAIR of it, and what has to be animated is not the
+// object at all — it is the DELAY between one end of the chain and the other.
 //
 // DETERMINISM: the only randomness is one `fxRng` draw per spawn, stored as a
 // per-instance phase. `fxRng` is the throwaway cosmetic stream — consuming the
@@ -57,8 +70,12 @@ const MAX_EFFECTS = 160;
 export const FX_TIER = { NORMAL: 0, EVOLVED: 1 };
 
 const K_SLASH = 0, K_SHOCK = 1, K_BEAM = 2, K_BURST = 3, K_IMPACT = 4, K_AFTER = 5;
-/** The two sprite kinds. Drawn in the second, source-over pass. */
-const K_SWEEP = 6, K_FALL = 7;
+/** The PROP kinds. All three blit in the second, source-over pass. */
+const K_SWEEP = 6, K_FALL = 7, K_CHAIN = 8;
+/** FIRE. A sprite kind too, but drawn additively with the rest of the energy. */
+const K_FLAME = 9;
+/** How fast the flame sheet cycles, in frames per unit of an effect's life. */
+const FLAME_HZ = 34;
 
 const WHITE = '#ffffff';
 /** The evolved tier's signature rim colour. One constant, used by every kind. */
@@ -74,6 +91,19 @@ const SEGS = 5;
 /** Beam core ripple, in Hz and in fraction of alpha. */
 const FLICKER_HZ = 13;
 const FLICKER_AMP = 0.16;
+
+// --- the chain ---------------------------------------------------------------
+// Every number here is a fraction of the effect's OWN LIFE or of its OWN REACH,
+// so a 130px lash at level 1 and a 330px ENDLESS LASH move identically, and
+// nothing reads wall-clock time.
+/** Layout scratch size. A caller asking for more pairs than this is clamped. */
+const CHAIN_MAX_PAIRS = 12;
+/** How far behind the hand the TIP runs, in fractions of a life. The whip. */
+const CHAIN_LAG = 0.22;
+/** When the HAND finishes its sweep. Early, so the lagged tip finishes in time. */
+const CHAIN_SWEEP_END = 0.62;
+/** Lateral slack at mid-chain, as a fraction of the deployed length. */
+const CHAIN_SAG = 0.14;
 
 /**
  * Normalise whatever a caller put in `opts.tier` into 0 or 1.
@@ -290,6 +320,83 @@ export class EffectSystem {
     return e;
   }
 
+  /**
+   * A BREATH OF FIRE — one puff of a plume that fills a cone.
+   *
+   * ONE INSTANCE IS NOT THE WHOLE JET. Its wave front leaves the mouth and races
+   * the length of the cone inside its own lifetime, so a caller that spawns one
+   * every few frames gets a continuous stream with something visibly travelling
+   * down it. A held cone drawn as one static shape has no direction in it, which
+   * is the entire reason the wedge it replaces read as a targeting overlay.
+   *
+   * @param angle  centre of the cone, radians
+   * @param arc    total angular width, radians — the SAME number the damage uses
+   * @param radius reach in world px, measured from (x, y)
+   * @param sprite the flame sheet, from `atlas.flameSprite()`
+   * @param opts   .life .alpha .width (a blanket scale on every tongue) .stations
+   */
+  flameCone(x, y, angle, arc, radius, sprite, opts) {
+    const o = opts || EMPTY;
+    if (!sprite || !finite(angle) || !(radius > 0)) return null;
+    const e = this._begin(K_FLAME, x, y, o.color || WHITE, o, 0.30);
+    if (!e) return null;
+    e.sprite = sprite;
+    e.a0 = angle;
+    e.arc = finite(arc) && Math.abs(arc) > 0.03 ? Math.abs(arc) : 0.8;
+    e.r0 = radius;
+    e.w0 = o.width > 0 ? o.width : 1;
+    e.count = o.stations >= 2 ? (o.stations | 0) : 5;
+    return e;
+  }
+
+  /**
+   * A CHAIN, WHIPPED OUT AND REELED BACK IN.
+   *
+   * `slash` draws the ENERGY of a swing; `sweepSprite` swings one rigid prop
+   * through an arc. A chain is neither. It is many small rigid objects only
+   * loosely attached to each other, so the thing to animate is not the object,
+   * it is the DELAY between one end of it and the other.
+   *
+   * Three behaviours, every one of them parameterised off `age / life` alone:
+   *   PAY OUT   the chain leaves the fist coiled and is flung PAST full reach,
+   *             so it cracks instead of simply existing at its own length;
+   *   LAG       every link takes the angle the HAND had `CHAIN_LAG * f` of a
+   *             lifetime ago (`f` = how far along the chain it sits), so the
+   *             swing arrives at the tip LAST and the body trails behind it in
+   *             a bow — this is the whole difference between a chain and a
+   *             stick, and it is one subtraction;
+   *   REEL IN   the deployed length collapses at the end, and because links are
+   *             measured back FROM THE TIP they are drawn into the fist in
+   *             order rather than all blinking out at once.
+   *
+   * @param sprite an atlas Sprite of ONE LINK PAIR laid along +X and spanning
+   *               the full +/- r of its painter (see SHAPES.chain).
+   * @param opts   .pairs how many link pairs a FULL-REACH chain is made of
+   *               .scale the sprite scale PER WORLD PIXEL of link length. The
+   *                      caller owns it because only the caller knows what
+   *                      `size` the pair was baked at — same division of labour
+   *                      as the scythe's SCYTHE_UNIT.
+   *               .width glow thickness  .sweep +1/-1  .life .alpha .tier .color2
+   */
+  chainLash(x, y, angle, arc, radius, color, sprite, opts) {
+    const o = opts || EMPTY;
+    if (!sprite || !finite(angle) || !(radius > 0)) return null;
+    const e = this._begin(K_CHAIN, x, y, color, o, 0.30);
+    if (!e) return null;
+    e.sprite = sprite;
+    e.a0 = angle;
+    e.arc = finite(arc) && Math.abs(arc) > 0.03 ? Math.abs(arc) : 0.7;
+    e.r0 = radius;
+    e.spin = o.sweep < 0 ? -1 : 1;
+    e.w0 = o.width > 0 ? o.width : Math.max(3, radius * 0.045);
+    const n = o.pairs | 0;
+    e.count = n < 2 ? 5 : (n > CHAIN_MAX_PAIRS ? CHAIN_MAX_PAIRS : n);
+    // `extra` carries the per-pixel link scale for this kind. It is otherwise
+    // the shockwave's double-pulse flag, and no effect is ever both.
+    e.extra = o.scale > 0 ? o.scale : 1 / Math.max(1, sprite.w);
+    return e;
+  }
+
   update(dt) {
     const items = this.pool.items;
     for (let i = 0; i < this.pool.count; i++) {
@@ -326,6 +433,8 @@ export class EffectSystem {
         case K_BURST:  drawBurst(r, e, t); break;
         case K_IMPACT: drawImpact(r, e, t); break;
         case K_AFTER:  drawAfter(r, e, t); break;
+        case K_CHAIN:  drawChainGlow(r, e, t); break;
+        case K_FLAME:  drawFlame(r, e, t); break;
       }
     }
     r.setComposite('source-over');
@@ -337,11 +446,14 @@ export class EffectSystem {
     // composite twice per frame rather than twice per effect.
     for (let i = 0; i < n; i++) {
       const e = items[i];
-      if (!e.sprite) continue;
+      // Fire carries a sprite too, but it was already blitted additively in the
+      // pass above. This pass is for the PROPS alone.
+      if (!e.sprite || e.kind === K_FLAME) continue;
       const age = e.pAge + (e.age - e.pAge) * alpha;
       const t = age <= 0 ? 0 : (age >= e.life ? 1 : age / e.life);
       if (e.kind === K_SWEEP) drawSweep(r, e, t);
       else if (e.kind === K_FALL) drawFall(r, e, t);
+      else if (e.kind === K_CHAIN) drawChainLinks(r, e, t);
     }
     r.setAlpha(1);
   }
@@ -626,6 +738,224 @@ function drawFall(r, e, t) {
   r.drawCircle(e.x, e.y, e.sprite.w * e.w0 * 0.42 * sh, '#000000', 0.20 + 0.28 * k);
   r.drawSpriteRotated(e.sprite, e.x, e.y - drop,
                       e.a0 + e.spin * t, e.w0, A, false);
+}
+
+// --- THE CHAIN ---------------------------------------------------------------
+
+/**
+ * HOW FAR THE CHAIN IS PAID OUT, as a fraction of the reach.
+ *
+ * Coiled at the fist, flung out PAST full reach (the overshoot is the crack),
+ * settled back onto the radius the damage actually used, then reeled in. It is
+ * deliberately at full length by about a fifth of the life: the cone was
+ * resolved on the frame this spawned, and a visual that arrives late is a
+ * visual that lies about what was hit.
+ *
+ * Piecewise and continuous: 1.06 at 0.26, 1.00 at 0.60, 0 at 1.
+ */
+function chainExtend(tt) {
+  if (tt <= 0 || tt >= 1) return 0;
+  if (tt < 0.26) { const k = tt / 0.26; return 1.06 * k * (2 - k); }
+  if (tt < 0.60) return 1.06 - 0.06 * ((tt - 0.26) / 0.34);
+  const k = (tt - 0.60) / 0.40;
+  return 1 - k * k;
+}
+
+/**
+ * THE HAND'S ANGLE through the swing, 0..1 of `arc`.
+ *
+ * The same cock-back-then-whip-through shape `drawSlash` uses, so a lash and a
+ * sword agree about what a swing is — but it finishes at CHAIN_SWEEP_END rather
+ * than at the end of the life, because the tip reads this function CHAIN_LAG
+ * late and still has to get all the way round before the chain is gone.
+ *
+ * Evaluated at NEGATIVE times by the links the flick has not reached yet, which
+ * is why the wind-up branch clamps: those links simply hang, fully cocked.
+ */
+function chainSweep(tt) {
+  if (tt <= WINDUP) return -0.20 * (1 - (tt > 0 ? tt : 0) / WINDUP);
+  const k = (tt - WINDUP) / (CHAIN_SWEEP_END - WINDUP);
+  return k >= 1 ? 1 : easeOutCubic(k);
+}
+
+// Layout scratch, module level for the same reason every options bag in the
+// ability layer is: a weapon that spawns six of these five times a second must
+// not allocate. Index 0 is the TIP; the last entry is nearest the fist.
+const CHAIN_CX = new Float64Array(CHAIN_MAX_PAIRS + 1);
+const CHAIN_CY = new Float64Array(CHAIN_MAX_PAIRS + 1);
+
+/**
+ * WHERE EVERY JOINT OF ONE LASH IS, THIS FRAME. Returns how many were written.
+ *
+ * Joints are stepped BACK FROM THE TIP in fixed world-space intervals, not
+ * spread evenly across whatever length is currently deployed, and that one
+ * choice is what makes the links TRAVEL. Measured from the tip, every link moves
+ * outward as the chain pays out and a new one appears at the fist the moment
+ * there is room for it — chain coming off a coil. Spread them evenly instead and
+ * the links sit still and stretch, which is a rubber band.
+ *
+ * On top of the angular lag the chain BOWS: zero at both ends, largest at
+ * mid-chain, largest mid-swing, and displaced AGAINST the direction of travel so
+ * the belly trails rather than leads. That is the slack a real chain carries,
+ * and it is the difference between a curve and a spiral.
+ *
+ * Called independently by both passes rather than cached between them: the two
+ * passes are separated by every other effect in the pool, so one shared buffer
+ * would be somebody else's chain by the time the second pass arrived. It is pure
+ * and cheap, and being pure is what keeps the two passes agreeing.
+ */
+function layoutChain(e, t) {
+  const R = e.r0;
+  const L = R * chainExtend(t);
+  if (!(L > 2)) return 0;
+  const step = R / e.count;
+  const start = e.a0 - e.spin * e.arc * 0.5;
+  const bow = -e.spin * CHAIN_SAG * L * (4 * t * (1 - t));
+  let n = 0;
+  for (let j = 0; j < e.count; j++) {
+    const d = L - j * step;
+    if (d < step * 0.45) break;             // the rest is still in the fist
+    const f = d / R;
+    const a = start + e.spin * e.arc * chainSweep(t - CHAIN_LAG * f);
+    const off = bow * Math.sin(Math.PI * (d / L));
+    const c = Math.cos(a), s = Math.sin(a);
+    CHAIN_CX[n] = e.x + c * d - s * off;
+    CHAIN_CY[n] = e.y + s * d + c * off;
+    n++;
+  }
+  return n;
+}
+
+/**
+ * THE ADDITIVE HALF: what the chain did to the air.
+ *
+ * The faint wedge is the honest part of this — it is the cone `coneDamage`
+ * already resolved, at its real radius, from the first frame. Everything else is
+ * theatre laid over it, so the wedge stays quiet enough to read as "this is what
+ * was inside it" and never bright enough to compete with the iron.
+ */
+function drawChainGlow(r, e, t) {
+  const fade = 1 - t * t;
+  if (fade <= 0.01) return;
+  const A = e.alpha * fade;
+  const start = e.a0 - e.spin * e.arc * 0.5;
+  const head = start + e.spin * e.arc * chainSweep(t - CHAIN_LAG);
+  pie(r, e.x, e.y, e.r0 * 0.99, start, head, e.color, 0.08 * A);
+
+  const n = layoutChain(e, t);
+  if (n === 0) return;
+  // A hot spine threaded through the joints, so a chain whose links are a link
+  // apart at full stretch still reads as one continuous object.
+  let px = e.x, py = e.y;
+  for (let j = n - 1; j >= 0; j--) {
+    const x = CHAIN_CX[j], y = CHAIN_CY[j];
+    streak(r, px, py, x, y, e.color, e.w0 * (0.45 + 0.55 * (1 - j / n)), A * 0.28);
+    px = x; py = y;
+  }
+  // THE TIP: where the weight is, and the only part of a whip that ever
+  // actually hits anything.
+  disc(r, CHAIN_CX[0], CHAIN_CY[0], e.w0 * (0.9 + fade * 0.8), e.color2, A * 0.70);
+  if (!e.tier) return;
+  // EVOLVED: a white-hot tip and a gold rim outside the reach.
+  disc(r, CHAIN_CX[0], CHAIN_CY[0], e.w0 * 0.50, WHITE, A * 0.85);
+  band(r, e.x, e.y, e.r0 * 1.05, start, head, GOLD, 2.2, A * 0.45);
+}
+
+/**
+ * THE SOURCE-OVER HALF: the iron itself.
+ *
+ * One pair sprite per GAP between joints, scaled to the gap it has to fill —
+ * which is what keeps the links joined through the bow, through the retraction,
+ * and across the short stub between the fist and the first joint, none of which
+ * are `step` long. Drawn fist-outward so each pair overlaps the one before it
+ * and the boundaries read as interlocked rather than butted.
+ */
+function drawChainLinks(r, e, t) {
+  const A = e.alpha * (t < 0.76 ? 1 : 1 - (t - 0.76) / 0.24);
+  if (A <= 0.02) return;
+  const n = layoutChain(e, t);
+  if (n === 0) return;
+  const unit = e.extra;
+  let px = e.x, py = e.y;
+  for (let j = n - 1; j >= 0; j--) {
+    const x = CHAIN_CX[j], y = CHAIN_CY[j];
+    const dx = x - px, dy = y - py;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len > 0.5) {
+      r.drawSpriteRotated(e.sprite, (x + px) * 0.5, (y + py) * 0.5,
+                          Math.atan2(dy, dx), len * unit, A > 1 ? 1 : A, false);
+    }
+    px = x; py = y;
+  }
+}
+
+/**
+ * THE BREATH.
+ *
+ * Everything here is placed against THE CONE'S OWN GEOMETRY rather than against
+ * a shape that merely resembles one: each station sits at a distance down the
+ * axis, each lobe at a fraction of the half-angle, and the tongue drawn there is
+ * scaled to the width the cone actually has at that distance. The fire therefore
+ * FILLS THE HITBOX instead of approximating it, and it widens as the cone widens
+ * without anybody maintaining a second set of numbers.
+ *
+ * Three layers, in the order they are drawn:
+ *   1. the plume — stations of one to three tongues, wandering across the cone,
+ *      hottest at the root and dimmest at the tip (the ramp itself is baked into
+ *      the sprite, so "cooler" is alpha and overlap, never a new gradient);
+ *   2. the muzzle — a bright tongue pinned in her mouth that does NOT travel,
+ *      because a breath has to look like it is coming out of something;
+ *   3. the heat shimmer — two very wide, very dim tongues turning slowly against
+ *      each other at the tip, which is as close to a refraction wobble as a 2D
+ *      canvas gets for the price of two blits.
+ * The rising embers are particles and belong to the caller: they outlive any one
+ * puff, so they cannot be owned by one.
+ */
+function drawFlame(r, e, t) {
+  const sp = e.sprite;
+  if (!sp || !(sp.w > 0)) return;
+  // In hard, out soft: a jet lights instantly and trails away.
+  const A = e.alpha * (t < 0.14 ? t / 0.14 : Math.pow(1 - (t - 0.14) / 0.86, 1.4));
+  if (A <= 0.012) return;
+  // The front leaves fast and decelerates. Linear would be a conveyor belt.
+  const front = 0.06 + 0.98 * easeOutCubic(t);
+  const half = e.arc * 0.5;
+  const spread = Math.sin(half);
+  const unit = 1 / sp.w;
+  const n = e.count;
+  const frame = (t * FLAME_HZ + e.phase * 2) | 0;
+
+  for (let i = 0; i < n; i++) {
+    const d = front - i * (0.86 / n);
+    if (d <= 0.05 || d > 1.02) continue;
+    const dist = d * e.r0;
+    const wide = spread * dist;              // the room the cone has here
+    const heat = 1 - 0.45 * d;               // and how hot it still is
+    const lobes = d < 0.30 ? 1 : d < 0.62 ? 2 : 3;
+    for (let k = 0; k < lobes; k++) {
+      const u = lobes === 1 ? 0 : (k / (lobes - 1)) * 2 - 1;
+      // The licks WANDER across the cone rather than sitting in three lanes.
+      const wob = 0.16 * Math.sin(e.phase + d * 9 + k * 2.3 + t * 7);
+      const a = e.a0 + (u * 0.74 + wob) * half;
+      const size = (wide * 1.9 / lobes + e.r0 * 0.10) * e.w0;
+      if (!(size > 1)) continue;
+      r.drawSpriteRotated(sp, e.x + Math.cos(a) * dist, e.y + Math.sin(a) * dist,
+                          a, size * unit,
+                          Math.min(1, A * heat * (lobes === 1 ? 1 : 0.82)),
+                          false, frame + i * 3 + k);
+    }
+  }
+
+  const m = (e.r0 * 0.13 + 10) * e.w0;
+  r.drawSpriteRotated(sp, e.x, e.y, e.a0, m * unit, Math.min(1, A * 1.15), false, frame);
+
+  const tipD = e.r0 * (0.86 + 0.06 * Math.sin(e.phase + t * 5));
+  const tw = spread * tipD * 2.6 * e.w0;
+  const swirl = e.phase + t * 2.2;
+  r.drawSpriteRotated(sp, e.x + Math.cos(e.a0) * tipD, e.y + Math.sin(e.a0) * tipD,
+                      e.a0 + 0.22 * Math.sin(swirl), tw * unit, A * 0.16, false, frame + 2);
+  r.drawSpriteRotated(sp, e.x + Math.cos(e.a0) * tipD * 0.92, e.y + Math.sin(e.a0) * tipD * 0.92,
+                      e.a0 - 0.22 * Math.sin(swirl * 0.7), tw * 0.80 * unit, A * 0.12, false, frame + 5);
 }
 
 export const effects = new EffectSystem();

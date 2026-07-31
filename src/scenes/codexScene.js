@@ -722,7 +722,8 @@ export const codexScene = {
       ((c.autoAttack.targeting && c.autoAttack.targeting.mode) || 'nearest'));
     yy = this._ability(r, x, yy, w, 'SPECIAL', c.special, c.special.cooldown + 's cooldown');
     yy = this._ability(r, x, yy, w, 'ESCAPE', c.escape,
-      c.escape.cooldown + 's cooldown · ' + c.escape.iframes + 's invulnerable');
+      (c.escape.cooldown > 0 ? c.escape.cooldown + 's cooldown' : 'no cooldown') +
+      ' · ' + c.escape.iframes + 's invulnerable');
     yy = this._ability(r, x, yy, w, 'PASSIVE', c.passive, '');
 
     if (c.resourceBar) {

@@ -224,14 +224,13 @@ export const runScene = {
       r.vignette('rgba(6,8,14,0.97)', 0.85);
     }
     hud.draw(r, run);
-    // Drawn AFTER the HUD, deliberately: `ui` binds itself to the renderer in
-    // hud.draw, and a widget drawn before that is drawn against whatever screen
-    // bound it last. It also has to sit clear of the HUD's own furniture —
-    // portrait top-left, timer top-centre, build strip bottom-centre, relics
-    // bottom-right — which leaves the middle of the left edge, and that is
-    // where this goes. hud.js belongs to somebody else; this is the scene's own
-    // screen-space block.
-    this._eventBanner(r, run);
+    // NO EVENT BANNER HERE. game/stageEvents.js owns the whole of that
+    // presentation — the pop-up briefing card, the persistent left-edge banner
+    // and the marker label — and draws all three from inside drawOver() above.
+    // This scene used to draw a SECOND banner at the same anchor (x 18,
+    // y max(r.h*0.32, 212*s)) and, being after hud.draw, on top of it: two
+    // plates, the same four numbers, the older and smaller one covering the
+    // newer one's instruction line.
     levelUpScreen.draw(r, run);
     if (run.state === RUN_STATE.VICTORY || run.state === RUN_STATE.DEFEAT) {
       this._endCard(r, run);
@@ -271,73 +270,6 @@ export const runScene = {
                                          run.data.stages.BACKDROPS, run.seed);
     }
     this._backdrop.draw(r, run, cx, cy);
-  },
-
-  /**
-   * THE MINI-EVENT BANNER.
-   *
-   * Three lines and a bar: what it is, how far along you are, and how long is
-   * left. It stays up for three seconds after the event resolves, in the result
-   * colour, because a marker that simply vanishes reads as a despawn rather than
-   * as a win or a loss — and the failure has to be as unmistakable as the win.
-   */
-  _eventBanner(r, run) {
-    const ev = run.stageEvents;
-    if (!ev || (!ev.active && ev.resultT <= 0)) return;
-    // The system stops ticking the moment the run ends, so `resultT` freezes
-    // wherever it was — without this the last banner of the run sits under the
-    // death card until the scene changes.
-    if (run.state === RUN_STATE.VICTORY || run.state === RUN_STATE.DEFEAT) return;
-    const def = ev.def;
-    if (!def) return;
-
-    // GEOMETRY is scaled by hand; TEXT SIZES ARE NOT. `ui.text` multiplies by
-    // `ui.scale`, which is this same setting — so passing `14 * s` here would
-    // render at 14 * s * s and outgrow a panel that only grew by s. Do not
-    // "fix" this to match the surrounding style.
-    const s = save.data.settings.uiScale || 1;
-    const W = 262 * s, H = 66 * s;
-    // Below the HP plate, above the ability radials, clear of everything.
-    const x = 18, y = Math.max(r.h * 0.32, 212 * s);
-    const done = !ev.active;
-    const col = done ? (ev.success ? '#7bf59a' : '#ff6f91') : ev.color;
-    // Fade the result card out over its last half-second rather than cutting.
-    const a = done ? clamp(ev.resultT / 0.6, 0, 1) : 1;
-
-    ui.panel(x, y, W, H, {
-      radius: 6, color: 'rgba(12,16,28,0.88)',
-      borderColor: col, borderWidth: 2, alpha: a,
-    });
-    ui.text(done ? (ev.success ? 'EVENT CLEARED' : 'EVENT MISSED') : def.name, x + 12 * s, y + 16 * s, {
-      size: 14, color: col, weight: 800, alpha: a,
-    });
-    ui.text(done ? def.name : this._objectiveLine(ev, def), x + 12 * s, y + 34 * s, {
-      size: 11, color: PALETTE.textDim, weight: 700, alpha: a,
-    });
-
-    if (!done) {
-      // Two readouts in one place: the bar is progress, the thin rule under it
-      // is the clock. Neither is guessable from the other and both matter.
-      ui.bar(x + 12 * s, y + 44 * s, W - 24 * s, 8 * s, ev.fraction, ev.color,
-             { bg: 'rgba(4,6,14,0.8)' });
-      const tf = ev.limit > 0 ? ev.timeLeft / ev.limit : 0;
-      r.drawRect(x + 12 * s, y + 55 * s, (W - 24 * s) * clamp(tf, 0, 1), 3 * s,
-                 tf < 0.25 ? '#ff6f91' : PALETTE.textFaint, 0.9);
-      ui.text(Math.ceil(ev.timeLeft) + 's', x + W - 12 * s, y + 16 * s, {
-        size: 12, color: tf < 0.25 ? '#ff6f91' : PALETTE.textDim,
-        weight: 800, align: 'right', mono: true,
-      });
-    }
-  },
-
-  /** "12 / 18", "9.4s / 16s", "62%" — the progress line, per event kind. */
-  _objectiveLine(ev, def) {
-    switch (ev.kind) {
-      case 'cull':
-      case 'gather': return def.objective + '   ' + Math.floor(ev.progress) + ' / ' + ev.need;
-      case 'hold': return def.objective + '   ' + ev.progress.toFixed(1) + 's / ' + ev.need + 's';
-      default: return def.objective + '   ' + Math.round(ev.fraction * 100) + '%';
-    }
   },
 
   _altar(r, run) {

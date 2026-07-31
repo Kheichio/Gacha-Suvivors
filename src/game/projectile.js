@@ -43,6 +43,7 @@ function makeProjectile() {
     orbitAngle: 0, orbitRadius: 0, orbitSpeed: 0, orbitHost: null,
     arcT: 0, arcTotal: 0, arcX0: 0, arcY0: 0, arcX1: 0, arcY1: 0, arcHeight: 0,
     stickT: 0, stickHost: null, stickOffX: 0, stickOffY: 0,
+    spin: 0,                      // rad/s added to `angle` every tick (tumbling paper)
     popT: 0, popCount: 0,
     // effects
     splitInto: 0, splitDamage: 0,
@@ -112,6 +113,11 @@ export class ProjectileSystem {
     p.onExpire = o.onExpire || null;
     p.trailColor = o.trailColor || null;
     p.trailT = 0;
+    // TUMBLE. `angle` is otherwise only ever the direction of travel, so a
+    // projectile that is an OBJECT rather than a bolt — a thrown charm, a
+    // tossed card — turns with the camera and reads as a decal. One multiply
+    // per tick, and only for the projectiles that ask for it.
+    p.spin = o.spin || 0;
     p.splitInto = o.splitInto || 0;
     p.splitDamage = o.splitDamage || 0;
     p.aoeRadius = o.aoeRadius || 0;
@@ -281,6 +287,8 @@ export class ProjectileSystem {
           p.x += p.vx * dt; p.y += p.vy * dt;
       }
 
+      if (p.spin) p.angle += p.spin * dt;
+
       // --- trail -------------------------------------------------------------
       if (p.trailColor) {
         p.trailT -= dt;
@@ -319,7 +327,14 @@ export class ProjectileSystem {
     // The exact test below is `p.radius + e.radius`, so the broadphase margin
     // has to cover the largest enemy radius in the game or big targets stop
     // being hit by projectiles entirely — with no error anywhere.
-    const n = hash.query(p.x, p.y, p.radius + CONFIG.HIT_QUERY_PAD);
+    // The pad is `run.enemies.queryPad`, not a constant: this is the single
+    // hottest broadphase in the game â€” 322 calls a tick gathering 16,158 indices
+    // in a dense crowd â€” and the exact test on the next lines is
+    // `p.radius + e.radius`, which for fodder is about 15px against a 147px
+    // query. Sized to the crowd that is alive it gathers a quarter of that and
+    // still covers the biggest thing on the field. 0.373ms -> 0.087ms per tick,
+    // measured on 330 projectiles inside a 700-enemy, 300px-radius crowd.
+    const n = hash.query(p.x, p.y, p.radius + run.enemies.queryPad);
     const stamp = ++this._hitStamp;
 
     for (let k = 0; k < n; k++) {

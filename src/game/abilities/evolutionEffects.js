@@ -61,8 +61,14 @@ registerAll({
         shot.speed = H.projSpeed(pl, 420);
         shot.radius = H.area(pl, 8);
         shot.pierce = H.pierce(pl, 1);
-        for (let i = 0; i < count; i++) {
-          r.projectiles.fire(pl.x, pl.y, (i / count) * H.TAU, shot);
+        // THE RING GROWS. This evolution is unlocked by taking Extra Shot to MAX,
+        // so it was the one place in the game where the bonus was guaranteed to be
+        // present and guaranteed to do nothing at all. A ring grows by adding
+        // SPOKES — sixteen becomes twenty-two at the cap — rather than by fanning
+        // each spoke, which would charge the player for the upgrade twice.
+        const spokes = count + H.extraShots(pl);
+        for (let i = 0; i < spokes; i++) {
+          r.projectiles.fire(pl.x, pl.y, (i / spokes) * H.TAU, shot);
         }
         H.particles.ring(pl.x, pl.y, 20, def.visual.color, 420);
         H.audio.play('shoot');
@@ -206,9 +212,16 @@ registerAll({
       });
 
       // Built once. The cut fires at most once per auto-attack.
+      //
+      // The numbers here are RAW, because the cut goes out through `H.spread`
+      // now: that helper applies projectile speed, area, pierce AND Extra Shot
+      // itself, and scaling any of them here as well would apply Long Haul and
+      // Wide Reach twice over. Pierce is also read per SHOT rather than frozen at
+      // the instant the evolution was granted, which is what it should always
+      // have been — Piercing Will taken afterwards used to do nothing here.
       const cut = {
-        damage: 0, speed: 0, life: 0.9, radius: 22,
-        pierce: P.piercesAll !== false ? 999 : H.pierce(p, 3),
+        damage: 0, speed: 520, life: 0.9, radius: 22,
+        pierce: P.piercesAll !== false ? 999 : 3,
         element: p.def.element, owner: p, tag: 'sunlit_edge',
         visual: def.visual, trailColor: def.visual.color, knockback: 120,
       };
@@ -219,9 +232,7 @@ registerAll({
         if (!t.found) return;                          // held, not wasted
         pl.flags.breathCharged = false;
         cut.damage = H.autoDamage(r, pl, pl.def.autoAttack.damage, null) * mult;
-        cut.speed = H.projSpeed(pl, 520);
-        cut.radius = H.area(pl, 22);
-        r.projectiles.fire(pl.x, pl.y, t.angle, cut);
+        H.spread(r, pl, pl.x, pl.y, t.angle, 1, 0, cut);
         H.particles.cone(pl.x, pl.y, t.angle, 0.5, 8, def.visual.color,
                          { speed: 340, life: 0.3, additive: true });
         H.floaters.spawn(pl.x, pl.y - 48, 'SUNLIT EDGE', def.visual.color, 18, 0.8);

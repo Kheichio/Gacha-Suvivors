@@ -53,6 +53,47 @@ export const RUN_STATE = {
  */
 const EARLY_BOSS_LEAD = 10;
 
+/**
+ * THE GRIND MINUTE.
+ *
+ * Play report: "make the final boss spawn if the player has no more upgrades to
+ * claim and it's just currency claims â€” give a 1 min countdown so the player can
+ * grind some more coins just before he spawns."
+ *
+ * So the finale is no longer CALLED the moment a build finishes; a sixty second
+ * countdown starts instead, on screen, and the call happens inside it. The minute
+ * is not padding. Gold is the only thing a finished build can still earn, the
+ * shrine is the only place it goes, and a player told "you are done" with ten
+ * seconds of warning cannot act on it â€” sixty seconds of a fully-covered arena at
+ * a finished build's kill rate is a real payout, and it is the last one the run
+ * has left to give.
+ *
+ * Exported because the HUD draws the drain bar as a fraction of it, and a HUD
+ * that hard-codes its own 60 is a HUD that lies the first time this is retuned.
+ */
+export const FINALE_COUNTDOWN = 60;
+
+/**
+ * The tail of that countdown that belongs to callBossEarly's OWN sequence:
+ * EARLY_BOSS_LEAD of warning, then feel.preBossCalm of silence, then the boss â€”
+ * the same shape the authored timeline uses at duration-60s / duration-55s. The
+ * call is therefore made at T-15 rather than at T-0, so the number on the HUD
+ * reaches zero exactly as the boss walks on instead of fifteen seconds before it.
+ */
+const FINALE_HANDOVER = EARLY_BOSS_LEAD + 5;
+
+/**
+ * How often nothingLeftToClaim() is evaluated, as a mask on the SIM TICK counter
+ * â€” every 32 ticks, a little over half a second at the fixed 60Hz step. It walks
+ * the weapon rack and the whole upgrade table, which is cheap but not free, and
+ * nothing about a finished build can change inside half a second.
+ *
+ * `frameParity` is a tick counter and never a frame counter (run.update only
+ * advances it on a PLAYING tick), so the poll lands on the same ticks in every
+ * replay of a seed. Same idiom as hazards.js and star4.js.
+ */
+const FINALE_POLL_MASK = 31;
+
 export class Run {
   /**
    * @param data    the loaded data layer
@@ -69,12 +110,42 @@ export class Run {
     this.modifier = this.stage.modifier ? data.stages.MODIFIERS[this.stage.modifier] : null;
     this.endless = !!config.endless;
 
+    // CURSE is one of the three rows the RUN reads for itself out of
+    // save.data.shrine (shrine.js `scope: 'run'`). Its two per-level amounts are
+    // DATA: read them off the row rather than repeating them here, or shrine.js
+    // and this file can quietly disagree about what the card promised.
+    const curseLv = save.data.shrine.curse || 0;
+    const curseFx = (this.data.shrine.SHRINE_UPGRADES_BY_ID.curse || {}).effects || [];
+    const perCount = (curseFx[0] && curseFx[0].perLevel) || 0;
+    const perReward = (curseFx[1] && curseFx[1].perLevel) || 0;
+    const curseReward = 1 + curseLv * perReward;
+
     this.difficultyMult = {
       hp: this.tier.hpMult,
       damage: this.tier.hpMult * 0.6 + 0.4,
       speed: this.tier.speedMult,
-      count: 1 + (save.data.shrine.curse || 0) * 0.10,
-      reward: this.tier.rewardMult * (1 + (save.data.shrine.curse || 0) * 0.08),
+      count: 1 + curseLv * perCount,
+      /**
+       * GOLD AND STAR FRAGMENTS. Read by grantGold() and by the boss payout in
+       * onEnemyDeath().
+       *
+       * THIS FIELD WAS COMPUTED AND READ BY NOTHING for the entire life of the
+       * project. Curse's advertised "+8% all rewards per level" paid exactly
+       * zero, which made a 34,000-gold row that doubles the enemy count a
+       * strictly negative purchase; and every difficulty tier's rewardMult â€”
+       * Kamige's x2.5, printed on the stage-select card as "REW x2.5" â€” paid
+       * exactly zero with it. The only thing that ever read it was the test that
+       * was supposed to prove it was alive, which asserted the field had been
+       * ASSIGNED rather than that anything consumed it.
+       */
+      reward: this.tier.rewardMult * curseReward,
+      /**
+       * XP. Curse's half ONLY, deliberately. Curse's card names XP explicitly so
+       * Curse pays on XP; a difficulty TIER's rewardMult does not, because
+       * multiplying the XP curve by 2.5 on Kamige is a rewrite of level pacing
+       * rather than a payout.
+       */
+      rewardXp: curseReward,
     };
 
     this.time = 0;
@@ -90,6 +161,15 @@ export class Run {
     this.finalBossKilled = false;
     /** Latch: the finished-build early call fires at most once per run. */
     this.bossCalledEarly = false;
+    /**
+     * THE FINALE COUNTDOWN, in seconds of sim time, or -1 when nothing is
+     * counting. Set by _startFinaleCountdown, drained by _tickFinale, read by the
+     * HUD. It floors at 0 rather than going negative â€” see _tickFinale for why 0
+     * is a state the player can actually be left sitting in.
+     */
+    this.finaleCountdown = -1;
+    /** Latch: the countdown starts at most once per run, and never restarts. */
+    this.finaleCountdownFired = false;
     this.lineStamp = 0;
     this.stageManager = null;
     this.stageManagerT = 0;
@@ -132,8 +212,14 @@ export class Run {
     this.player.y = CONFIG.ARENA_H / 2;
     this.player.px = this.player.x; this.player.py = this.player.y;
 
-    // Shrine starting revives + Second Chance are both routed through stats.
-    this.revivesLeft = this.player.stats.revives;
+    // REVIVES ARE COUNTED PER SOURCE, NOT AS A POOL. `_reviveCharges()` asks each
+    // source how many charges it grants â€” the Shrine's Revival row is read
+    // straight out of save.data.shrine.revival there â€” `revivesUsed` counts
+    // charges SPENT per source, and `revivesLeftNow()` is the only number the HUD
+    // may draw. There is deliberately no `revivesLeft` snapshot here: it was
+    // assigned once at run start from `player.stats.revives`, read by nothing, and
+    // was wrong anyway (that stat sees the Shrine row and Second Chance but not
+    // Undying, Rei's S3 or Phoenix Heart).
     this.revivesUsed = Object.create(null);
 
     // --- run stats -----------------------------------------------------------
@@ -325,7 +411,8 @@ export class Run {
 
   grantXp(amount) {
     const p = this.player;
-    const gained = amount * p.stats.xpMult;
+    // `rewardXp`, not `reward`: Curse pays on XP, difficulty tiers do not.
+    const gained = amount * p.stats.xpMult * this.difficultyMult.rewardXp;
     p.xp += gained;
     this.stats.xp += gained;
     events.emit(EV.XP_GAINED, gained);
@@ -340,7 +427,7 @@ export class Run {
   }
 
   grantGold(amount) {
-    const g = Math.round(amount * this.player.stats.goldMult *
+    const g = Math.round(amount * this.player.stats.goldMult * this.difficultyMult.reward *
                          (this.modifier && this.modifier.params.goldMult ? this.modifier.params.goldMult : 1));
     this.stats.gold += g;
     events.emit(EV.GOLD_GAINED, g);
@@ -371,6 +458,10 @@ export class Run {
 
     // --- spatial hash: rebuilt once, before anything queries it --------------
     this.enemyHash.build(this.enemies.items, this.enemies.count);
+    // And the broadphase margin with it, from the same array, in the same place,
+    // for the same reason: everything downstream queries it and nothing may see
+    // a stale one. Anything spawned LATER this tick raises it in spawn().
+    this.enemies.refreshQueryPad();
 
     // --- player ---------------------------------------------------------------
     this.player.update(dt);
@@ -397,12 +488,27 @@ export class Run {
       }
     }
     if (this.player.escape.ready && !this.player.dead && input.consume(ACT.ESCAPE)) {
+      // A FREE PRESS IS A REAL THING. `flags.escapeFree` is how an escape says
+      // "this press moved me and paid for nothing else" — cleared before every
+      // cast, so only the ability that just ran can have set it.
+      //
+      // It exists because an escape is allowed to have no cooldown at all
+      // (Torii Warp does), and everything below this line is per-press: the
+      // i-frames, every onEscape relic (Anchor Gear detonates for 60, Kaio-ken
+      // hands out a buff) and the cast event. At six presses a second a 0.5s
+      // i-frame window is permanent invulnerability — DECISIONS.md §28's
+      // infinite loop, arriving through the front door rather than through the
+      // ZERO COOLDOWN evolution it was written to stop. An escape that wants a
+      // free press meters its own payload and declares the free ones here.
+      this.player.flags.escapeFree = false;
       if (abilities.castEscape(this)) {
         this.player.escape.use();
-        applyInvuln(this.player.st, this.escapeDef.iframes || 0.4);
-        audio.play('escape');
-        events.emit(EV.ESCAPE_CAST, this.escapeDef.id);
-        this.relicHooks.fire('onEscape');
+        if (!this.player.flags.escapeFree) {
+          applyInvuln(this.player.st, this.escapeDef.iframes || 0.4);
+          audio.play('escape');
+          events.emit(EV.ESCAPE_CAST, this.escapeDef.id);
+          this.relicHooks.fire('onEscape');
+        }
       }
     }
 
@@ -498,6 +604,12 @@ export class Run {
       if (dps > this.stats.peakDps) this.stats.peakDps = dps;
     }
 
+    // --- the finale countdown -------------------------------------------------
+    // Deliberately BEFORE the level-up gate: _openLevelUp sets `state`, and the
+    // top of this method returns early on it, so a call placed after the gate
+    // would silently drop one tick on every single level-up.
+    this._tickFinale(dt);
+
     // --- level-up gate --------------------------------------------------------
     if (this.pendingLevelUps > 0 && this.state === RUN_STATE.PLAYING) {
       this._openLevelUp();
@@ -544,10 +656,21 @@ export class Run {
   }
 
   /**
-   * THE BUILD IS FINISHED. Every weapon slot filled, every one of those weapons
-   * evolved, and both upgrade buckets at their cap — which together mean there is
-   * not one card left in the game that this run can still be offered. The
-   * level-up screen from here on is `{ kind: 'gold' }` and nothing else.
+   * THE BUILD IS FINISHED — its SHAPE, not its levels. Every weapon slot filled,
+   * every one of those weapons evolved, and both upgrade buckets at their cap, so
+   * nothing can be ADDED to this build any more.
+   *
+   * IT IS NOT "there are no cards left", and this comment used to claim it was.
+   * A capped bucket only stops offering upgrades you do NOT hold — see the
+   * `if (!owned)` in rollUpgradeChoices — so the three you hold in each bucket
+   * keep offering LEVELS for a long time after this goes true. The comment on the
+   * end-of-run top-up a few dozen lines below says so plainly: the pool runs dry
+   * "somewhere past level-up 30 of a run that reaches 40".
+   *
+   * The predicate that actually means "the screen is gold and nothing else" is
+   * nothingLeftToClaim(), and it is the one the finale countdown reads. This one
+   * is kept because it is a legitimate second trigger for the same countdown and
+   * because DECISIONS.md §47 named it.
    */
   buildComplete() {
     const w = this.weapons;
@@ -624,13 +747,171 @@ export class Run {
   }
 
   /**
+   * IS THERE ANYTHING LEFT IN THIS RUN TO CLAIM?
+   *
+   * TRUE means the next level-up screen will be `[{ kind: 'gold' }]` and nothing
+   * else: every one of the five sources rollUpgradeChoices draws from is empty,
+   * so the only thing levelling can still pay out is currency.
+   *
+   * THIS IS A STRONGER SIGNAL THAN buildComplete(), AND A DIFFERENT ONE.
+   * buildComplete() asks whether the SHAPE of the build is finished. It says
+   * nothing about the LEVELS of the upgrades in those capped buckets, so it goes
+   * true while there are still real cards on the screen — and it also stays FALSE
+   * forever in the one state that most needs catching: a weapon maxed out behind
+   * an evolution requirement naming an upgrade your full buckets can no longer
+   * accept. That run can never evolve it, never widen, never level anything, and
+   * buildComplete() never fires for it.
+   *
+   * IT MIRRORS rollUpgradeChoices SOURCE BY SOURCE AND CONSUMES NO RNG. Calling
+   * the roll itself to find out would advance runRng and desync every seeded
+   * replay in the project — the balance sweep, the render smoke test, the ability
+   * runtime suite — which is why this is a parallel predicate rather than a peek
+   * at the real thing. If a card source is ever added to rollUpgradeChoices, it
+   * has to be added here too, and the test below is what will say so.
+   *
+   * ONE DELIBERATE DIVERGENCE: the arsenal budget. _rollWeaponCard is passed
+   * mayExpandArsenal(), which is a CADENCE — a screen paying gold only because
+   * the next weapon slot has not been earned yet is not a run with nothing left,
+   * it is a run WAITING, and the slot opens on its own as those gold screens
+   * advance levelUpIndex. So this asks `!weapons.full` instead, which is the
+   * permanent version of the same question.
+   */
+  nothingLeftToClaim() {
+    const ws = this.weapons;
+    const p = this.player;
+
+    // 1 + 2. An evolve card and a build evolution are both real cards.
+    if (ws.evolvable().length > 0) return false;
+    if (this._availableEvolution()) return false;
+
+    // 3 + 5. Any weapon card at all — a weapon you do not own while a slot is
+    //        free, or a level on one you carry. See the budget note above.
+    if (!ws.full) {
+      for (const def of this.data.weapons.WEAPONS) {
+        if (ws.has(def.id)) continue;
+        if (this.banished.indexOf(def.id) >= 0) continue;
+        return false;
+      }
+    }
+    for (const w of ws.slots) {
+      if (!ws.isMaxed(w) && !w.evolved) return false;
+    }
+
+    // 4. The stat pool, filtered exactly as rollUpgradeChoices filters it: a full
+    //    bucket stops offering NEW upgrades from that bucket, but never stops
+    //    offering to level the ones already taken.
+    const B = this.data.upgrades.BUILD_SLOTS;
+    const slots = this.buildSlots();
+    for (const up of this.data.upgrades.UPGRADES) {
+      if (this.banished.indexOf(up.id) >= 0) continue;
+      if (p.isMaxed(up.id)) continue;
+      if ((p.upgrades[up.id] || 0) > 0) return false;
+      const bucket = B.bucketOf(up);
+      if (slots.used[bucket] < slots.max[bucket]) return false;
+    }
+    return true;
+  }
+
+  /**
+   * START THE CLOCK. Idempotent, because both triggers can and do go true on the
+   * same tick — the level-up that maxes the last upgrade is also a tick the poll
+   * can land on.
+   */
+  _startFinaleCountdown() {
+    if (this.finaleCountdownFired || this.endless) return false;
+    this.finaleCountdownFired = true;
+    this.finaleCountdown = FINALE_COUNTDOWN;
+
+    // Two lines, not three: `bark` spawns its own floater at -54 and emits
+    // EV.BARK, so this reads as a headline and a subtitle — same shape as
+    // callBossEarly's announcement, which lands again at the handover.
+    const p = this.player;
+    floaters.spawn(p.x, p.y - 104, 'NOTHING LEFT TO CLAIM', '#ffd76a', 32, 3.4);
+    this.bark('One minute. Take every coin you can carry.');
+    audio.play('bossIntro');
+    flash.fire('#ffd76a', 0.45, 2.0);
+    shake.medium();
+    return true;
+  }
+
+  /**
    * Checked from the two paths that can complete a build — the level-up choice
    * and a chest reveal — rather than every frame. buildSlots() walks the whole
    * upgrade map, and nothing about a finished build can change in between.
+   *
+   * BOTH SIGNALS NOW START THE SAME COUNTDOWN rather than one of them calling the
+   * boss outright. Two different leads — ten seconds for a finished build, sixty
+   * for a dry card pool — for what the player experiences as one moment would
+   * read as a bug, and the shorter of the two would win every race: on any run
+   * that evolves its rack, buildComplete() goes true strictly BEFORE the pool
+   * runs dry, so an immediate call there would mean the grind minute this whole
+   * feature exists for never happened at all.
    */
   _maybeCallBossEarly() {
-    if (this.bossCalledEarly || this.endless) return;
-    if (this.buildComplete()) this.callBossEarly();
+    if (this.finaleCountdownFired || this.bossCalledEarly || this.endless) return;
+    if (this.waveDirector.bossSpawned || this.finalBossEntity || this.finalBossKilled) return;
+    if (this.nothingLeftToClaim() || this.buildComplete()) this._startFinaleCountdown();
+  }
+
+  /**
+   * THE COUNTDOWN, ticked once per sim step from update().
+   *
+   * DETERMINISM. Everything here reads `dt` and `frameParity`, both of which come
+   * from the fixed 60Hz accumulator; nothing reads wall-clock time, and nothing
+   * draws from runRng — nothingLeftToClaim() and callBossEarly() are both RNG-free
+   * by construction. A seed therefore starts the countdown on the same tick and
+   * lands the boss on the same tick at 30 FPS, at 144 FPS and at 100x headless.
+   *
+   * IT CANNOT DOUBLE-FIRE. Three latches, each covering a different way in:
+   *   finaleCountdownFired   the countdown itself starts once, ever.
+   *   bossCalledEarly        callBossEarly retimes the timeline once, ever.
+   *   bossSpawned / finalBossEntity / finalBossKilled
+   *                          the finale is already on the floor or already dead,
+   *                          so there is nothing left to pull forward. This is
+   *                          also what silently ENDS a countdown the authored
+   *                          timeline overtook: a run that finishes its build at
+   *                          duration-70s must not be left with a HUD clock
+   *                          counting down to a boss that already walked on.
+   *
+   * THE CLOCK FLOORS AT ZERO rather than going negative, because the handover can
+   * legitimately fail and the player can be left sitting at 0. callBossEarly
+   * refuses while a mid-boss is alive — BossController holds exactly one boss, so
+   * the finale would take the slot and leave the mid-boss standing there with no
+   * AI — and it also refuses when the authored boss is already inside its own
+   * lead-in, in which case the timeline delivers it unaided a moment later. Both
+   * resolve on their own, so the call is simply retried every tick and the HUD
+   * prints INCOMING with no number, which is honest: at that point nobody knows.
+   */
+  _tickFinale(dt) {
+    if (this.endless) return;
+
+    // The finale is here, or was here. Nothing to count down to.
+    if (this.waveDirector.bossSpawned || this.finalBossEntity || this.finalBossKilled) {
+      this.finaleCountdown = -1;
+      return;
+    }
+
+    if (!this.finaleCountdownFired) {
+      // Never shadow a call that already happened by some other route.
+      if (this.bossCalledEarly) return;
+      if ((this.frameParity & FINALE_POLL_MASK) !== 0) return;
+      if (this.nothingLeftToClaim()) this._startFinaleCountdown();
+      return;
+    }
+    if (this.finaleCountdown < 0) return;
+
+    const before = this.finaleCountdown;
+    this.finaleCountdown = Math.max(0, before - dt);
+    // Two cues, on the two crossings a player actually plans around. Crossing
+    // tests rather than equality tests, because the clock moves in 1/60ths and
+    // will never land exactly on an integer.
+    if (before > 30 && this.finaleCountdown <= 30) audio.play('telegraph');
+    if (before > 10 && this.finaleCountdown <= 10) audio.play('telegraph');
+
+    // The handover. Retried every tick, because callBossEarly can refuse.
+    if (!this.bossCalledEarly && this.finaleCountdown <= FINALE_HANDOVER) {
+      this.callBossEarly();
+    }
   }
 
   // --- boss / elite spawning -------------------------------------------------
@@ -678,6 +959,9 @@ export class Run {
     const e = this.enemies.spawn(def, x, y, { isElite: true, affixes });
     if (e) {
       e.radius *= 1.35;
+      // The radius grew after spawn() published it, so the broadphase margin has
+      // to be told or an elite stops being hittable at its own edges.
+      this.enemies.noteRadius(e);
       floaters.spawn(e.x, e.y - e.radius - 20, (def.name || 'ELITE').toUpperCase(), '#ffd76a', 20, 2.0);
     }
     return e;
@@ -723,7 +1007,10 @@ export class Run {
         const relicId = this._rollRelic();
         if (relicId) this.pickups.dropRelic(e.x + 60, e.y, relicId);
       }
-      const frag = e.isBoss ? F.finalBoss : mini ? F.miniBoss : F.midBoss;
+      // The third and last thing `difficultyMult.reward` is for. Rounded, because
+      // fragments are whole and the results screen rounds again anyway.
+      const frag = Math.round((e.isBoss ? F.finalBoss : mini ? F.miniBoss : F.midBoss) *
+                              this.difficultyMult.reward);
       this.pendingFragments = (this.pendingFragments || 0) + frag;
       save.data.stats.bossKills++;
       floaters.spawn(e.x, e.y, '+' + frag + '💎', '#ffd76a', 26, 2.0);
@@ -1136,8 +1423,19 @@ export class Run {
    * both without an error anywhere.
    */
   evolveWeapon(id) {
-    if (!this.weapons.evolve(id)) return false;
+    // THE ENTRY FEE IS RE-CHECKED HERE, not only in weapons.evolvable().
+    //
+    // rollUpgradeChoices() is the only thing that builds a `weaponEvo` card
+    // today, and "the only caller" is a fact about this month's code rather than
+    // about the design: a chest, a boss crate or a shrine boon that ever learned
+    // to hand out an evolution would skip the fee in complete silence, and the
+    // player would get an evolved weapon off max level alone. weapons.evolve()
+    // deliberately stays a raw mutation — the perf tool and the render smoke
+    // test both drive it with no build behind them — so the gate belongs on the
+    // one path a PLAYER can reach, which is this one.
     const w = this.weapons.get(id);
+    if (!w || !this.weapons.evoReady(w)) return false;
+    if (!this.weapons.evolve(id)) return false;
     audio.play('evolve');
     flash.fire('#ffd76a', 0.5, 2.2);
     shake.big();
@@ -1156,8 +1454,11 @@ export class Run {
   _dropWeaponCrate(x, y) {
     const def = this._rollWeaponDrop();
     if (!def) return false;
-    this.pickups.dropWeapon(x, y, def);
-    floaters.spawn(x, y - 46, 'WEAPON DROP', '#6ad8ff', 24, 2.4);
+    // The crate may land somewhere other than asked â€” a boss can die against a
+    // wall, and pickups are pushed clear of static geometry. The label follows
+    // the crate, not the request.
+    const p = this.pickups.dropWeapon(x, y, def);
+    floaters.spawn(p ? p.x : x, (p ? p.y : y) - 46, 'WEAPON DROP', '#6ad8ff', 24, 2.4);
     audio.play('relic');
     return true;
   }
@@ -1308,6 +1609,16 @@ export class Run {
                                 'Lv ' + w.level + ' / ' + this.weapons.maxLevel(w)));
         }
       } else if (pick.kind === 'evolution') { this.grantEvolution(pick.evo.id); }
+      // A chest that rolls a screen whose ONLY card is an evolve card used to
+      // fall off the end of this chain and grant nothing at all — the pickup was
+      // eaten and the player got a reveal panel with an empty row. It is safe to
+      // apply now that evolveWeapon() checks the entry fee itself.
+      else if (pick.kind === 'weaponEvo') {
+        if (this.evolveWeapon(pick.w.id)) {
+          granted.push(chestRow(this.weapons.iconOf(pick.w), this.weapons.nameOf(pick.w),
+                                'EVOLVED'));
+        }
+      }
     }
     this.chestResult = { kind: 'chest', granted, gold: c.gold };
     this.state = RUN_STATE.CHEST;

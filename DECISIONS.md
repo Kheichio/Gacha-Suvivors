@@ -1018,3 +1018,58 @@ exactly the three BALANCE.md has always said to leave alone. But the headline is
 that the sweep is the only thing in the project that found these two, and it
 found them by *ranking*, not by thresholds: neither absolute number looked wrong
 in isolation. Run it after content lands, not just after tuning.
+
+---
+
+## §53 — An escape with no cooldown, and where the cost went instead
+
+**The report.** "Remake her escape to work as a teleport, she leaves a gate, make
+the cooldown not exist as it ruins the escape ability, just make it always work."
+
+**§28 said the opposite, and §28 was right about the mechanism.** A literal zero
+was banned there because `run.js` does four things on every successful escape
+cast — i-frames, an `onEscape` relic proc, an event, and the charge spend — and
+an escape with no cooldown makes all four a function of how fast the player can
+hit the key. At six presses a second a 0.5s i-frame window is permanent
+invulnerability, and Anchor Gear is 60 free AoE damage per keypress. That is not
+a balance opinion; it is the same loop §28 named.
+
+The old Torii Warp was also genuinely broken in the way the report describes.
+`run.js` only reaches an escape while its cooldown is ready, so "press once to
+plant, press again to return" had to spend the escape on the bookmark and refund
+it a tick later, and the player was asked to track a 10s window on a button they
+reach for while panicking.
+
+**Ruling. The PRESS is free; the PURIFICATION is not.**
+
+- `torii_warp.cooldown` is **0**. `run.js` can never refuse the press, the HUD
+  radial never counts down, and every press teleports her 250px and leaves a
+  gate. There is no state machine.
+- The ability carries **two purification charges, one back every 4.5s** (S5:
+  three at 3.0s), integrated from `run.time` on the press rather than ticked, so
+  the ability never has to declare itself active.
+- A charged press arms the escape: i-frames, the 60-damage purifying burst, the
+  relic procs. An **uncharged press still teleports her the full distance and
+  still plants the gate** — it buys distance instead of payload.
+- `player.flags.escapeFree` is the generic hook that says which kind of press it
+  was. It is cleared before every cast in `run.js`, and no other escape sets it.
+- Gates are capped **in the ability** (2, S5 3, oldest retired). `H.prop` has no
+  `max` — that is `H.summon`'s — and a DECOY prop taunts everything within 260px
+  every 0.4s, so an uncapped free press was a crowd-control carpet.
+- ZERO COOLDOWN keeps her exemption, for a new reason: with a 0s escape, the
+  0.6s floor would be a **downgrade**.
+
+**The balance harness had to change with it.** The bot pressed ESCAPE on every
+tick the escape was ready, which was only ever safe because every escape had a
+4-9s cooldown. Against a 0s escape that is sixty teleports a second. It now has
+a 1.2s floor, which is below every other escape's cooldown and therefore changes
+no other character's number.
+
+**And the gate is finally a gate.** It was `shape: 'triangle'`. `spriteAtlas` now
+carries a real `torii` — two pillars, the curved kasagi with upswept ends, the
+nuki, the gakuzuka tablet — plus `ofuda` and `foxfire`. Two of those are made of
+more than one material, which the atlas could not express: a painter may now
+declare an `underlay` and an `overlay` (the warp portal glowing between the
+pillars, the ink on a charm, the white core of a spirit flame). Both run at boot
+inside the same raster as everything else, both are skipped for the white-flash
+twin, and the per-entity draw loop still calls nothing but `drawImage`.

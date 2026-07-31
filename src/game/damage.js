@@ -55,6 +55,22 @@ export function dealDamage(run, e, amount, src, opts) {
   const o = opts || EMPTY;
   const p = run.player;
 
+  // --- invulnerability (the boss intro card, the phase-transition shell) -----
+  // The only entities that ever carry `invulnT` are bosses: game/boss.js sets it
+  // for the length of the intro card and for the shell at the top of a phase
+  // break. It was WRITTEN in both places and READ IN NEITHER â€” `isInvuln` was
+  // imported into this file for the player path alone â€” so the intro card's own
+  // comment ("invulnerable and inert while the card is up") had never once been
+  // true, and a phase transition had no way to say "not yet".
+  if (isInvuln(e.st)) {
+    lastHit.blocked = true;
+    if (!o.noNumber && src !== SRC.DOT) {
+      damageNumbers.spawn(e.x, e.y - e.radius, 0, DMG_KIND.MISS, e.uid);
+    }
+    events.emit(EV.ENEMY_HIT, e, 0, src);
+    return 0;
+  }
+
   // --- shields (Warded elites, Susanoo, boss shield phases) -----------------
   if (e.st.shieldHits > 0 && src !== SRC.DOT) {
     e.st.shieldHits--;
@@ -129,9 +145,26 @@ export function dealDamage(run, e, amount, src, opts) {
 
   if (src !== SRC.DOT) {
     audio.play(crit ? 'crit' : 'hit');
-    particles.cone(e.x, e.y, Math.atan2(e.y - (o.fromY ?? e.y), e.x - (o.fromX ?? e.x)),
-                   1.1, crit ? 5 : 2, crit ? '#ffd94a' : e.visual.color,
-                   { speed: 150, life: 0.2, size: 0.34 });
+    // ONE SPARK PER HIT IS A LUXURY A HORDE CANNOT AFFORD.
+    //
+    // A built player standing in a fast swarm lands 284 hits a tick, which asked
+    // this line for ~789 particles a tick against an 800-particle cap: the pool
+    // was completely churned every single frame (`_take` evicts the oldest when
+    // full), every emit allocated a `colour|shape` cache key â€” about 47,000
+    // string allocations a second of pure GC pressure â€” and the sparks were
+    // evicted before they were ever drawn. It also handed the renderer a
+    // permanently saturated 800-sprite pass carrying no information at all.
+    // Measured: 0.252ms/tick for the emits alone, 0.033ms/tick once they stand
+    // down above 60% of the cap.
+    //
+    // Crits always spark. They are the readable ones and they are a twentieth of
+    // the hits. The budget sits deliberately ABOVE particles.js's RICH_LIMIT of
+    // 320, so standing the sparks down can never flip the draw loop back into
+    // its expensive halo-and-streak mode.
+    if (crit || particles.count < SPARK_BUDGET) {
+      particles.cone(e.x, e.y, Math.atan2(e.y - (o.fromY ?? e.y), e.x - (o.fromX ?? e.x)),
+                     1.1, crit ? 5 : 2, crit ? '#ffd94a' : e.visual.color, HIT_SPARK);
+    }
   }
 
   // --- lifesteal -------------------------------------------------------------
@@ -296,7 +329,7 @@ export function areaDamage(run, x, y, radius, amount, src, opts) {
   // effect's, because the exact test below is `radius + e.radius`. Querying the
   // bare radius meant anything bigger than the cell overhang simply never came
   // back from the hash and quietly stopped being hittable.
-  const n = hash.query(x, y, radius + CONFIG.HIT_QUERY_PAD);
+  const n = hash.query(x, y, radius + run.enemies.queryPad);
   let hits = 0;
   for (let k = 0; k < n; k++) {
     const e = items[hash.resultAt(k)];
@@ -336,13 +369,20 @@ export function lineDamage(run, x0, y0, x1, y1, halfWidth, amount, src, opts) {
   const len = Math.hypot(dx, dy) || 1;
   const stepLen = Math.max(halfWidth, 24);
   const steps = Math.max(1, Math.ceil(len / stepLen));
+  // The broadphase circle is centred on a SAMPLE but the exact test measures to
+  // the SEGMENT, so it has to reach around the target AND across the sampling
+  // gap. By the triangle inequality |sample -> enemy| is at most
+  // (halfWidth + e.radius) + stepLen/2, and queryPad is already e.radius + 16 at
+  // worst, so this is provably >= what the exact test can accept. For a narrow
+  // beam that is pad + 12 instead of the old flat 140.
+  const pad = run.enemies.queryPad + stepLen * 0.5;
   const stamp = ++run.lineStamp;
   let hits = 0;
 
   for (let s = 0; s <= steps; s++) {
     const t = s / steps;
     const px = x0 + dx * t, py = y0 + dy * t;
-    const n = hash.query(px, py, halfWidth + CONFIG.HIT_QUERY_PAD);
+    const n = hash.query(px, py, halfWidth + pad);
     for (let k = 0; k < n; k++) {
       const e = items[hash.resultAt(k)];
       if (!e || !e.active || e.hp <= 0 || e.lastLineStamp === stamp) continue;
@@ -372,7 +412,7 @@ export function coneDamage(run, x, y, angle, arc, radius, amount, src, opts) {
   const o = opts || EMPTY;
   const hash = run.enemyHash;
   const items = run.enemies.items;
-  const n = hash.query(x, y, radius + CONFIG.HIT_QUERY_PAD);
+  const n = hash.query(x, y, radius + run.enemies.queryPad);
   const half = arc * 0.5;
   let hits = 0;
   for (let k = 0; k < n; k++) {
@@ -397,3 +437,13 @@ export function coneDamage(run, x, y, angle, arc, radius, amount, src, opts) {
 }
 
 const EMPTY = {};
+
+/** Module-level, per the house rule: a hit may not build its own options bag. */
+const HIT_SPARK = { speed: 150, life: 0.2, size: 0.34 };
+/**
+ * Live particles above which the per-hit spark stands down. 60% of the cap â€”
+ * high enough that ordinary play never notices, low enough that a screen-filling
+ * horde cannot churn the whole pool once per frame, and above RICH_LIMIT (320)
+ * so it never re-enables the particle draw's extra passes as a side effect.
+ */
+const SPARK_BUDGET = CONFIG.MAX_PARTICLES * 0.6;

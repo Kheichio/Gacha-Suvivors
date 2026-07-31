@@ -205,10 +205,15 @@ mid-boss stays the one fight the engine clears the screen for. The distinction
 matters — if every telegraphed fight paid out fully, the signature one would
 stop reading as special.
 
-**Finish your build and the final boss comes for you.** Evolve everything you
-are carrying and `run.buildComplete()` goes true, which pulls the final boss
-forward by `EARLY_BOSS_LEAD`. A player who has nothing left to pick up should not
-spend the remaining minutes farming an XP bar that no longer does anything.
+**Run out of things to claim and the final boss comes for you.** When
+`run.nothingLeftToClaim()` goes true â€” every card source empty, so the level-up
+screen can only pay gold â€” a **sixty second countdown** starts on the HUD, and the
+last fifteen seconds of it are `callBossEarly()`'s own lead-in, so the clock hits
+zero exactly as the boss walks on. `run.buildComplete()` is the second, weaker
+trigger for the same countdown; both are latched, so they cannot double-fire and
+neither can fire once the finale has already spawned. The minute is the point: a
+finished build can still earn gold, gold still buys shrine levels, and a player
+told "you are done" with ten seconds of warning cannot act on it.
 
 **Gold has somewhere to go.** The shrine's ten rows kept every spec-priced level
 exactly as it was and then kept climbing the *same* geometric curve: 59 levels

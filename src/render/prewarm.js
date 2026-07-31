@@ -61,11 +61,14 @@ const CODE_PARTICLE_COLORS = [
   '#180020', '#1a1a22', '#1b1f2a', '#2a2622', '#2b3a6b', '#2b6cff', '#2e7d64',
   '#3a3a48', '#3f4a3a', '#3fd0ff', '#4ee07a', '#5fa8ff', '#6a1b9a', '#6b6257',
   '#6bff9e', '#c3ccdd',
-  '#7a6a58', '#7ad9ff', '#8a7a5c', '#8fd0ff', '#8fe6a8', '#9fd6ff', '#a86bff',
+  '#7a6a58', '#7ad9ff', '#8a3ff0', '#8a7a5c', '#8fd0ff', '#8fe6a8', '#9fd6ff',
+  '#a86bff',
   '#a99c8c', '#aeb8cc', '#b0271f', '#bfe6ff', '#c8102e', '#c8452c', '#c8a24a',
-  '#c96a4a', '#c9a227', '#c9a6ff', '#c9c4bb', '#c9d2e4', '#cfd6ff', '#d8d2c4',
+  '#c96a4a', '#c9a227', '#c9a6ff', '#c9c4bb', '#c9d2e4', '#c9d4ff', '#cfd6ff', '#d8d2c4',
+  '#7ad4ff',
   '#dfe8ff', '#e0452c', '#e6d8ff', '#e8862c', '#e8ecf2', '#efe4ff', '#ff5a2c',
-  '#ff8fc7', '#ff9a3c', '#ff9ecb', '#ff9f4d', '#ffb020', '#ffcf4d', '#ffd0ff',
+  '#ff8fc7', '#ff9a3c', '#ff9ecb', '#ff9f4d', '#ffb020', '#ffb3d9', '#ffcf4d',
+  '#ffd0ff',
   '#ffd23f', '#ffd84a', '#ffe6a8',
 ];
 
@@ -134,13 +137,16 @@ const EFFECT_VISUALS = [
   { shape: 'capsule', color: '#c9d6ff', accent: '#4b6cff', size: 15, glow: true },
   { shape: 'capsule', color: '#efe6f2', accent: '#8b0f2a', size: 12 },
   { shape: 'capsule', color: '#ff7a1a', accent: '#1b1b2b', size: 13 },
+  // The transformation double — same silhouette as the clone above it, in the
+  // other colour, so the two read as the same technique doing a different job.
+  { shape: 'capsule', color: '#ffb3d9', accent: '#1b1b2b', size: 13, glow: true },
   { shape: 'circle', color: '#2a2118', accent: '#d62b3a', size: 11 },
   { shape: 'circle', color: '#5fd6ff', accent: '#0b3d5c', size: 9, glow: true },
   { shape: 'circle', color: '#7fd4ff', accent: '#0b3d5c', size: 9, emoji: '🐟', glow: true },
   { shape: 'circle', color: '#8a7f72', accent: '#3a332c', size: 15, emoji: '🪨' },
   { shape: 'circle', color: '#9aa3b8', accent: '#2b3040', size: 13, emoji: '⚒️' },
   { shape: 'circle', color: '#e8f0ff', accent: '#6b7285', size: 11, emoji: '🫖', glow: true },
-  { shape: 'circle', color: '#ffb03d', accent: '#7a3b00', size: 10, glow: true },
+  { shape: 'foxfire', color: '#bfe6ff', accent: '#2b6cff', size: 11, rotates: true, glow: true },
   { shape: 'circle', color: '#ffd76a', accent: '#7a5200', size: 6, glow: true, flash: false },
   { shape: 'circle', color: '#ffffff', accent: '#d63b4a', size: 12, emoji: '🍡', glow: true },
   { shape: 'crescent', color: '#5fd0ff', accent: '#1b5e7a', size: 16, rotates: true, glow: true },
@@ -148,7 +154,7 @@ const EFFECT_VISUALS = [
   { shape: 'crescent', color: '#ff5f8f', accent: '#8b0f2a', size: 13, rotates: true, glow: true },
   { shape: 'crescent', color: '#ff7a3d', accent: '#ffd76a', size: 16, rotates: true, glow: true },
   { shape: 'cross', color: '#8fa0d8', accent: '#151b32', size: 8, rotates: true },
-  { shape: 'cross', color: '#c81e3a', accent: '#151b32', size: 9, rotates: true, glow: true },
+  { shape: 'cross', color: '#ff7a3d', accent: '#151b32', size: 9, rotates: true, glow: true },
   { shape: 'diamond', color: '#c3a8ff', accent: '#2a2436', size: 8, rotates: true, glow: true },
   { shape: 'ring', color: '#c58cff', accent: '#2a0d4a', size: 26, glow: true },
   { shape: 'shard', color: '#5fd0ff', accent: '#0a2b4a', size: 8, rotates: true, glow: true },
@@ -156,9 +162,9 @@ const EFFECT_VISUALS = [
   { shape: 'shard', color: '#ff7a2f', accent: '#ffd24a', size: 8, rotates: true, glow: true },
   { shape: 'shard', color: '#ffe9a8', accent: '#8f5fd6', size: 9, rotates: true, glow: true },
   { shape: 'shard', color: '#ffffff', accent: '#c8a24a', size: 13, rotates: true, glow: true },
-  { shape: 'square', color: '#fff6e0', accent: '#e8452f', size: 8, rotates: true },
+  { shape: 'ofuda', color: '#fff6e0', accent: '#e8452f', size: 10, rotates: true },
   { shape: 'star', color: '#c9d6ff', accent: '#4b6cff', size: 9, rotates: true, glow: true },
-  { shape: 'triangle', color: '#e8452f', accent: '#ffd8c2', size: 20, glow: true },
+  { shape: 'torii', color: '#e8452f', accent: '#7a1a12', size: 26, glow: true, flash: false },
   { shape: 'triangle', color: '#f4f1ea', accent: '#c3a8ff', size: 9, rotates: true },
 
   // --- evolved-weapon and boss telegraph visuals ---------------------------
@@ -183,6 +189,13 @@ const EFFECT_VISUALS = [
   { shape: 'saucer', color: '#c9a227', accent: '#1e2440', size: 18, flash: false },
   { shape: 'girder', color: '#8a93a8', accent: '#12161f', size: 26, flash: false },
   { shape: 'girder', color: '#c9a227', accent: '#12161f', size: 44, flash: false },
+  // The chain lash's link PAIR, in steel and in gold. Field for field the same
+  // literals as CHAIN_STEEL / CHAIN_GOLD in game/abilities/weaponImpls.js — the
+  // `size` there is the constant CHAIN_LINK_SIZE, which is 18. Both colours are
+  // Chain Lash's own declared visual colours, so the particle harvest below
+  // already knows them and this costs the palette nothing.
+  { shape: 'chain', color: '#e8e8f0', accent: '#2a2a3a', size: 18, flash: false },
+  { shape: 'chain', color: '#ffd76a', accent: '#3a2a00', size: 18, flash: false },
 ];
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
@@ -196,6 +209,13 @@ export async function prewarmAtlas(data, onProgress) {
   // If not, every sprite must be built from its shape alone — and finding that
   // out AFTER baking 233 sprites means baking them all twice.
   atlas.probeEmoji();
+
+  // THE FLAME SHEET. Eight tongues with the whole fire ramp baked into each one.
+  // It is not a `visual` descriptor — it is its own little sheet — so it is baked
+  // by hand here rather than pushed onto the list below. The contract is the same
+  // as everything else's: nothing rasterises on the frame an ability first fires,
+  // and tests/renderSmoke.js fails the build the day that stops being true.
+  atlas.flameSprite();
 
   const visuals = [];
 

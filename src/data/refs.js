@@ -74,13 +74,22 @@ export const REFS = {
   yamikage: {
     ref: 'Sasuke Uchiha',
     refSource: 'Naruto',
-    refNotes: "Dark blue high-collar shirt, white arm wraps, black duck-tail " +
-              "hair, red Sharingan eyes that spin when he uses anything. " +
-              "Permanently brooding, monologues about revenge mid-fight. Every " +
-              "ability here is his own — lightning (Chidori), black flame " +
-              "(Amaterasu), Sharingan foresight. He does NOT get shadow clones " +
-              "or substitution; those belong to a different ninja, and that " +
-              "ninja is his own roster slot (Uzu).",
+    refNotes: "USE THE PRE-TIMESKIP DESIGN, not the adult one — he is a boy, and " +
+              "everything below follows from that. Dark blue high-collar shirt " +
+              "with the round red-and-white clan fan on the back, white arm " +
+              "wraps, black shorts, black duck-tail hair, red Sharingan eyes " +
+              "that spin when he uses anything. Permanently brooding, monologues " +
+              "about revenge mid-fight. His kit is the one he actually has at " +
+              "this age: shuriken and kunai strung on WIRE, the clan's great " +
+              "fireball sent down that wire, CHIDORI as a counted-use lightning " +
+              "assassination thrust, the Lion's Barrage taijutsu combo he copied " +
+              "off a rival with his own eyes, the Sharingan for reading and " +
+              "copying attacks, and the cursed seal as a desperate power-up. " +
+              "Explicitly NOT Amaterasu or Susanoo — those are the adult " +
+              "Mangekyo moves and belong to a version of him this roster does " +
+              "not draw. He also does NOT get shadow clones or substitution; " +
+              "those belong to a different ninja, and that ninja is his own " +
+              "roster slot (Uzu).",
   },
 
   uzu: {
@@ -108,9 +117,11 @@ export const REFS = {
   kagura: {
     ref: 'Tamamo-no-Mae',
     refSource: 'Fate/Grand Order',
-    refNotes: "Long pink hair, golden fox ears, nine enormous fox tails, blue- " +
-              "and-white miko outfit with detached sleeves, carries a polished " +
-              "bronze mirror. Aggressively affectionate one moment and murderous " +
+    refNotes: "Very long pink hair in twin-tails, golden-blonde fox ears, nine " +
+              "enormous fox tails, a modernised miko outfit â€” white top with " +
+              "wide detached sleeves over a bright vermilion hakama, gold " +
+              "accents and a large gold bell in the hair. Carries a polished " +
+              "mirror. Aggressively affectionate one moment and murderous " +
               "the next. Catchphrase is a fox noise. Everything about her is " +
               "shrine-fox iconography — ofuda, torii gates, foxfire, and Inari " +
               "worship.",

@@ -112,15 +112,17 @@ const SUNLIT_EDGE = {
 /**
  * DECISIONS.md §28: a literal 0-second escape is an infinite buff loop (Kaio-ken
  * on tap). Floors at 0.6s and the card SAYS 0.6s — no lying to the player.
- * torii_warp (placed gate) and the_void (parry window) have mechanic-driven
- * cooldowns, so they take a flat -70% instead of the floor.
+ * torii_warp and the_void are exempt from the FLOOR rather than from the
+ * evolution: the parry window is mechanic-driven, and the warp already has no
+ * cooldown at all (§53), so flooring either one at 0.6s would make this
+ * evolution a downgrade. They take a flat -70% of whatever they have.
  * Escape charges (S5's two-charge Water Wheel) regenerate on the floored
  * cooldown and the cap stays at 2 — that is a charge rule, not an evolution param.
  */
 const ZERO_COOLDOWN = {
   id: 'zero_cooldown', name: 'ZERO COOLDOWN',
   requires: { upgrade: 'quick_recovery', relic: 'singularity_patch' },
-  desc: 'Your escape move comes back in 0.6s flat. Two escapes play by their own rules — the placed gate and the parry — and get -70% instead.',
+  desc: 'Your escape move comes back in 0.6s flat. Two escapes play by their own rules — the parry, and the warp that already has no cooldown — and get -70% instead.',
   icon: '⏱',
   params: { cooldownFloor: 0.6, exemptAbilities: ['torii_warp', 'the_void'], exemptReduction: 0.7 },
   visual: { shape: 'ring', color: '#8ef0ff', accent: '#0b3b48', size: 18, glow: true },

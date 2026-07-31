@@ -708,7 +708,11 @@ registerAll({
   // that changes a number. All of it changes whether the move is read or endured.
   broadside: {
     cast(run, p, ctx) {
-      ctx.perVolley = ctx.s3 ? 22 : 14;
+      // Extra Shot buys SHELLS. The broadside fires one gun at a time by design —
+      // the row walking down the hull in sequence is the whole read — so the
+      // upgrade lengthens the volley instead of doubling up on a single port. The
+      // 2.5s window is unchanged; the guns just work faster.
+      ctx.perVolley = (ctx.s3 ? 22 : 14) + H.extraShots(p);
       ctx.volleys = ctx.s3 ? 2 : 1;
       ctx.total = ctx.perVolley * ctx.volleys;
       ctx.gap = 2.5 / ctx.perVolley;

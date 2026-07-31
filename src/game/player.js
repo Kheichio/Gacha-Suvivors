@@ -102,7 +102,11 @@ export class Player {
     this.autoShotIndex = 0;
     /** True only inside a synchronous auto-attack fire(). See helpers.js sig(). */
     this.autoScope = false;
-    this.special = new Cooldown(charDef.special.cooldown, 1);
+    // A special may DECLARE charges, the way the escape gets its second one from
+    // the star level. It is a generic optional field, not a character branch:
+    // "you get N of these and then you are out" is a shape any special is free
+    // to take, and the HUD's radial already draws the pips for it.
+    this.special = new Cooldown(charDef.special.cooldown, charDef.special.charges || 1);
     this.escape = new Cooldown(charDef.escape.cooldown, 1);
 
     /** Ability runtime state — abilities own their own slot, keyed by ability id. */
@@ -110,6 +114,23 @@ export class Player {
 
     this.visual = charDef.visual;
     this.sprite = atlas.ensure(charDef.visual);
+    /**
+     * THE SECOND SILHOUETTE, and the one she wears the rest of the time.
+     *
+     * A character who becomes something else for the duration of an ability
+     * declares it as `altForm` in her own data; `draw()` blits whatever
+     * `this.sprite` points at, so a transformation is a pointer swap and nothing
+     * in the renderer learns whose it is. The ability driver does the swapping.
+     *
+     * BOTH are rastered here, at construction. The alternative is baking a 2.2x
+     * sprite on the single frame the screen is already whiting out, dimming the
+     * arena and pulling the camera to 0.9 — the worst frame in the run to
+     * discover a sprite has never been rastered. `altForm.visual` is published
+     * through `data.allVisuals()`, so this is a cache hit at boot.
+     */
+    this.baseSprite = this.sprite;
+    this.formSprite = charDef.altForm && charDef.altForm.visual
+      ? atlas.ensure(charDef.altForm.visual) : null;
     this.radius = feel.playerHitRadius;
 
     /** Continuous-movement timer, for the Momentum upgrade. */
@@ -264,7 +285,8 @@ export class Player {
     if (this.hp <= 0 && !this.dead) this.hp = 1;
 
     // Cooldowns re-read their duration from the character def each recompute.
-    this.special.configure(this.def.special.cooldown * s.cooldownMult, this.special.maxCharges);
+    this.special.configure(this.def.special.cooldown * s.cooldownMult,
+                           this.def.special.charges || this.special.maxCharges);
     const escapeCd = this.flags.zeroCooldown
       ? Math.max(this.run.data.evolutions.EVOLUTIONS_BY_ID.zero_cooldown.params.cooldownFloor,
                  this.def.escape.cooldown * s.cooldownMult * 0.0)
@@ -544,9 +566,13 @@ export class Player {
     else if (this.iframeT > 0) a = 0.55 + 0.45 * Math.sin(this.iframeT * 40);
 
     const scale = (this.flags.sizeMult || 1) * this.sprite.unit * feel.playerDrawScale;
-    // Bob faster while moving — it reads as a walk cycle without needing one.
-    const rate = Math.hypot(this.vx, this.vy) > 8 ? 9 : 4;
-    const anim = ((this.run.time * rate) | 0) & 1;
+    // WALK OR IDLE, and the sprite owns the answer — it is the only thing that
+    // knows how many walk frames it was baked with. It takes the interpolation
+    // delta SQUARED rather than a speed, so nothing here pays for a square root
+    // and nothing here depends on `vx` being maintained. Phase 0: there is only
+    // ever one player, so there is nobody to fall into lockstep with.
+    const dx = this.x - this.px, dy = this.y - this.py;
+    const anim = this.sprite.animIndexFor(this.run.time, dx * dx + dy * dy, 0);
     r.drawSprite(this.sprite, x, y, 0, scale, a, this.flashT > 0, anim);
 
     // Aura ring while a transformation is active — the loudest state read.

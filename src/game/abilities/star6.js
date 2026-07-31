@@ -110,7 +110,45 @@ const BREATH_SHRED_MAX = 10;
 const BREATH_SHRED_TIME = 4;
 const BREATH_AIM = { mode: 'facingAuto', range: BREATH_RANGE };
 const BREATH_OPTS = { element: 'fire', onHit: null };
-const BREATH_FX = { speed: 520, life: 0.35, size: 0.8, additive: true };
+// --- the fire itself ---------------------------------------------------------
+//
+// A puff of flame leaves her mouth every FLAME_STEP seconds and takes FLAME_LIFE
+// to cross the cone, so five are in flight at any moment and the jet reads as
+// something POURED rather than a shape that is switched on. Both numbers are
+// presentation only — the damage still lands on its own BREATH_TICK cadence, so
+// the DPS is exactly 70 no matter what these are set to.
+const FLAME_STEP = 0.06;
+const FLAME_LIFE = 0.32;
+/** Seconds the jet takes to open from a spit to its full width. */
+const FLAME_OPEN = 0.22;
+const FLAME_FX = { life: FLAME_LIFE, alpha: 1, width: 1, stations: 5, color: '#ff7a1a' };
+// Fire throws things UP. A cone of sparks travelling with the breath is smoke;
+// EMBERS are what say the air itself is burning, so they are slow, they rise
+// against gravity, and they outlive the puff that threw them.
+const EMBER_FX = {
+  color: '#ffd76a', life: 0.9, size: 0.4, sizeEnd: 0.05,
+  drag: 1.4, grav: -150, alpha: 0.95, additive: true,
+};
+/** The hot spit at the mouth on every damage tick. */
+const BREATH_SPARK_FX = { speed: 520, life: 0.3, size: 0.55, additive: true };
+
+// WHERE THE FIRE COMES OUT.
+//
+// The damage cone stays centred on her, like every other area in the game, and
+// moving it would change what the ability hits. The PLUME is drawn from the
+// head, because a breath that starts at the navel is not a breath. Both offsets
+// are fractions of the sprite's own DRAWN height, read live — so the 2.2x
+// transformation moves her mouth with it and neither number has to know how big
+// a dragon is.
+const MOUTH_FORWARD = 0.20;
+const MOUTH_LIFT = 0.24;
+
+/** The drawn height of whatever the player currently looks like, in world px. */
+function drawnHeight(p) {
+  const sp = p.sprite;
+  if (!sp || !(sp.h > 0)) return 44;
+  return sp.h * (p.flags.sizeMult || 1) * (sp.unit || 1) * H.feel.playerDrawScale;
+}
 // The engine's only incoming-damage levers for the PLAYER are flat armour and
 // dodge (damage.js `damagePlayer`), so "+40% damage taken reduction" is spent as
 // +40% dodge: the same expected value through the pipeline that already exists.
@@ -188,7 +226,10 @@ const RAPID_FIST_WIDTH = 23;          // half-width of the jab line
 const RAPID_FIST_OFFSET = 11;         // left/right fist separation
 const RAPID_FIST_GAP = 0.085;         // between punches at level 1, in sim seconds
 const RAPID_FIST_MIN = 2;             // "1-2 right left" — the volley is never one
-const RAPID_FIST_MAX = 4;
+// Raised from 4 so Extra Shot has somewhere to land: at a maxed signature the
+// old cap was already reached by `mods.count` alone, and every point of the
+// upgrade the volley now reads was swallowed by the clamp.
+const RAPID_FIST_MAX = 8;
 const JAB_FX = { life: 0.17, tier: 0 };
 const JAB_IMPACT = { life: 0.2, size: 13, tier: 0 };
 const RAPID_FIST_FINISH_FX = { speed: 420, life: 0.24, size: 0.7, additive: true };
@@ -419,10 +460,11 @@ registerAll({
       ctx.active = true;
       ctx.t = APOTHEOSIS_DURATION + (ctx.s3 ? APOTHEOSIS_S3_BONUS : 0);
       ctx.breathT = 0;
+      ctx.flameT = 0;
+      ctx.breathAge = 0;
       if (!ctx.onBreath) ctx.onBreath = makeBreathHit(ctx);
-      if (!ctx.wedge) {
-        ctx.wedge = { x: 0, y: 0, r: 0, a0: 0, a1: 0, color: '#ff7a1a', life: 0.06 };
-      }
+      // The flame sheet, once per run. It was baked at boot; this is a map hit.
+      if (!ctx.flame) ctx.flame = H.atlas.flameSprite();
 
       // THE FORM.
       p.flags.autoAttackDisabled = true;      // the breath IS the auto attack now
@@ -448,16 +490,48 @@ registerAll({
       H.announce(run, 'APOTHEOSIS', '#ffb020');
     },
     tick(run, p, ctx, dt) {
-      // The cone overlay is refreshed every frame from one persistent record
-      // (run.js clears the overlay lists each frame); the damage runs on its own
-      // 0.1s cadence so the DPS is exactly 70 regardless of frame rate.
+      // TWO CLOCKS, deliberately. The damage runs on its own 0.1s cadence so the
+      // DPS is exactly 70 regardless of frame rate; the FIRE runs on a faster one
+      // of its own, so the jet never strobes at the damage rate — which is what a
+      // single shared clock did, and it is the tell that turns a continuous
+      // breath back into a thing being switched on and off ten times a second.
+      //
+      // What used to be here was a wedge pushed into `run.overlays.wedges`: a
+      // flat pie, two straight edges and a white rib walking the arc. That is a
+      // TELEGRAPH — it is the same shape the boss cones use to warn you — and it
+      // was never going to read as fire no matter what colour it was.
       const t = H.target(run, p, BREATH_AIM);
       const a = t.found ? t.angle : p.facing;
       const r = H.area(p, BREATH_RANGE);
-      const w = ctx.wedge;
-      w.x = p.x; w.y = p.y; w.r = r;
-      w.a0 = a - BREATH_ARC / 2; w.a1 = a + BREATH_ARC / 2;
-      run.overlays.wedges.push(w);
+      const cos = Math.cos(a), sin = Math.sin(a);
+
+      // The mouth, and the reach measured FROM it — so the tip of the plume and
+      // the edge of the hitbox are the same place rather than a head apart.
+      const h = drawnHeight(p);
+      const mx = p.x + cos * h * MOUTH_FORWARD;
+      const my = p.y + sin * h * MOUTH_FORWARD - h * MOUTH_LIFT;
+      const reach = Math.max(40, r - h * MOUTH_FORWARD);
+
+      ctx.breathAge += dt;
+      const open = ctx.breathAge < FLAME_OPEN ? ctx.breathAge / FLAME_OPEN : 1;
+
+      ctx.flameT -= dt;
+      if (ctx.flameT <= 0) {
+        ctx.flameT += FLAME_STEP;
+        // The jet OPENS: the first fifth of a second is a narrow, dim spit that
+        // widens and brightens into the full plume. Only the width and the
+        // brightness ramp — the reach is full from the first frame, because the
+        // damage is too and a visual that lags its own hitbox is a lie.
+        FLAME_FX.alpha = 0.55 + 0.45 * open;
+        FLAME_FX.width = 0.72 + 0.28 * open;
+        H.effects.flameCone(mx, my, a, BREATH_ARC, reach, ctx.flame, FLAME_FX);
+        // One ember per puff, thrown up out of the middle of the plume.
+        const ed = reach * (0.3 + H.fxRng.raw() * 0.6);
+        const ea = a + (H.fxRng.raw() - 0.5) * BREATH_ARC;
+        H.particles.emit(mx + Math.cos(ea) * ed, my + Math.sin(ea) * ed,
+                         Math.cos(ea) * 60 + H.fxRng.signed() * 30,
+                         Math.sin(ea) * 60 - 40, EMBER_FX);
+      }
 
       ctx.breathT -= dt;
       if (ctx.breathT > 0) return;
@@ -466,7 +540,8 @@ registerAll({
       H.coneDamage(run, p.x, p.y, a, BREATH_ARC, r,
                    H.abilityDamage(run, p, BREATH_DPS * BREATH_TICK),
                    H.SRC.SPECIAL, BREATH_OPTS);
-      H.particles.cone(p.x, p.y, a, BREATH_ARC, 6, '#ff7a1a', BREATH_FX);
+      // A tight spit of sparks straight out of the jaw, on the damage beat.
+      H.particles.cone(mx, my, a, BREATH_ARC * 0.7, 4, '#ffe6a8', BREATH_SPARK_FX);
     },
     end(run, p, ctx) {
       p.flags.autoAttackDisabled = false;
@@ -565,7 +640,11 @@ registerAll({
       ctx.comboJab = H.autoDamage(run, p, ctx.def.damage, opts) * scale;
       ctx.comboFinisher = H.autoDamage(run, p, RAPID_FIST_FINISHER, opts) * scale;
       // 1 punch -> 4, straight from the signature weapon's own level.
-      ctx.punchN = H.clamp(RAPID_FIST_MIN + (mods ? mods.count : 0),
+      // `H.extraShots` rather than `mods.count`: inside an auto-attack it IS
+      // mods.count, plus Extra Shot and the shrine's Volley. He is the one melee
+      // auto in the roster that converts projectile count into strikes, and he
+      // was reading only half the number that feeds it.
+      ctx.punchN = H.clamp(RAPID_FIST_MIN + H.extraShots(p),
                            RAPID_FIST_MIN, RAPID_FIST_MAX);
       ctx.punchI = 0;
       ctx.fxTier = (mods && mods.evolved) ? H.FX_TIER.EVOLVED : H.FX_TIER.NORMAL;

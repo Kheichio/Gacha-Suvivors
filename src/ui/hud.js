@@ -42,7 +42,7 @@ import { feel } from '../core/feel.js';
 import { atlas } from '../render/spriteAtlas.js';
 import { MONO_FONT } from '../render/renderer.js';
 import { clamp, formatTime, formatNumber, TAU, lerp, easeOutCubic } from '../core/math.js';
-import { RUN_STATE } from '../game/run.js';
+import { RUN_STATE, FINALE_COUNTDOWN } from '../game/run.js';
 import { abilities } from '../game/abilities/index.js';
 
 class Hud {
@@ -61,11 +61,24 @@ class Hud {
     this._buffPeak = Object.create(null);
     /** Top edge of the build strip, published by _buildStrip for the duration bars. */
     this._stripTop = 0;
+    /**
+     * Top edge of the active-ability stack, published by _centerDurations for
+     * the QTE plate. 0 when nothing is running.
+     *
+     * The two used to be placed against the same screen fraction from opposite
+     * directions — the bars at 0.55H, the mash plate at 0.62H — and a 74px
+     * plate 45px under a 46px bar overlaps on any viewport under ~940px tall.
+     * It was there before the bars moved and it is nobody's idea of a bug
+     * report, but the mash prompt is a thing you have half a second to obey and
+     * it may not be drawn through.
+     */
+    this._durationsTop = 0;
   }
 
   reset() {
     this.hpGhost = 1; this.bossBarT = 0; this.introT = 0; this._portraitSprite = null;
     this._stripTop = 0;
+    this._durationsTop = 0;
     // Durations do not carry between runs: a 30s stage buff whose peak was
     // learned last run must not be the denominator for a 6s one this run.
     this._buffPeak = Object.create(null);
@@ -146,6 +159,7 @@ class Hud {
     if (run.qte) this._qte(r, run, W, H);
     this._killStreak(r, run, W, H);
     if (run.stageManager && run.stageManager.active) this._stageManager(r, run, W, H);
+    if (run.finaleCountdown >= 0) this._finaleCountdown(r, run, W, H, s);
     if (touching) this._touchControls(r, run, W, H, s);
     if (input.held(ACT.STATS)) this._statSheet(r, run, W, H);
   }
@@ -365,34 +379,51 @@ class Hud {
   // So it is centre-screen and large. The HUD's founding rule is that the middle
   // 70% stays clear, and this does not break it: nothing here is drawn unless an
   // ability is actually running, which is a few seconds at a time and never
-  // during the normal business of walking and shooting. It still sits clear of
-  // the ACTION — just under the midline, because the player is ON the midline
-  // and a bar centred there is drawn across your own character at the exact
-  // moment you are trying to read it.
+  // during the normal business of walking and shooting.
+  //
+  // WHERE IT SITS IS NOT A FRACTION OF THE SCREEN. It used to start at 55% of
+  // the height and move only when the arsenal was about to be underneath it —
+  // a clamp that can pull the stack UP and never push it DOWN. So on any window
+  // with room, which is 720p and everything above it, the bars floated in open
+  // space with a growing band of nothing between them and the weapons plate:
+  // 51px at 1280x720, 213px at 1920x1080, 375px at 2560x1440. Floating is the
+  // whole problem. A panel that belongs to no edge and touches nothing reads as
+  // debris dropped into the arena, and the eye has to FIND it every time
+  // instead of knowing where it is.
+  //
+  // So it HANGS OFF THE ARSENAL: the bottom of the stack one gap above the
+  // build strip, extra bars growing upward from there. One bar or two, the
+  // thing you look at is in the same place, directly over the weapons. That is
+  // also FURTHER from your own character than the old 55% was — the player is
+  // ON the midline, and a bar centred there is drawn across your own sprite at
+  // the exact moment you are trying to read it.
   _centerDurations(r, run, W, H, s) {
     const n = this._durationCount(run);
-    if (n === 0) return;
+    if (n === 0) { this._durationsTop = 0; return; }
     // Sized by the UI scale AND capped against the viewport. 46px at uiScale
     // 1.4 is 64px, which on a phone held sideways is a sixth of the screen for
     // ONE of two bars — "bigger" was the request, but bigger than the window it
     // is in helps nobody.
     const h = Math.round(clamp(Math.min(46 * s, H * 0.085), 30, 56));
     const gap = Math.round(8 * s);
-    let top = Math.round(H * 0.55);
-    // The build strip is the tallest single thing on the screen and on a short
-    // viewport it reaches most of the way to the midline. Pull the stack up
-    // rather than let it land on top of the arsenal — up to the point where it
-    // would be over the player, which is where the lesser evil changes sides.
-    //
-    // On a genuinely over-subscribed HUD — a 390px-tall window at uiScale 1.4,
-    // where the arsenal alone claims half the height — there is no clearance to
-    // find and the two do overlap. That is the right way round: this is drawn
-    // last, it is opaque, it is on screen for a few seconds at a time, and the
-    // arsenal is reference you can read whenever you like whereas "0.4s of
-    // invulnerability left" is a decision you are making now.
+    // THE BOTTOM OF THE STACK, one gap above the top of the build strip —
+    // `_stripTop`, published by _buildStrip, which is why this is drawn after
+    // it. 10*s is not an arbitrary gap: it is exactly the clearance the strip
+    // itself keeps above the XP bar, so the active bar, the arsenal and the XP
+    // bar stack on one rhythm up the bottom edge.
     const floor = (this._stripTop || H) - Math.round(10 * s);
     const need = n * h + (n - 1) * gap;
-    if (top + need > floor) top = Math.max(Math.round(H * 0.30), floor - need);
+    // The one thing that outranks the arsenal is the player's own character, at
+    // the centre of the screen, so the stack stops climbing at 30% of the
+    // height instead of walking up over it. On a genuinely over-subscribed HUD
+    // — a 390px-tall window at uiScale 1.4, where the arsenal alone claims half
+    // the height — that means there is no clearance to find and the two do
+    // overlap. That is the right way round: this is drawn last, it is opaque,
+    // it is on screen for a few seconds at a time, and the arsenal is reference
+    // you can read whenever you like whereas "0.4s of invulnerability left" is
+    // a decision you are making now.
+    let top = Math.max(Math.round(H * 0.30), floor - need);
+    this._durationsTop = top;
 
     top = this._durationBar(r, run, 'special', '✦', '#ff5fa2', W, top, h, gap, s);
     this._durationBar(r, run, 'escape', '➤', '#6ad8ff', W, top, h, gap, s);
@@ -598,8 +629,12 @@ class Hud {
       const maxL = ws.maxLevel(w);
       const evolved = w.evolved;
       const maxed = ws.isMaxed(w);
+      // GREEN MEANS "TAKE THE EVOLVE CARD", so it may only mean that. A maxed
+      // weapon whose evolution fee is unpaid gets the amber the full-bucket
+      // counters use: it is not progressing and it is not ready either.
+      const ready = maxed && ws.evoReady(w);
       const frac = evolved ? 1 : w.level / maxL;
-      const col = evolved ? '#ffd76a' : maxed ? '#7bf59a' : '#6ad8ff';
+      const col = evolved ? '#ffd76a' : ready ? '#7bf59a' : maxed ? '#ffd23f' : '#6ad8ff';
       const pulse = evolved ? 0.6 + 0.4 * Math.sin(run.time * 3) : 1;
 
       r.drawRoundRect(x, wy, wt, wt, 5,
@@ -836,11 +871,16 @@ class Hud {
   _qte(r, run, W, H) {
     const q = run.qte;
     const f = q.got / q.need;
-    ui.panel(W / 2 - 180, H * 0.62, 360, 74, { color: 'rgba(10,4,10,0.94)', borderColor: '#ff3a5e', borderWidth: 3 });
-    ui.text('MASH!', W / 2, H * 0.62 + 24, { size: 26, color: '#ff3a5e', align: 'center', weight: 800 });
-    ui.bar(W / 2 - 156, H * 0.62 + 42, 312, 16, f, '#ffd94a', { bg: 'rgba(0,0,0,0.6)' });
+    // 0.62H is where it wants to be; the one thing that can be there already is
+    // the active-ability stack, so it sits above that instead when both are up.
+    // 84 = the plate's own 74px plus the 10px gap the bottom-edge stack uses,
+    // so the two read as one column rather than as two things that nearly hit.
+    const y = Math.min(H * 0.62, (this._durationsTop || H) - 84);
+    ui.panel(W / 2 - 180, y, 360, 74, { color: 'rgba(10,4,10,0.94)', borderColor: '#ff3a5e', borderWidth: 3 });
+    ui.text('MASH!', W / 2, y + 24, { size: 26, color: '#ff3a5e', align: 'center', weight: 800 });
+    ui.bar(W / 2 - 156, y + 42, 312, 16, f, '#ffd94a', { bg: 'rgba(0,0,0,0.6)' });
     // DECISIONS.md §17 — any input works, and the prompt says so.
-    ui.text('any button · any key · tap', W / 2, H * 0.62 + 66,
+    ui.text('any button · any key · tap', W / 2, y + 66,
             { size: 11, color: PALETTE.textFaint, align: 'center' });
   }
 
@@ -860,6 +900,68 @@ class Hud {
     });
     ui.text(t.toFixed(1) + 's', W / 2, H * 0.16 + 26, {
       size: 16, color: PALETTE.textDim, align: 'center', mono: true, weight: 700,
+    });
+  }
+
+  /**
+   * THE FINALE COUNTDOWN â€” the loudest thing this HUD draws that is not a boss.
+   *
+   * WHY IT IS NOT IN THE CENTRE. It is on screen for a full minute, which is an
+   * order of magnitude longer than the kill-streak callout or the QTE prompt, and
+   * the founding rule of this file is that the middle 70% stays clear. Those two
+   * break it because they are on screen for a second or two. This one is not, so
+   * it hangs off the TOP-CENTRE COLUMN instead, one plate under the run timer â€”
+   * which is exactly where the player already looks to answer "how long left".
+   * Answering that question one line lower with a shorter, redder clock is the
+   * whole idea: the run timer stops being the one that matters the moment this
+   * appears.
+   *
+   * IT STEPS OUT FROM UNDER THE BOSS BAR. A mid-boss can perfectly well be alive
+   * while this is counting â€” that is the exact case callBossEarly refuses and
+   * retries â€” and the drop-down boss plate occupies 52..132 * s. Same reasoning
+   * and the same spelling as _qte's clamp against the duration stack.
+   *
+   * ZERO IS A REAL STATE, NOT A ROUNDING ERROR. The clock floors at zero and the
+   * boss can still be a few seconds out, because the handover is retried rather
+   * than forced (see Run._tickFinale). A number that sat on 00:00 would read as
+   * frozen, so the word INCOMING takes over and the drain bar is dropped.
+   */
+  _finaleCountdown(r, run, W, H, s) {
+    const t = run.finaleCountdown;
+    if (t < 0) return;
+    const handover = t <= 0;
+
+    // A heartbeat that gets faster is read as urgency without anyone having to
+    // look at the number: 0.8Hz above ten seconds, 1.6Hz under it.
+    const hz = t <= 10 ? 1.6 : 0.8;
+    const beat = 0.5 + 0.5 * Math.sin(run.time * hz * TAU);
+    const col = t <= 10 ? '#ff3a5e' : '#ffd23f';
+
+    const w = clamp(440 * s, 240, W - 40);
+    const h = 84 * s;
+    const x = (W - w) / 2;
+    // Under the run timer normally; under the boss plate when one is up.
+    const y = (this.bossBarT > 0.01 ? 150 : 78) * s;
+
+    ui.panel(x, y, w, h, {
+      color: 'rgba(12,6,14,0.94)', borderColor: col, borderWidth: 3, radius: 8,
+      alpha: 0.85 + beat * 0.15,
+    });
+    ui.text('âš   FINAL BOSS INBOUND', W / 2, y + 20 * s, {
+      size: 15, color: col, align: 'center', weight: 800, mono: true, outline: true,
+    });
+    ui.text(handover ? 'INCOMING' : formatTime(Math.ceil(t)), W / 2, y + 50 * s, {
+      size: 28, color: '#ffffff', align: 'center', weight: 800, mono: true,
+      outline: true, alpha: 0.75 + beat * 0.25,
+    });
+    if (!handover) {
+      ui.bar(x + 16 * s, y + h - 16 * s, w - 32 * s, 8 * s,
+             t / FINALE_COUNTDOWN, col, { bg: 'rgba(4,6,14,0.9)', segments: 6 });
+    }
+    // The reason, in plain words, outside the plate. A warning that does not say
+    // why it appeared reads as the game breaking rather than as the game paying.
+    ui.text('nothing left to claim â€” bank the coins', W / 2, y + h + 14 * s, {
+      size: 12, color: PALETTE.textDim, align: 'center', weight: 700, outline: true,
     });
   }
 
@@ -904,7 +1006,12 @@ class Hud {
       ['XP gain', 'x' + p.stats.xpMult.toFixed(2)],
       ['Gold gain', 'x' + p.stats.goldMult.toFixed(2)],
       ['Luck', p.stats.luck.toFixed(1)],
-      ['Revives left', String(p.stats.revives - Object.keys(run.revivesUsed).length)],
+      // `run.revivesLeftNow()`, not a stat minus a key count. `p.stats.revives`
+      // sees only the Shrine's Revival row and Second Chance and misses Undying,
+      // Rei's S3 and Phoenix Heart entirely; and `Object.keys(revivesUsed).length`
+      // counts SOURCES TOUCHED rather than charges spent, so a source granting two
+      // revives read as one. This is now the same number the revive pips draw.
+      ['Revives left', String(run.revivesLeftNow())],
     ];
     let yy = y + 84;
     for (const [k, v] of rows) {
@@ -922,10 +1029,17 @@ class Hud {
     // here shadows it, so the row width silently becomes NaN.
     for (const wep of run.weapons.slots) {
       const maxL = run.weapons.maxLevel(wep);
-      const tail = wep.evolved ? 'EVOLVED' : 'Lv ' + wep.level + '/' + maxL;
+      // The sheet is the reference surface — it is where a player checks WHY the
+      // evolve card has not come, and 'Lv 8/8' on its own does not answer that.
+      const wMaxed = run.weapons.isMaxed(wep);
+      const wReady = wMaxed && run.weapons.evoReady(wep);
+      const tail = wep.evolved ? 'EVOLVED'
+                 : wMaxed ? 'MAX  ·  ' + run.weapons.evoNeed(wep)
+                 : 'Lv ' + wep.level + '/' + maxL;
       ui.statRow(`${run.weapons.iconOf(wep)}  ${run.weapons.nameOf(wep).split(' [')[0]}`,
                  tail, x + 20, yy, w - 40,
-                 { color: wep.evolved ? '#ffd76a' : run.weapons.isMaxed(wep) ? '#7bf59a' : PALETTE.text });
+                 { color: wep.evolved ? '#ffd76a' : wReady ? '#7bf59a'
+                        : wMaxed ? '#ffd23f' : PALETTE.text });
       yy += 17;
     }
     for (let i = run.weapons.count; i < run.weapons.max; i++) {

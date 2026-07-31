@@ -392,12 +392,15 @@ registerAll({
       const reach = H.clamp(Math.sqrt(H.dist2(o.x, o.y, t.x, t.y)), CARROT_MIN, CARROT_MAX);
       const dmg = H.autoDamage(run, p, ctx.def.damage, opts);
       const r = H.area(p, CARROT_BLAST);
-      const fan = n > 1 ? CARROT_FAN : 0;
+      // The fan opens WITH the count, on the same arithmetic every other volley
+      // in the game uses. Ten carrots crammed into the 0.62rad meant for four
+      // land in one heap, which is the one shape this move exists not to make.
+      const fan = H.fanWidth(n, CARROT_FAN);
       CARROT_SHOT.damage = dmg;
       CARROT_SHOT.owner = p;
 
       for (let i = 0; i < n; i++) {
-        const a = n > 1 ? t.angle - fan * 0.5 + (i / (n - 1)) * fan : t.angle;
+        const a = H.fanAngle(i, n, t.angle, CARROT_FAN);
         // The range stagger is stepped off the index rather than rolled: four
         // carrots on one neat arc reads as a machine, and a cosmetic that
         // consumed the run stream would desynchronise a seeded replay for it.

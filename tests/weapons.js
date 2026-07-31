@@ -583,13 +583,128 @@ describe('weapons / a punch is a line, not a cone', () => {
     assert.equal(counts[0], 2, 'a level-1 signature should open on a two-punch volley');
     assert.ok(counts[1] > counts[0], `level 8 threw ${counts[1]}, level 1 threw ${counts[0]}`);
     assert.ok(counts[2] >= counts[1], `evolved threw ${counts[2]}, maxed threw ${counts[1]}`);
-    assert.atMost(counts[2], 4, 'the volley grew past the four punches it is capped at');
-    assert.equal(counts[2], 4, 'a maxed, evolved signature should reach the four-punch cap');
+    // FIVE, not four, and the cap above it is now eight. `rapid_fist` is the one
+    // melee auto in the game that turns projectile count into strikes, and it
+    // used to read the signature weapon's `mods.count` alone — so Extra Shot and
+    // the shrine's Volley row, both of which feed the same stat, did nothing for
+    // Sora at all. It reads `H.extraShots` now, which is that number PLUS those
+    // two, and the old cap of 4 was already reached by the signature by itself,
+    // so every point the player bought was swallowed by the clamp. This save is
+    // fresh and holds neither upgrade, so what is measured here is the signature
+    // alone: 2 + 3 = 5, with three punches of headroom left for the upgrades.
+    assert.atMost(counts[2], 5, 'the volley grew past what the signature alone can buy');
+    assert.equal(counts[2], 5, 'a maxed, evolved signature should reach a five-punch volley');
     // The cadence has to keep tightening after the count caps out, or the last
     // levels of the weapon buy the player nothing they can see.
     assert.ok(spans[2] < spans[1],
               `evolved volley took ${spans[2].toFixed(3)}s, maxed took ${spans[1].toFixed(3)}s ` +
               '— the evolution stopped tightening the cadence');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE FINALE COUNTDOWN.
+//
+// The predicate Run.nothingLeftToClaim() is a hand-written MIRROR of
+// rollUpgradeChoices â€” it has to be, because calling the real roll to ask the
+// question would advance runRng and desync every seeded replay in the project.
+// A mirror drifts. So the first test here does not assert the predicate on its
+// own: it asserts that the predicate and the actual roll AGREE, which is the only
+// assertion that fails when a sixth card source is added to one and not the
+// other.
+function finishTheBuild(run) {
+  // Fill the rack, pay every evolution requirement, max and evolve everything.
+  for (const def of W.WEAPONS) { if (run.weapons.full) break; run.weapons.add(def.id); }
+  for (const w of run.weapons.slots) {
+    w.level = run.weapons.maxLevel(w);
+    const req = run.weapons.evoRequirement(w);
+    if (req) {
+      while (run.player.upgradeLevel(req.upgrade) < req.level) {
+        if (!run.player.addUpgrade(req.upgrade)) break;
+      }
+    }
+  }
+  for (const w of run.weapons.slots.slice()) run.weapons.evolve(w.id);
+  // Then max every upgrade the buckets will still accept, and everything held.
+  const B = data.upgrades.BUILD_SLOTS;
+  for (const up of data.upgrades.UPGRADES) {
+    const slots = run.buildSlots();
+    const bucket = B.bucketOf(up);
+    const owned = run.player.upgradeLevel(up.id) > 0;
+    if (!owned && slots.used[bucket] >= slots.max[bucket]) continue;
+    while (!run.player.isMaxed(up.id)) { if (!run.player.addUpgrade(up.id)) break; }
+  }
+}
+
+describe('weapons / the finale countdown', () => {
+  it('a fresh run has plenty left to claim and never starts the countdown', () => {
+    // The control. If this ever passes vacuously the test below proves nothing.
+    freshSave();
+    const run = makeRun(4242);
+    assert.ok(!run.nothingLeftToClaim(),
+              'a level-1 run reported that it had nothing left to claim');
+    step(run, 200);
+    assert.equal(run.finaleCountdownFired, false, 'the countdown started on a fresh run');
+    assert.equal(run.finaleCountdown, -1, 'the countdown clock is running on a fresh run');
+    run.dispose();
+  });
+
+  it('the predicate agrees with the roll: nothing left means a gold-only screen', () => {
+    freshSave();
+    const run = makeRun(777);
+    finishTheBuild(run);
+    assert.ok(run.nothingLeftToClaim(),
+              'a fully finished build still reported something left to claim');
+    const choices = run.rollUpgradeChoices();
+    assert.equal(choices.length, 1, 'a finished build was offered ' + choices.length + ' cards');
+    assert.equal(choices[0].kind, 'gold',
+                 'the predicate and rollUpgradeChoices disagree â€” one of them grew a source');
+    run.dispose();
+  });
+
+  it('it starts the clock, drains it, and hands over to callBossEarly exactly once', () => {
+    freshSave();
+    const run = makeRun(778);
+    finishTheBuild(run);
+
+    // The poll runs every 32 sim ticks, so 40 covers exactly one of them.
+    step(run, 40);
+    assert.ok(run.finaleCountdownFired, 'the countdown never started');
+    assert.ok(run.finaleCountdown > 0, 'the clock started already expired');
+    assert.ok(run.finaleCountdown <= 60, 'the clock started above one minute');
+    assert.ok(!run.bossCalledEarly, 'the boss was called immediately instead of after the minute');
+
+    const before = run.finaleCountdown;
+    step(run, 60);
+    assert.ok(run.finaleCountdown < before, 'the clock is not draining');
+
+    // The last fifteen seconds ARE callBossEarly's own lead-in, so a clock set
+    // inside that window must hand over on the very next tick.
+    run.finaleCountdown = 12;
+    run.player.hp = run.player.maxHp;
+    step(run, 2);
+    assert.ok(run.bossCalledEarly, 'the countdown never handed over to callBossEarly');
+
+    // And it cannot start again, or call again.
+    assert.equal(run.finaleCountdownFired, true);
+    run._maybeCallBossEarly();
+    assert.equal(run.finaleCountdown > 0, true, 'a second start reset the clock');
+    run.dispose();
+  });
+
+  it('a finale already on the floor cancels the clock instead of counting to it', () => {
+    freshSave();
+    const run = makeRun(779);
+    finishTheBuild(run);
+    step(run, 40);
+    assert.ok(run.finaleCountdownFired, 'the countdown never started');
+
+    // The authored timeline got there first.
+    run.waveDirector.bossSpawned = true;
+    step(run, 2);
+    assert.equal(run.finaleCountdown, -1,
+                 'the HUD would still be counting down to a boss that already arrived');
+    run.dispose();
   });
 });
 
@@ -654,9 +769,41 @@ describe('weapons / the level-up offer', () => {
     assert.equal(w.level, 2, 'weapon card did not level it');
 
     w.level = 8;
+    // The entry fee is now checked at the point of GRANT as well as the point of
+    // offer, so it has to be paid before the card can apply.
+    const evoReq = run.weapons.evoRequirement(w);
+    if (evoReq) for (let i = 0; i < evoReq.level; i++) run.player.addUpgrade(evoReq.upgrade);
     run.levelUpChoices = [{ kind: 'weaponEvo', w, evo: run.weapons.evolutionOf(w) }];
     run.chooseUpgrade(0);
     assert.ok(w.evolved, 'weaponEvo card did not evolve it');
+    run.dispose();
+  });
+
+  it('an evolve card cannot be APPLIED without its entry fee, only offered', () => {
+    // The gate used to live only in rollUpgradeChoices -> weapons.evolvable().
+    // That is airtight for as long as that function is the only thing that ever
+    // builds a `weaponEvo` card — which is a fact about today's code, not about
+    // the design. A chest, a boss crate or a shrine boon that learned to hand one
+    // out would have skipped the fee in silence, and the player would have an
+    // evolved weapon off max level alone. Reported from play as exactly that.
+    freshSave();
+    const run = makeRun();
+    const def = W.WEAPONS[0];
+    run.weapons.add(def.id);
+    const w = run.weapons.get(def.id);
+    w.level = 8;
+    const req = run.weapons.evoRequirement(w);
+    assert.ok(req, def.id + ' declares no evolution requirement, so this proves nothing');
+    assert.equal(run.weapons.evoReady(w), false, 'the fee was already paid at run start');
+
+    run.levelUpChoices = [{ kind: 'weaponEvo', w, evo: run.weapons.evolutionOf(w) }];
+    run.chooseUpgrade(0);
+    assert.equal(w.evolved, false, 'a maxed weapon evolved without paying its requirement');
+
+    for (let i = 0; i < req.level; i++) run.player.addUpgrade(req.upgrade);
+    run.levelUpChoices = [{ kind: 'weaponEvo', w, evo: run.weapons.evolutionOf(w) }];
+    run.chooseUpgrade(0);
+    assert.ok(w.evolved, 'paying the requirement did not let it evolve');
     run.dispose();
   });
 

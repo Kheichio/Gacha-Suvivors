@@ -74,7 +74,7 @@ export const UPGRADES = [
     maxLevel: 4, tier: 'epic',
     stat: 'projectileCount', perLevel: 1, mode: 'flat', unit: 'flat',
     fmt: '+{v} projectile', totalFmt: '+{v} total',
-    desc: 'One more shot from anything that fires shots — your auto-attack and every projectile weapon. Melee and field weapons are unaffected.',
+    desc: 'One more shot from everything you throw — your auto-attack, your special, your escape and every projectile weapon — and the volley fans wider to make room for it. Melee swings and standing fields are unaffected.',
     weight: 25,
     codex: 'Nobody agreed to this many projectiles. Nobody can stop them either.',
   },

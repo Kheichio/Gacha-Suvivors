@@ -167,6 +167,7 @@ class PixelBuf {
         const p = this.get(x + i, y + j);
         if (p === from.base) this.set(x + i, y + j, to.base);
         else if (p === from.lite) this.set(x + i, y + j, to.lite);
+        else if (p === from.spec) this.set(x + i, y + j, to.spec);
         else if (p === from.dark) this.set(x + i, y + j, to.dark);
         else if (p === from.deep) this.set(x + i, y + j, to.deep);
       }
@@ -201,19 +202,94 @@ class PixelBuf {
     }
     for (let i = 0; i < add.length; i += 2) this.set(add[i], add[i + 1], color);
   }
-  /** One-pixel top-left highlight and bottom-right shadow. Cheap volume. */
+  /**
+   * THE LIGHT PASS. One key light, from the UPPER LEFT.
+   *
+   * The old pass only ever looked UP and DOWN. Its own comment promised a
+   * "top-left highlight" and the code never read a horizontal neighbour, so
+   * every sprite in the game was lit from directly overhead — which is the one
+   * direction that gives a figure no volume at all. Both sides of an arm got
+   * the same tone, both sides of every fold, every boot, every hair lock; the
+   * whole roster came out flat-shaded with a lit hat brim on top. The reference
+   * sheet is lit from the upper left and it is the HORIZONTAL half of that key
+   * which does all the work.
+   *
+   *   nothing (or outline) ABOVE  -> the full highlight
+   *   nothing to the LEFT         -> 60% of it, as a rim light
+   *   nothing BELOW               -> the full shadow
+   *   nothing to the RIGHT        -> 55% of it, as a terminator
+   *
+   * Every branch reads `src` — the buffer as it was on entry — and the chain is
+   * `else if` on purpose. A corner pixel has nothing above AND nothing to the
+   * left, and applying both rules compounds it to white: the figure grows a
+   * bright fringe all down its lit side and stops having an outline.
+   */
   shadeEdges(lightAmt, darkAmt) {
     const src = this.px.slice();
-    const at = (x, y) => (x < 0 || y < 0 || x >= this.w || y >= this.h) ? null : src[y * this.w + x];
-    for (let y = 0; y < this.h; y++) {
-      for (let x = 0; x < this.w; x++) {
+    const W = this.w, H = this.h;
+    const at = (x, y) => (x < 0 || y < 0 || x >= W || y >= H) ? null : src[y * W + x];
+    const open = (c) => !c || c === OUTLINE;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
         const c = at(x, y);
         if (!c || c === OUTLINE) continue;
-        const up = at(x, y - 1), dn = at(x, y + 1);
-        if (!up || up === OUTLINE) this.set(x, y, shade(c, lightAmt));
-        else if (!dn || dn === OUTLINE) this.set(x, y, shade(c, -darkAmt));
+        if (open(at(x, y - 1))) this.set(x, y, shade(c, lightAmt));
+        else if (open(at(x - 1, y))) this.set(x, y, shade(c, lightAmt * 0.6));
+        else if (open(at(x, y + 1))) this.set(x, y, shade(c, -darkAmt));
+        else if (open(at(x + 1, y))) this.set(x, y, shade(c, -darkAmt * 0.55));
       }
     }
+  }
+
+  /**
+   * A CONTACT SHADOW — one row of whatever is already there, darkened.
+   *
+   * This is what separates garment layers, and it reads the buffer rather than
+   * taking a colour, which is the entire point. A coat hem falls across a leg on
+   * one character, a boot cuff on another, a cape on a third and bare skin on a
+   * fourth; the shadow has to be THAT surface's own shade or it is a black
+   * stripe painted across the figure. Called by the garment that CASTS it, right
+   * after it draws its own hem, so no layer ever has to know what is under it.
+   *
+   * It runs before shadeEdges, and shadeEdges only touches pixels with an open
+   * neighbour, so a shadow row in the middle of the silhouette survives intact.
+   */
+  castShadow(x, y, w, amt) {
+    const a = amt === undefined ? 0.30 : amt;
+    for (let i = 0; i < w; i++) {
+      const c = this.get(x + i, y);
+      if (!c || c === OUTLINE) continue;
+      this.set(x + i, y, shade(c, -a));
+    }
+  }
+
+  /**
+   * A HAIR LOCK — a wedge with a lit leading edge, a body, a shadowed trailing
+   * edge and a dark root notch, drawn as ONE shape.
+   *
+   * `spike()` is the primitive this replaces, for hair and only for hair. A
+   * spike is a triangle in one colour, and a row of triangles is a comb — which
+   * is exactly what four characters on the roster were wearing. What makes the
+   * reference sheet's hair read as VOLUME is that each lock carries three tones
+   * ACROSS its width and overlaps the one behind it, so the eye can see one
+   * lock passing in front of another. Three tones per lock plus stepped heights
+   * plus alternating lean is the whole recipe; any one of them alone is a comb.
+   *
+   * `lean` is how far the tip drifts sideways over the lock's height, and its
+   * SIGN also picks which edge is lit — a lock leaning left catches the light on
+   * its left face, which is the only reading consistent with the upper-left key
+   * shadeEdges applies afterwards.
+   */
+  hairLock(x, y, w, h, lean, c, bright) {
+    for (let j = 0; j < h; j++) {
+      const t = j / Math.max(1, h - 1);
+      const ww = Math.max(1, Math.round(w * (1 - t * 0.72)));
+      const xx = x + ((w - ww) >> 1) + Math.round(lean * t);
+      this.hline(xx, y - j, ww, c.base);
+      this.set(lean >= 0 ? xx : xx + ww - 1, y - j, bright ? c.spec : c.lite);
+      if (ww > 2) this.set(lean >= 0 ? xx + ww - 1 : xx, y - j, c.dark);
+    }
+    this.hline(x, y + 1, w, c.deep);            // the root the next lock hides
   }
 }
 
@@ -224,9 +300,27 @@ const OUTLINE = '#0a0c14';
 // shadows, highlights, trim — is derived so a new sprite is never a colour
 // matching exercise.
 // ---------------------------------------------------------------------------
+/**
+ * FIVE TONES PER MATERIAL, NOT FOUR.
+ *
+ * The reference sheet in `Example Folder/` runs a distinct SPECULAR on every
+ * material — a near-white sliver on the shirt, on the hair, on the sword —
+ * sitting ABOVE the light tone rather than being it. Forty call sites in this
+ * file were already hand-rolling `mixHex(c.lite, WHITE, 0.35)` to get one,
+ * which is a duplicated formula and, worse, a tone `retint()` cannot carry: a
+ * character with `hairTip` had every hand-rolled highlight in her hair left
+ * behind in the ORIGINAL colour when the gradient recoloured everything else.
+ *
+ * The band spacing is deliberately uneven — 0.34 then 0.36 of the remainder on
+ * the light side, 0.30 then 0.52 on the dark — so the highlight reads as a hit
+ * of light and the shadow as a fall-off. An evenly spaced ramp reads as a
+ * gradient, and a gradient is the one thing pixel art must never look like.
+ */
 function ramp(base) {
+  const lite = shade(base, 0.34);
   return {
-    lite: shade(base, 0.34),
+    spec: mixHex(lite, '#ffffff', 0.36),
+    lite,
     base,
     dark: shade(base, -0.30),
     deep: shade(base, -0.52),
@@ -264,6 +358,66 @@ function slotRamp(v, fallback) {
  * at h-2 and shifted(1) still has h-1 to land in. The old plan put the boots on
  * the last row and lost their underside outline on every single character.
  */
+// ---------------------------------------------------------------------------
+// THE WALK CYCLE
+//
+// A four-beat walk, front-on, sitting on top of the two-frame idle bob that was
+// already here. FRONT-ON is the constraint that shapes all of it: there is no
+// "forward" on the screen, so a stride cannot be drawn as travel. What a
+// front-facing walk actually shows is three things —
+//
+//   1. the feet move APART and back TOGETHER,
+//   2. one foot leaves the ground on each half-stride,
+//   3. the whole body drops on the contact and rises on the pass.
+//
+// Any two of those read as a twitch. All three read as walking.
+//
+//   beat 0  CONTACT  left foot forward, right trailing, body low
+//   beat 1  PASS     feet together, LEFT foot lifted, body high
+//   beat 2  CONTACT  right foot forward, left trailing, body low
+//   beat 3  PASS     feet together, RIGHT foot lifted, body high
+//
+// (3) is free: it is the existing `shifted(1)` applied to the contact beats, so
+// the frame budget buys legs and nothing else. And all four beats are genuinely
+// distinct pixels, which matters because a symmetric front-on figure makes that
+// easy to get wrong — beats 0 and 2 differ because the legs occupy different
+// COLUMNS, beats 1 and 3 because a different foot is off the floor.
+//
+// `l` / `r` are the swing of each leg: +1 forward, -1 trailing, 0 under the
+// hip. `lift` names the side whose foot is off the ground (-1 left, +1 right,
+// 0 neither); it raises that foot and takes the same rows out of the shin, so
+// the leg stays joined to the hip and never grows. `bob` says whether the
+// finished frame gets the +1 whole-buffer shift.
+// ---------------------------------------------------------------------------
+const POSE_IDLE = { l: 0, r: 0, lift: 0, bob: 0 };
+const WALK_POSES = [
+  { l:  1, r: -1, lift:  0, bob: 1 },
+  { l:  0, r:  0, lift: -1, bob: 0 },
+  { l: -1, r:  1, lift:  0, bob: 1 },
+  { l:  0, r:  0, lift:  1, bob: 0 },
+];
+
+/**
+ * How many WALK frames each body plan gets, on top of its two idle frames.
+ *
+ * `blob` and `ghost` are 0 because they have no legs — the ghost's whole read is
+ * a torn hem where feet would be, and giving it a gait would be a bug. `titan`
+ * and `drake` get 2 rather than 4, and that is a read as much as a budget: a
+ * boss has one stride to every two of a person's, so it takes only the CONTACT
+ * beats and skips the passing lift entirely. Nothing weighing that much picks a
+ * foot up cleanly. It also happens to be where the memory is — see the raster
+ * budget in spriteAtlas.registerPixel.
+ *
+ * MUST STAY A POWER OF TWO (0, 2 or 4). `Sprite.animIndexFor` selects a beat
+ * with a mask rather than a modulo because it runs once per entity per frame
+ * with two thousand entities on screen.
+ */
+const FRAME_PLAN = {
+  humanoid: 4, beast: 4, mech: 4,
+  titan: 2, drake: 2,
+  blob: 0, ghost: 0, portrait: 0,
+};
+
 function humanMetrics(W, H, d) {
   const young = !!(d && d.young);
   const cx = W >> 1;
@@ -320,16 +474,29 @@ function humanPalette(d) {
  * the neck the head draws — which it did not, before, so every scarf on the
  * roster had a skin-coloured stripe punched through its middle.
  */
-function drawHumanoid(b, d) {
+function drawHumanoid(b, d, pose) {
   const m = humanMetrics(b.w, b.h, d);
+  // The pose rides on the metrics object rather than on an argument, because
+  // exactly two of the eighteen routines below care about it and the other
+  // sixteen would have to grow a parameter they ignore in order to pass it on.
+  m.pose = pose || POSE_IDLE;
   const P = humanPalette(d);
   drawAura(b, m, P, d);
   drawBackProp(b, m, P, d);
   drawWings(b, m, P, d);
-  drawTails(b, m, P, d);
   if (d.cape) drawCape(b, m, P, d);
   if (d.hoodDown) drawHoodDown(b, m, P, d);
   drawHairBack(b, m, P, d);
+  // AFTER the back hair and not before it. A tail fan roots at the hip and
+  // sweeps out to the edge of the grid; a long back mass â€” `long`, `twinLong`,
+  // `lowTwin`, `drills` â€” occupies exactly those columns for exactly those
+  // rows, so tails drawn first are simply painted out. On the one character who
+  // has NINE of them that is the whole design gone: at 38x54 only 29 pixels of
+  // a nine-tail fan survived the hair. Nothing else on the roster overlaps at
+  // all (the styles that reach the hip belong to characters with one tail on
+  // the far side, or none), so this costs two other sprites nine pixels and
+  // four pixels respectively and buys back a signature.
+  drawTails(b, m, P, d);
   drawLegs(b, m, P, d);
   drawTorso(b, m, P, d);
   if (d.coat) drawCoat(b, m, P, d);
@@ -568,6 +735,7 @@ function drawHoodDown(b, m, P, d) {
 
 function drawLegs(b, m, P, d) {
   const { cx, hipY, kneeY, bootY, bottom, halfBot } = m;
+  const pose = m.pose || POSE_IDLE;
   // Narrow enough to leave a clear column between the outside of the boot and
   // the hand hanging beside it. At the old width the two touched, and every
   // character grew a solid horizontal bar across the hips that read as a tray.
@@ -576,23 +744,34 @@ function drawLegs(b, m, P, d) {
   const legH = Math.max(2, bootY - legTop);
   const lc = typeof d.legColor === 'string' ? ramp(d.legColor) : P.cloth;
   for (const s of [-1, 1]) {
-    const x = s < 0 ? cx - legW : cx + 1;
-    b.rect(x, legTop, legW, legH, lc.dark);
-    b.vline(s < 0 ? x : x + legW - 1, legTop, legH, lc.deep);   // outer shadow
-    b.vline(s < 0 ? x + legW - 1 : x, legTop, legH, lc.base);   // inner light
-    b.hline(x, kneeY, legW, lc.base);                            // knee break
+    // THE STRIDE. `sw` swings the foot one column outboard (forward) or inboard
+    // (trailing); `up` lifts it clear of the ground on the passing beat and
+    // takes the same two rows OUT OF THE SHIN, so the leg never detaches from
+    // the hip and the figure never gets taller.
+    const sw = s < 0 ? pose.l : pose.r;
+    const up = pose.lift === s ? 2 : 0;
+    const dx = s * sw;
+    const x = (s < 0 ? cx - legW : cx + 1) + dx;
+    const h = Math.max(2, legH - up);
+    b.rect(x, legTop, legW, h, lc.dark);
+    b.vline(s < 0 ? x : x + legW - 1, legTop, h, lc.deep);      // outer shadow
+    b.vline(s < 0 ? x + legW - 1 : x, legTop, h, lc.base);      // inner light
+    if (kneeY - up >= legTop) b.hline(x, kneeY - up, legW, lc.base);   // knee break
   }
   if (d.barefoot) {
     // No boots at all: bare feet, with toes. The absence of footwear is a
     // character note for one of the cast, so it has to be drawn, not omitted.
     const fw = legW + 1;
     for (const s of [-1, 1]) {
-      const x = s < 0 ? cx - fw : cx + 1;
-      b.rect(x, bootY, fw, bottom - bootY + 1, P.skin.dark);
-      b.hline(x, bootY, fw, P.skin.base);
-      b.hline(s < 0 ? x - 1 : x, bottom - 1, fw + 1, P.skin.base);
-      b.hline(s < 0 ? x - 1 : x, bottom, fw + 1, P.skin.deep);
-      for (let i = 0; i < fw; i += 2) b.set((s < 0 ? x - 1 : x) + i, bottom - 1, P.skin.lite);
+      const sw = s < 0 ? pose.l : pose.r;
+      const up = pose.lift === s ? 2 : 0;
+      const x = (s < 0 ? cx - fw : cx + 1) + s * sw;
+      const top = bootY - up, bot = bottom - up;
+      b.rect(x, top, fw, bot - top + 1, P.skin.dark);
+      b.hline(x, top, fw, P.skin.base);
+      b.hline(s < 0 ? x - 1 : x, bot - 1, fw + 1, sw > 0 ? P.skin.lite : P.skin.base);
+      b.hline(s < 0 ? x - 1 : x, bot, fw + 1, P.skin.deep);
+      for (let i = 0; i < fw; i += 2) b.set((s < 0 ? x - 1 : x) + i, bot - 1, P.skin.lite);
     }
     return;
   }
@@ -601,22 +780,39 @@ function drawLegs(b, m, P, d) {
   // toe box, which is what separates one character's legs from another's.
   const bw = legW + 1;
   const boot = typeof d.boots === 'string' ? ramp(d.boots) : P.trim;
-  const shaftTop = d.bootHeight === 'thigh' ? legTop
-                 : d.bootHeight === 'knee' ? kneeY : bootY;
+  const shaftTop0 = d.bootHeight === 'thigh' ? legTop
+                  : d.bootHeight === 'knee' ? kneeY : bootY;
   for (const s of [-1, 1]) {
-    const x = s < 0 ? cx - bw : cx + 1;
-    b.rect(x, shaftTop, bw, bottom - shaftTop + 1, boot.base);
+    const sw = s < 0 ? pose.l : pose.r;
+    const up = pose.lift === s ? 2 : 0;
+    const x = (s < 0 ? cx - bw : cx + 1) + s * sw;
+    const shaftTop = shaftTop0 - up;
+    const bot = bottom - up;
+    b.rect(x, shaftTop, bw, bot - shaftTop + 1, boot.base);
     b.hline(x, shaftTop, bw, boot.lite);                       // the cuff
     b.hline(x, shaftTop + 1, bw, boot.dark);
-    b.vline(s < 0 ? x : x + bw - 1, shaftTop + 2, bottom - shaftTop - 1, boot.deep);
-    b.hline(x + 1, bootY + 1, bw - 2, boot.dark);              // the ankle strap
-    b.hline(s < 0 ? x - 1 : x, bottom - 1, bw + 1, boot.base); // the toe box
-    b.hline(s < 0 ? x - 1 : x, bottom, bw + 1, boot.deep);     // the sole
+    b.castShadow(x, shaftTop + 2, bw, 0.22);                   // the cuff's shadow
+    b.vline(s < 0 ? x : x + bw - 1, shaftTop + 2, bot - shaftTop - 1, boot.deep);
+    b.hline(x + 1, bootY + 1 - up, bw - 2, boot.dark);         // the ankle strap
+    // THE FOOT, which is where a walk is either legible or it is not.
+    //
+    // Two rows of sole was a shoe seen edge-on, and at this size that reads as a
+    // peg: a walk cycle on a peg is a sprite vibrating. A foot needs three
+    // things — a toe box wider than the boot, an INSTEP that catches the light,
+    // and a hard `deep` sole that is the sprite's one contact with the ground.
+    // The instep is also what carries the stride: the forward foot gets the
+    // brightest tone, the trailing foot loses it entirely, so on a contact beat
+    // the two feet read as being at different DISTANCES even though they are one
+    // column apart — which is the only depth cue a front-on figure has.
+    const fx = s < 0 ? x - 1 : x;
+    b.hline(fx, bot - 1, bw + 1, sw > 0 ? boot.lite : sw < 0 ? boot.dark : boot.base);
+    b.hline(fx, bot, bw + 1, boot.deep);                       // the sole
+    b.set(s < 0 ? fx : fx + bw, bot - 1, boot.deep);           // the outer toe
   }
 }
 
 function drawTorso(b, m, P, d) {
-  const { cx, chinY, shoulderY, hipY, halfTop, halfBot } = m;
+  const { cx, chinY, shoulderY, hipY, kneeY, bootY, bottom, halfTop, halfBot } = m;
   const h = hipY - shoulderY + 1;
   const chestH = Math.max(2, h - 4);
   // Chest block then a narrower waist block: a defined garment silhouette
@@ -643,10 +839,48 @@ function drawTorso(b, m, P, d) {
     b.set(cx, shoulderY + 2, u.dark);
     b.set(cx - 2, shoulderY, u.lite);
   }
+  if (d.hakama) {
+    // A HAKAMA â€” the long pleated DIVIDED skirt of a shrine garment.
+    //
+    // `skirt` is the other one and this is not a length setting on it: that is
+    // four rows of taper at the hip with three pleat ticks in it, which is a
+    // mini, which is correct for the two school uniforms that wear it and
+    // completely wrong for a garment that falls to the ankle and is the single
+    // loudest colour on the figure. Written as `skirt`, a shrine outfit comes
+    // out as a school uniform in an unusual colour, which is what it was.
+    //
+    // Three things make it a hakama and not merely a long skirt. It starts
+    // ABOVE the hip, at the bottom of the ribs, because that is where the ties
+    // sit and it is what makes the torso above it read as short. It is PLEATED
+    // with hard creases running the whole drop rather than three ticks at the
+    // waist. And it is DIVIDED â€” a shadow seam down the centre from the knee to
+    // the hem, which is the detail that says these are trousers rather than a
+    // tube, and the only one of the three that costs a single draw call.
+    const hk = slotRamp(d.hakama, d.accent || '#c8342a');
+    const hTop = Math.max(shoulderY + 2, hipY - 5);
+    const hem = Math.min(bottom - 2, bootY + 1);
+    const hh = Math.max(6, hem - hTop + 1);
+    const wTop = halfBot + 1, wBot = halfBot + 4;
+    b.taper(cx - wTop, hTop, wTop * 2 + 1, wBot * 2 + 1, hh, hk.base);
+    b.hline(cx - wTop, hTop, wTop * 2 + 1, hk.lite);           // the waist ties
+    // The pleats. Kept inside the NARROWEST row of the taper, because the
+    // garment only ever widens downward â€” a crease plotted at the hem's width
+    // hangs off the waist in mid-air and outline() then wraps it.
+    for (let i = -wTop + 1; i <= wTop - 1; i += 3) {
+      b.vline(cx + i, hTop + 1, hh - 2, hk.dark);
+      b.set(cx + i - 1, hTop + 1, hk.lite);
+    }
+    b.vline(cx, kneeY, hem - kneeY, hk.deep);                  // DIVIDED
+    b.vline(cx - wTop + 1, hTop + 2, hh - 4, hk.lite);         // the lit fold
+    b.vline(cx + wTop - 1, hTop + 2, hh - 4, hk.deep);
+    b.hline(cx - wBot + 1, hem - 1, wBot * 2 - 1, hk.dark);
+    b.hline(cx - wBot, hem, wBot * 2 + 1, hk.deep);            // the hem
+  }
   if (d.skirt) {
     const sk = slotRamp(d.skirt, d.accent || '#8a8fa8');
     b.taper(cx - halfBot - 2, hipY, halfBot * 2 + 5, halfBot * 2 + 7, 4, sk.base);
     b.hline(cx - halfBot - 3, hipY + 3, halfBot * 2 + 7, sk.dark);
+    b.castShadow(cx - halfBot - 3, hipY + 4, halfBot * 2 + 7, 0.32);   // onto the legs
     // Pleats: three dark ticks, which is the whole reason a skirt is not a cone.
     for (let i = -halfBot; i <= halfBot; i += 3) b.vline(cx + i, hipY + 1, 3, sk.dark);
     if (d.shorts) {
@@ -789,6 +1023,12 @@ function drawCoat(b, m, P, d) {
     }
   }
   b.hline(cx - halfTop - 3, hem, halfTop * 2 + 7, c.deep);
+  // The shadow the hem throws onto whatever is under it. This is the single
+  // clearest thing the reference sheet does that this file did not: every
+  // garment edge on it has a dark line BELOW the edge, on the next layer down,
+  // and it is that line rather than the colour change which makes the layers
+  // read as separate pieces of cloth instead of as one painted surface.
+  b.castShadow(cx - halfTop - 3, hem + 1, halfTop * 2 + 7, 0.34);
   b.set(cx, hem, c.deep);
   b.set(cx, hem - 1, c.deep);
   // Two fold creases in the skirt of the coat.
@@ -975,14 +1215,29 @@ function drawArms(b, m, P, d) {
       b.set(s < 0 ? x : x + armW, hipY + 1, cf.deep);
     }
   }
+  // THE ARM SWING, and it is CONTRALATERAL — the hand on the same side as the
+  // forward leg swings BACK. That is the only thing separating a walk from a
+  // shuffle, and getting it the wrong way round is instantly, unaccountably
+  // wrong to look at even though nobody can say why.
+  //
+  // Front-on there is nowhere for a hand to swing TO, so what gets drawn is the
+  // one row of travel and the tone that comes with it: the forward hand drops a
+  // row into the light, the back hand rises a row and loses it. The dropped hand
+  // leaves a one-row gap where the sleeve used to end, which is filled with the
+  // sleeve's own shadow — a detached hand floating below a cuff is the single
+  // most obvious way this can go wrong.
+  const pose = m.pose || POSE_IDLE;
   const handY = hipY + 1;
   const gl = d.gloves ? slotRamp(d.gloves, d.accent || '#2b2b3a') : P.skin;
   for (const s of [-1, 1]) {
+    const sw = -(s < 0 ? pose.l : pose.r);
     const x = s < 0 ? cx - armOut : cx + armOut - armW + 1;
-    b.rect(x, handY, armW, 3, gl.base);
-    b.hline(x, handY, armW, gl.lite);
-    b.hline(x, handY + 2, armW, gl.dark);
-    b.set(s < 0 ? x + armW - 1 : x, handY + 1, gl.dark);      // the knuckle break
+    const y = handY + sw;
+    if (sw > 0) b.hline(x, handY, armW, c.deep);               // the wrist
+    b.rect(x, y, armW, 3, gl.base);
+    b.hline(x, y, armW, sw > 0 ? gl.lite : gl.base);
+    b.hline(x, y + 2, armW, sw < 0 ? gl.deep : gl.dark);
+    b.set(s < 0 ? x + armW - 1 : x, y + 1, gl.dark);           // the knuckle break
   }
 }
 
@@ -1164,6 +1419,9 @@ function drawHead(b, m, P, d) {
   b.hline(cx - jw + 1, chinY - 1, jw * 2 - 1, P.skin.base);
   b.hline(cx - 1, chinY, 3, P.skin.base);
   b.hline(cx - headR + 3, headY - headR + 2, headR * 2 - 5, P.skin.lite);   // brow light
+  // The shadow the jaw casts down the neck. Without it the head and the neck are
+  // one continuous column of the same skin tone and the chin has no underside.
+  b.castShadow(cx - (nw >> 1), chinY + 1, nw, 0.30);
   b.set(cx - headR + 2, chinY - 1, P.skin.dark);               // jaw corners
   b.set(cx + headR - 2, chinY - 1, P.skin.dark);
   // Ear nubs. Small, but earrings have to hang off something.
@@ -1571,18 +1829,29 @@ function drawHairFront(b, m, P, d) {
 
   switch (style) {
     case 'spiky': {
-      // UNEVEN heights with a shadow notch between each pair of locks. Six
-      // identical spikes at a two-column pitch merge into one serrated block,
-      // which is not spiky hair — it is a crown, and it was on four characters.
-      const hs = [4, 6, 3, 5, 3, 6];
+      // OVERLAPPING WEDGES, not a row of triangles.
+      //
+      // Six identical spikes at a two-column pitch merged into one serrated
+      // block, which is not spiky hair — it is a crown, and it was on four
+      // characters. The reference sheet draws this hair as a pile of locks that
+      // LEAN IN DIFFERENT DIRECTIONS and pass in front of one another, so the
+      // silhouette has notches cut into it and each lock has a lit face and a
+      // shadowed one. `hairLock` is that wedge; the lean array is what stops the
+      // six of them agreeing with each other.
+      //
+      // Heights are capped at 6. `top` is `headY - headR`, which on the 30x42
+      // grid is row 4, so a lock rooted at top+1 and 6 rows tall lands exactly
+      // on row 0 — one taller and the tallest lock in the design is silently
+      // clipped off by the edge of the buffer.
+      const hs = [4, 6, 3, 6, 4, 6];
+      const lean = [-1, 1, -1, 2, -1, 1];
       for (let k = 0, i = -headR + 1; i <= headR - 1; i += 2, k++) {
-        const h = hs[k % hs.length];
-        b.spike(cx + i - 1, top + 1, 3, h, -1, k & 1 ? hc.base : hc.lite);
-        if (k) b.vline(cx + i - 1, top + 2 - Math.min(h, hs[(k - 1) % hs.length]),
-                       Math.min(h, hs[(k - 1) % hs.length]), hc.deep);
+        b.hairLock(cx + i - 1, top + 1, 4, hs[k % hs.length],
+                   lean[k % lean.length], hc, k & 1);
       }
       b.hline(cx - headR + 1, brow, headR * 2 - 1, hc.base);
       b.hline(cx - headR + 1, brow - 1, headR * 2 - 1, hc.lite);
+      b.set(cx + 1, brow - 1, hc.spec);
       break;
     }
     case 'flame':
@@ -2097,6 +2366,25 @@ function drawTrinkets(b, m, P, d) {
       b.set(x, y + 1, c.dark);
       b.set(x + 2, y + 1, c.dark);
       b.set(x + 1, y, mixHex(c.lite, WHITE, 0.6));
+    } else if (d.hairpin === 'bell') {
+      // A BELL, and a LARGE one: the big cast ornament worn on the crown rather
+      // than the flat 3x2 bar the default draws. It ignores the shared pin
+      // position on purpose â€” that sits at the left temple, which is exactly
+      // where a pair of hair ribbons already is, and a gold bar under a gold
+      // ribbon is one gold shape. On the crown, between the ears, it has the
+      // whole top of the skull to itself.
+      //
+      // What makes it a bell and not a coin is that it is ROUND with a hard
+      // SLIT across its mouth and a clapper showing under the slit, and that
+      // the light sits on the shoulder of the dome rather than along its top
+      // row, so the shape comes out as a sphere.
+      const bx = cx - 2, by = headY - headR + 1;
+      b.ellipse(bx + 1, by + 2, 3, 3, c.base);
+      b.hline(bx, by, 4, c.lite);                              // the crown loop
+      b.hline(bx - 1, by + 3, 6, c.dark);                      // the mouth slit
+      b.hline(bx, by + 4, 4, c.deep);
+      b.set(bx + 1, by + 1, mixHex(c.lite, WHITE, 0.6));
+      b.set(bx + 2, by + 5, c.dark);                           // the clapper
     } else {
       b.rect(x, y, 3, 2, c.base);
       b.hline(x, y, 3, c.lite);
@@ -3064,6 +3352,18 @@ function drawPortrait(b, d) {
       b.set(x + 1, y + 1, c.dark);
       b.set(x + 3, y + 1, c.dark);
       b.set(x + 2, y, mixHex(c.lite, WHITE, 0.7));
+    } else if (d.hairpin === 'bell') {
+      // The same ornament as the world sprite with the rows a 40x40 bust can
+      // spend on it: a real dome, a real slit and a clapper that is its own
+      // shape rather than one pixel. Sited on the crown for the same reason â€”
+      // the temple is where the hair ties are.
+      const bx = cx - 3, by = top + 1;
+      b.ellipse(bx + 2, by + 3, 4, 4, c.base);
+      b.hline(bx, by, 6, c.lite);                              // the crown loop
+      b.hline(bx - 1, by + 4, 8, c.dark);                      // the mouth slit
+      b.hline(bx, by + 6, 6, c.deep);
+      b.rect(bx + 1, by + 1, 2, 2, mixHex(c.lite, WHITE, 0.6));
+      b.vline(bx + 2, by + 7, 2, c.dark);                      // the clapper
     } else {
       b.rect(x, y, 5, 3, c.base);
       b.hline(x, y, 5, c.lite);
@@ -3270,19 +3570,44 @@ function drawBlob(b, d) {
             mixHex(c.lite, WHITE, 0.55));
   b.hline(cx - r + 1, by + r - 2, r * 2 - 1, c.dark);
   b.hline(cx - r + 2, by + r - 1, r * 2 - 3, c.deep);
+  // THE FACE IS A FRACTION OF THE DOME, NOT A FIXED NUMBER OF PIXELS.
+  //
+  // The eye BLOCK already scaled off `r` while its catch-light, its mouth and
+  // its blush were pinned at one pixel each. That is invisible at the 18x18 a
+  // swarmer is drawn on and ruinous at the 40x40 the HUD bust uses, where a
+  // 1px gleam inside a 7px eye is a speck and the creature reads as a dome with
+  // two holes punched in it. Everything below derives from `r`, so the same
+  // face arrives at every size the grid is ever set to.
   const eyeC = d.eyes || '#1a1a2e';
-  const eyeY = by - 2;
+  const eyeW = Math.max(2, Math.round(r * 0.30));
+  const eyeH = Math.max(3, Math.round(r * 0.40));
+  const eyeGap = Math.max(1, Math.round(r * 0.17));
+  const eyeY = by - Math.max(2, Math.round(r * 0.22));
+  const gleam = Math.max(1, Math.round(eyeW * 0.5));
   for (const s of [-1, 1]) {
-    const x = s < 0 ? cx - eyeR - 2 : cx + 2;
-    b.rect(x, eyeY, eyeR + 1, eyeR + 2, eyeC);
-    b.set(s < 0 ? x : x + eyeR, eyeY, EYE_WHITE);
-    b.set(x + (eyeR >> 1), eyeY + eyeR + 4, mixHex(c.base, '#ff7a8f', 0.5));   // blush
+    const x = s < 0 ? cx - eyeGap - eyeW : cx + eyeGap + 1;
+    b.rect(x, eyeY, eyeW, eyeH, eyeC);
+    // The catch-light goes in the OUTER upper corner and is sized off the eye.
+    // This one block is the whole difference between an eye and a hole.
+    b.rect(s < 0 ? x : x + eyeW - gleam, eyeY, gleam, gleam, EYE_WHITE);
+    b.set(s < 0 ? x + eyeW - 1 : x, eyeY + eyeH - 1, mixHex(eyeC, WHITE, 0.32));
   }
-  // A mouth, which is what turns a circle into a creature.
-  b.hline(cx - 1, eyeY + eyeR + 3, 3, t.deep);
-  b.set(cx, eyeY + eyeR + 4, t.deep);
-  b.set(cx - 2, eyeY + eyeR + 2, t.dark);
-  b.set(cx + 2, eyeY + eyeR + 2, t.dark);
+  // Blush, outboard of each eye and never touching it.
+  const bw = Math.max(1, Math.round(r * 0.20));
+  const blush = mixHex(c.base, '#ff7a8f', 0.5);
+  for (const s of [-1, 1]) {
+    const x = s < 0 ? cx - eyeGap - eyeW - bw : cx + eyeGap + eyeW + 1;
+    b.rect(x, eyeY + eyeH, bw, Math.max(1, Math.round(bw * 0.6)), blush);
+  }
+  // A mouth, which is what turns a circle into a creature. Two shoulders and a
+  // dip rather than a bar, so it still has a SHAPE when it is three pixels wide.
+  const mw = Math.max(1, Math.round(r * 0.22));
+  const my = eyeY + eyeH + Math.max(1, Math.round(r * 0.14));
+  b.hline(cx - mw, my, mw * 2 + 1, t.deep);
+  b.hline(cx - (mw >> 1), my + 1, (mw >> 1) * 2 + 1, t.deep);
+  b.set(cx, my + Math.max(1, Math.round(mw * 0.6)) + 1, t.dark);
+  b.set(cx - mw - 1, my, t.dark);
+  b.set(cx + mw + 1, my, t.dark);
   if (d.chest) {
     // A faceted gem, not a dot: a lit top-left and a dark lower-right make three
     // pixels look cut rather than painted on.
@@ -3366,7 +3691,7 @@ function drawGhost(b, d) {
 }
 
 /** A four-legged or hunched beast — oni, husks, crawlers. */
-function drawBeast(b, d) {
+function drawBeast(b, d, pose) {
   const W = b.w, H = b.h;
   const cx = W >> 1;
   const c = ramp(d.outfit || '#a05f5f');
@@ -3420,13 +3745,26 @@ function drawBeast(b, d) {
       b.hline(s < 0 ? cx - half - 1 : cx + half - 1, bodyTop + 4, 3, pc.deep);
     }
   }
-  // four stubby limbs, the front pair planted forward
+  // FOUR STUBBY LIMBS, and on a quadruped they move in DIAGONAL PAIRS — near
+  // fore with off hind. That is what separates an animal's gait from a person's
+  // at any size, and it costs nothing: the hind leg on side `s` takes that
+  // side's pose and the forelimb takes the OPPOSITE side's, out of the same
+  // four-beat table the humanoid uses.
+  const p = pose || POSE_IDLE;
   const legH = Math.max(2, bottom - legTop + 1);
   for (const s of [-1, 1]) {
-    b.rect(s < 0 ? cx - half : cx + half - 2, legTop, 3, legH, c.dark);
-    b.rect(s < 0 ? cx - half + 4 : cx + half - 6, legTop, 3, legH, c.deep);
-    b.hline(s < 0 ? cx - half - 1 : cx + half - 2, bottom, 4, t.deep);      // paw
-    for (let i = 0; i < 3; i++) b.set((s < 0 ? cx - half - 1 : cx + half - 2) + i, bottom - 1, t.dark);
+    const hSw = s < 0 ? p.l : p.r;                  // hind, this side
+    const fSw = s < 0 ? p.r : p.l;                  // fore, its diagonal partner
+    const hUp = p.lift === s ? 1 : 0;
+    const fUp = p.lift === -s ? 1 : 0;
+    const hx = (s < 0 ? cx - half : cx + half - 2) + s * hSw;
+    const fx = (s < 0 ? cx - half + 4 : cx + half - 6) + s * fSw;
+    const px = hx - (s < 0 ? 1 : 0);
+    b.rect(hx, legTop, 3, Math.max(2, legH - hUp), c.dark);
+    b.rect(fx, legTop, 3, Math.max(2, legH - fUp), c.deep);
+    b.hline(px, bottom - hUp, 4, t.deep);                                  // paw
+    for (let i = 0; i < 3; i++) b.set(px + i, bottom - 1 - hUp, t.dark);
+    b.hline(fx, bottom - fUp, 3, t.dark);                                  // fore paw
   }
   if (d.tails) {
     b.line(cx + half, bodyTop + 3, cx + half + 3, bodyTop - 2, c.base);
@@ -3456,7 +3794,7 @@ function drawBeast(b, d) {
  * pair of wings actually reads from the front, and is also what stops the
  * membrane eating the one part of the sprite the player looks at.
  */
-function drawDrake(b, d) {
+function drawDrake(b, d, pose) {
   const W = b.w, H = b.h;
   const cx = W >> 1;
   const c = ramp(d.outfit || '#c8452c');
@@ -3559,22 +3897,31 @@ function drawDrake(b, d) {
   }
 
   // --- the limbs ------------------------------------------------------------
+  // Diagonal pairs, like the beast: the forelimb on one side moves with the hind
+  // leg on the other. A drake gets only the two CONTACT beats (see FRAME_PLAN),
+  // so `lift` is never set here and the whole gait lives in the swing.
+  const p = pose || POSE_IDLE;
   for (const s of [-1, 1]) {
+    const hSw = s < 0 ? p.l : p.r;
+    const fSw = s < 0 ? p.r : p.l;
+    const hStep = s * hSw * 2, fStep = s * fSw;
     // forelimb: a short bent arm hanging off the shoulder, claws forward
-    const x = s < 0 ? cx - half - 2 : cx + half - 1;
+    const x = (s < 0 ? cx - half - 2 : cx + half - 1) + fStep;
     const fh = Math.max(5, Math.round(H * 0.16));
     b.rect(x, bodyTop + 1, 3, fh, c.dark);
     b.vline(s < 0 ? x : x + 2, bodyTop + 1, fh, c.deep);
     b.hline(x, bodyTop + 1, 3, c.base);
     b.rect(s < 0 ? x - 1 : x, bodyTop + fh, 4, 3, c.base);
     for (let i = 0; i < 3; i++) b.set((s < 0 ? x - 1 : x) + i, bodyTop + fh + 3, t.lite);
-    // hind leg: a heavy haunch, a shin tucked under it, a three-clawed foot
+    // hind leg: a heavy haunch, a shin tucked under it, a three-clawed foot.
+    // The haunch stays put and only the shin and foot travel — a digitigrade
+    // leg bends at the hock, so the mass above it does not move with the step.
     const hx = s < 0 ? cx - half + 1 : cx + half - 6;
     b.rect(hx, hipY - 6, 6, 8, c.base);
     b.hline(hx, hipY - 6, 6, c.lite);
     b.hline(hx, hipY + 1, 6, c.deep);
     b.vline(s < 0 ? hx : hx + 5, hipY - 5, 7, c.dark);
-    const sx = s < 0 ? cx - half + 2 : cx + half - 5;
+    const sx = (s < 0 ? cx - half + 2 : cx + half - 5) + hStep;
     b.rect(sx, hipY + 2, 4, Math.max(2, bottom - hipY - 3), c.dark);
     b.vline(s < 0 ? sx : sx + 3, hipY + 2, Math.max(2, bottom - hipY - 3), c.deep);
     const fx = s < 0 ? sx - 2 : sx - 1;
@@ -3638,7 +3985,7 @@ function drawDrake(b, d) {
 }
 
 /** A machine — drones, golems, mechs. Hard edges, a single lens. */
-function drawMech(b, d) {
+function drawMech(b, d, pose) {
   const W = b.w, H = b.h;
   const cx = W >> 1;
   const c = ramp(d.outfit || '#9aa7bd');
@@ -3680,12 +4027,19 @@ function drawMech(b, d) {
     b.set(s < 0 ? cx - half - 2 : cx + half + 2, cy + 2, t.base);
     b.set(s < 0 ? cx - half - 2 : cx + half + 2, top + 3, c.lite);
   }
-  // legs
+  // LEGS, and they walk — but as a PISTON STROKE, not a stride. No knee break,
+  // no roll, no tone change on the forward foot: the whole leg travels a column
+  // and the foot lifts a row, and that is all. Which is exactly what makes it
+  // read as a machine standing next to a person who does have a gait.
+  const p = pose || POSE_IDLE;
   const legH = Math.max(1, bottom - botY);
-  b.rect(cx - half + 1, botY + 1, 3, legH, c.deep);
-  b.rect(cx + half - 3, botY + 1, 3, legH, c.deep);
-  b.hline(cx - half, bottom, 4, c.dark);
-  b.hline(cx + half - 3, bottom, 4, c.dark);
+  for (const s of [-1, 1]) {
+    const sw = s < 0 ? p.l : p.r;
+    const up = p.lift === s ? 1 : 0;
+    const x = (s < 0 ? cx - half + 1 : cx + half - 3) + s * sw;
+    b.rect(x, botY + 1, 3, Math.max(1, legH - up), c.deep);
+    b.hline(x - (s < 0 ? 1 : 0), bottom - up, 4, c.dark);
+  }
   if (d.wings) {
     // Anchored to the grid edge rather than to `half`, so the rotor booms stay
     // inside the buffer (and keep their outline) on every mech grid size.
@@ -3700,7 +4054,7 @@ function drawMech(b, d) {
 }
 
 /** A boss — a bigger humanoid or beast with a heavier silhouette. */
-function drawTitan(b, d) {
+function drawTitan(b, d, pose) {
   const W = b.w, H = b.h;
   const cx = W >> 1;
   const c = ramp(d.outfit || '#8a5f8f');
@@ -3735,10 +4089,25 @@ function drawTitan(b, d) {
     b.rect(s < 0 ? x : x + 1, torsoY + 2 + Math.round(H * 0.34), 5, 5, c.deep); // fists
     b.hline(s < 0 ? x : x + 1, torsoY + 2 + Math.round(H * 0.34), 5, c.dark);
   }
+  // LEGS, with the two-beat trudge a thing this size gets. The titan takes only
+  // the CONTACT beats — feet apart, then apart the other way — and skips the
+  // passing lift entirely, which is both the correct read (nothing weighing this
+  // much picks a foot up cleanly) and where all the atlas memory is: a boss is
+  // rastered at 168-224px square, so every extra frame here costs 40x what one
+  // costs on a character.
+  //
+  // The stride is TWO columns, not one. A boss grid is 56-64 wide against the
+  // humanoid's 30, so a one-column step is half the relative travel and reads as
+  // a wobble rather than a walk.
+  const p = pose || POSE_IDLE;
+  const tLegW = Math.max(4, half - 3);
+  const tLegH = Math.max(2, H - 3 - legY);
   for (const s of [-1, 1]) {                                                   // legs
-    b.rect(s < 0 ? cx - half + 1 : cx + 2, legY, Math.max(4, half - 3), H - 3 - legY, c.dark);
-    b.vline(s < 0 ? cx - half + 1 : cx + 2, legY, H - 3 - legY, c.base);
-    b.hline(s < 0 ? cx - half : cx + 2, H - 3, Math.max(5, half - 2), c.deep);
+    const sw = s < 0 ? p.l : p.r;
+    const x = (s < 0 ? cx - half + 1 : cx + 2) + s * sw * 2;
+    b.rect(x, legY, tLegW, tLegH, c.dark);
+    b.vline(x, legY, tLegH, c.base);
+    b.hline(x - (s < 0 ? 1 : 0), H - 3, Math.max(5, half - 2), c.deep);
   }
   if (d.ears === 'horns' || d.ears === 'greatHorns') {
     for (const s of [-1, 1]) {
@@ -3774,7 +4143,24 @@ export const BODY_PLANS = Object.keys(BODIES);
  * so these numbers buy detail and nothing else.
  */
 const BODY_SIZE = {
-  humanoid: [30, 42],
+  // 40x56 rather than 30x42. The reference sheet in `Example Folder/` puts a
+  // roughly 64px figure in its frame, and at 42 rows a leg is six rows of shin
+  // and five of boot — enough for a stride and not enough for a calf, an ankle
+  // and a foot that are three different shapes. At 56 rows it is, which is what
+  // the walk cycle actually needs to read.
+  //
+  // It costs NOTHING on screen: `spriteAtlas.registerPixel` bakes a `unit` that
+  // divides the grid back out, so a 40x56 character renders at exactly the same
+  // 39x54 world px a 30x42 one does. Measured fill after the change: min 44.6%
+  // (sora), mean 54.5%, max 74.3% (pekora) — the 12%/92% band in
+  // tests/pixelArt.js is untouched.
+  //
+  // WHAT IT DOES COST is a visual pass: several hundred offsets in this file are
+  // absolute literals rather than derived from `m`, so every belt buckle, button
+  // and hairpin arrives 25% smaller relative to the figure. That is a day of
+  // looking at sprites, not a refactor, and it must not be attempted in the same
+  // change as the walk cycle or neither can be judged.
+  humanoid: [40, 56],
   portrait: [40, 40],
   blob: [18, 18],
   ghost: [22, 24],
@@ -3794,11 +4180,11 @@ const BODY_SIZE = {
  * or that is pixel-identical to another character, is invisible to every other
  * check in the project (both draw fine, both throw nothing).
  */
-export function buildBuffer(d) {
+export function buildBuffer(d, pose) {
   const plan = BODIES[d.body] || drawHumanoid;
   const size = BODY_SIZE[d.body] || BODY_SIZE.humanoid;
   const b = new PixelBuf(d.gridW || size[0], d.gridH || size[1]);
-  plan(b, d);
+  plan(b, d, pose || POSE_IDLE);
   b.shadeEdges(0.22, 0.28);
   b.outline(d.outlineColor || OUTLINE);
   return b;
@@ -3810,37 +4196,127 @@ export function buildBuffer(d) {
  * @param d descriptor — see the module header
  * @param makeCanvas the atlas's canvas factory (so this stays headless-safe)
  */
-export function buildPixelSprite(d, makeCanvas) {
+/**
+ * THE FRAME LAYOUT, and it is ALWAYS idle-first.
+ *
+ *   [0]            the standing pose
+ *   [1]            the same pose bobbed a pixel      (omitted when noBob)
+ *   [2 .. 2+n)     the walk beats                    (omitted when n is 0)
+ *
+ * `spriteAtlas` publishes the split as `sprite.idleFrames` / `sprite.walkFrames`
+ * so the entity loop can pick a frame with one compare and one mask; nothing
+ * outside this file ever needs to know what a pose is.
+ *
+ * A `noBob` descriptor returns ONE entry, which is a fix rather than a tidy-up:
+ * the old line was `[base, d.noBob ? base : base.shifted(1)]`, so a bust put the
+ * SAME buffer in both slots and the loop below then rastered it into two
+ * separate canvases. Twenty-seven sprites — all 25 HUD portraits plus the two
+ * `noBob` enemies — carried a byte-identical duplicate frame and a duplicate
+ * flash twin that `frameAt` could never tell apart: 1.24 MB of atlas, 6% of the
+ * whole pixel budget, spent on nothing.
+ */
+function framePlan(d) {
+  if (d.noBob) return [null];
+  const walk = FRAME_PLAN[d.body || 'humanoid'];
+  const out = [null, 'bob'];
+  if (walk === 4) out.push(WALK_POSES[0], WALK_POSES[1], WALK_POSES[2], WALK_POSES[3]);
+  else if (walk === 2) out.push(WALK_POSES[0], WALK_POSES[2]);
+  return out;
+}
+
+/** Run one body plan into one buffer, in one pose, finished and outlined. */
+function buildPose(d, W, H, pose, shaded) {
   const plan = BODIES[d.body] || drawHumanoid;
+  const buf = new PixelBuf(W, H);
+  plan(buf, d, pose || POSE_IDLE);
+  if (shaded) buf.shadeEdges(0.22, 0.28);
+  buf.outline(shaded ? (d.outlineColor || OUTLINE) : OUTLINE);
+  return buf;
+}
+
+/**
+ * Hex -> packed 0xAABBGGRR, memoised. Boot-time only.
+ *
+ * The little-endian channel order is not a mistake: a Uint32Array view over an
+ * ImageData's buffer writes bytes in R,G,B,A order on a little-endian machine,
+ * which every machine that will ever run this is.
+ */
+const RGBA_CACHE = new Map();
+function rgba(hex) {
+  let v = RGBA_CACHE.get(hex);
+  if (v === undefined) {
+    const n = parseInt(hex.charAt(0) === '#' ? hex.slice(1) : hex, 16);
+    v = (255 << 24) | ((n & 255) << 16) | (((n >> 8) & 255) << 8) | ((n >> 16) & 255);
+    RGBA_CACHE.set(hex, v);
+  }
+  return v;
+}
+
+/**
+ * Flush a finished buffer into a canvas IN ONE CALL.
+ *
+ * This used to be a `fillStyle = c; fillRect(x, y, 1, 1)` per pixel, and a
+ * fillStyle write is a string parse — the most expensive thing in the whole
+ * boot path, paid 1,400 times per frame per sprite. That was tolerable at four
+ * canvases per sprite and is not at twelve, so the pixels go through a typed
+ * array and one putImageData instead: about fifty times faster, and it makes
+ * the walk cycle free at boot rather than a third of a second of it.
+ *
+ * The fillRect path stays as the fallback for the headless stub context, which
+ * has no ImageData to construct.
+ */
+function blit(buf, W, H, makeCanvas, white) {
+  const cv = makeCanvas(W, H);
+  const ctx = cv.getContext('2d');
+  if (typeof ImageData !== 'undefined') {
+    const px = new Uint32Array(W * H);
+    const solid = 0xffffffff;
+    for (let i = 0, n = W * H; i < n; i++) {
+      const c = buf.px[i];
+      if (c) px[i] = white ? solid : rgba(c);
+    }
+    ctx.putImageData(new ImageData(new Uint8ClampedArray(px.buffer), W, H), 0, 0);
+    return cv;
+  }
+  if (white) ctx.fillStyle = '#ffffff';
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const c = buf.get(x, y);
+      if (!c) continue;
+      if (!white) ctx.fillStyle = c;
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+  return cv;
+}
+
+export function buildPixelSprite(d, makeCanvas) {
   const size = BODY_SIZE[d.body] || BODY_SIZE.humanoid;
   const W = d.gridW || size[0];
   const H = d.gridH || size[1];
-
-  const base = new PixelBuf(W, H);
-  plan(base, d);
-  base.shadeEdges(0.22, 0.28);
-  base.outline(d.outlineColor || OUTLINE);
-
-  // Two-frame idle bob. A static sprite in a field of moving ones reads as a
-  // bug; one pixel of vertical travel is enough to make it feel alive. The body
-  // plans leave the last row of the grid empty so the bob has room to move into.
-  const frames = [base, d.noBob ? base : base.shifted(1)];
+  const poses = framePlan(d);
 
   const out = [];
-  for (const buf of frames) {
-    const cv = makeCanvas(W, H);
-    const ctx = cv.getContext('2d');
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const c = buf.get(x, y);
-        if (!c) continue;
-        ctx.fillStyle = c;
-        ctx.fillRect(x, y, 1, 1);
-      }
+  let base = null;
+  for (let i = 0; i < poses.length; i++) {
+    const p = poses[i];
+    let buf;
+    if (p === 'bob') {
+      // The idle bob. A static sprite in a field of moving ones reads as a bug;
+      // one pixel of vertical travel is enough to make it feel alive, and the
+      // body plans leave the last row of the grid empty so it has room to go.
+      buf = base.shifted(1);
+    } else {
+      buf = buildPose(d, W, H, p, true);
+      if (i === 0) base = buf;
+      // The contact beats take the SAME +1 shift the bob does. That is the
+      // whole of the walk's vertical oscillation and it is free — no second
+      // plan run, no second buffer, just the shift that was already here.
+      if (p && p.bob) buf = buf.shifted(1);
     }
-    out.push(cv);
+    out.push(blit(buf, W, H, makeCanvas, false));
   }
-  return { frames: out, w: W, h: H };
+  return { frames: out, w: W, h: H, idle: d.noBob ? 1 : 2 };
 }
 
 /**
@@ -3848,25 +4324,32 @@ export function buildPixelSprite(d, makeCanvas) {
  * buffer rather than re-derived, so it can never drift from the sprite.
  */
 export function buildFlashFrames(d, makeCanvas) {
-  const plan = BODIES[d.body] || drawHumanoid;
   const size = BODY_SIZE[d.body] || BODY_SIZE.humanoid;
   const W = d.gridW || size[0];
   const H = d.gridH || size[1];
-  const base = new PixelBuf(W, H);
-  plan(base, d);
-  base.outline(OUTLINE);
+  // THE SAME POSE LIST, not a similar one. `Sprite.flashAt` indexes the flash
+  // array with the identical index `frameAt` uses, so a twin that is one frame
+  // short reads `frames[0]` on the last beat and a walking enemy snaps back to
+  // its idle pose for one frame every time it is hit.
+  const poses = framePlan(d);
 
   const out = [];
-  for (const buf of [base, d.noBob ? base : base.shifted(1)]) {
-    const cv = makeCanvas(W, H);
-    const ctx = cv.getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) if (buf.get(x, y)) ctx.fillRect(x, y, 1, 1);
+  let base = null;
+  for (let i = 0; i < poses.length; i++) {
+    const p = poses[i];
+    let buf;
+    if (p === 'bob') buf = base.shifted(1);
+    else {
+      // Deliberately UNSHADED: the twin is a solid white silhouette, so the
+      // light pass would be thrown away and it is the most expensive thing in
+      // the builder.
+      buf = buildPose(d, W, H, p, false);
+      if (i === 0) base = buf;
+      if (p && p.bob) buf = buf.shifted(1);
     }
-    out.push(cv);
+    out.push(blit(buf, W, H, makeCanvas, true));
   }
   return out;
 }
 
-export { PixelBuf, OUTLINE, ramp, BODY_SIZE };
+export { PixelBuf, OUTLINE, ramp, BODY_SIZE, WALK_POSES, framePlan };
