@@ -149,6 +149,28 @@ const WISP_SUMMON = {
   orbitRadius: 74, orbitAngle: 0,
 };
 const WISP_SPAWN = { speed: 70, life: 0.5, size: 0.5, additive: true };
+
+/**
+ * HOW FAR A CLONE MAY BE FROM THE MAN, AND HOW BIG IT IS.
+ *
+ * The barrage lands on `targeting: {mode:'nearest'}`, and targeting.js's
+ * DEFAULT_RANGE is 900 — wider than the half-width of the viewport at base zoom
+ * (640), so the clones could and did appear off the side of the screen. An
+ * auto-attack whose whole identity is "it needs no line of sight" still has to
+ * be something you can SEE, so it gets an explicit reach that keeps every clone
+ * comfortably inside the frame.
+ *
+ * The bodies are drawn a little under full size for the same reason a clone in
+ * the source is not a twin: at 1.0 they read as three more players and the eye
+ * loses which one it is steering.
+ *
+ * Declared up here because every clone bag below reads the scale.
+ */
+const CLONE_REACH = 420;
+const CLONE_BODY_SCALE = 0.82;
+/** The blit bag for one struck clone. `scale`/`angle` written per swing. */
+const CLONE_GHOST = { life: 0.24, alpha: 0.92, scale: 1, angle: 0 };
+
 /**
  * THE CLONE THAT SPINS THE SPHERE.
  *
@@ -159,17 +181,20 @@ const WISP_SPAWN = { speed: 70, life: 0.5, size: 0.5, additive: true };
  */
 const HELPER_PROP = {
   role: H.MINION_ROLE.DECOY, hp: 9999, damage: 0, life: 0.5,
-  tag: 'spiral_helper', visual: V_CLONE,
+  tag: 'spiral_helper', visual: V_CLONE, sprite: null, spriteScale: CLONE_BODY_SCALE,
 };
 /** S5: the three doubles the transformation leaves standing where he was. */
 const DOUBLE_PROP = {
   role: H.MINION_ROLE.DECOY, hp: 9999, damage: 0, life: 4,
-  tag: 'double', visual: V_DOUBLE,
+  tag: 'double', visual: V_DOUBLE, sprite: null, spriteScale: CLONE_BODY_SCALE,
 };
 const BONUS_CLONE_SUMMON = {
   role: H.MINION_ROLE.MIRROR, hp: 30, damage: 0, speed: 215, tag: 'bonus_clone', max: 5,
-  visual: V_CLONE, element: 'spirit', orbitRadius: 96, orbitAngle: 0,
-  attackInterval: 0.7, bonusShare: 1,
+  // `sprite` is filled in at summon time with the player's own body — see
+  // minion.js spawn(). The capsule stays as the spawn-puff colour and as the
+  // fallback for any path that summons one without an owner sprite to hand.
+  visual: V_CLONE, element: 'spirit', orbitRadius: 74, orbitAngle: 0,
+  attackInterval: 0.7, bonusShare: 1, sprite: null, spriteScale: CLONE_BODY_SCALE,
 };
 const DECOY_PROP = {
   role: H.MINION_ROLE.DECOY, hp: 9999, damage: 0, life: 2.5,
@@ -742,10 +767,20 @@ registerAll({
       if (!t.found || !t.target) return;
       const dmg = H.autoDamage(run, p, ctx.def.damage, opts);
       const n = 3 + H.extraShots(p);
+      // EACH CLONE IS DRAWN, AND IT IS DRAWN AS HIM.
+      //
+      // The strike used to be four particles at a point: the one auto-attack in
+      // the game with no projectile to watch had nothing to watch at all, and
+      // "three clones appear and hit it" was a stat you had to infer from the
+      // damage numbers. `p.sprite` is the character's own pixel art, so a clone
+      // is a second copy of the man rather than a coloured blob — and the
+      // ability never learns whose sprite it is.
+      CLONE_GHOST.scale = (p.sprite && p.sprite.unit ? p.sprite.unit : 1)
+                        * H.feel.playerDrawScale * CLONE_BODY_SCALE;
       let e = t.target;
       for (let i = 0; i < n; i++) {
         if (!e || !e.active || e.hp <= 0) {
-          e = H.nearestTo(run, o.x, o.y, 620, null);
+          e = H.nearestTo(run, o.x, o.y, CLONE_REACH, null);
           if (!e) break;
         }
         const a = (i / n) * H.TAU + run.time * 2.2;
@@ -753,6 +788,10 @@ registerAll({
         const cy = e.y + Math.sin(a) * (e.radius + 22);
         CLONE_HIT.fromX = cx; CLONE_HIT.fromY = cy;
         H.dealDamage(run, e, dmg, H.SRC.AUTO, CLONE_HIT);
+        // Facing the thing it is hitting, so three clones around one enemy are
+        // three bodies turned inward rather than three identical stickers.
+        CLONE_GHOST.angle = 0;
+        H.effects.ghostSprite(cx, cy, p.sprite, CLONE_GHOST);
         H.particles.burst(cx, cy, 4, SPIRAL_ORANGE, CLONE_PUFF);
       }
 
@@ -804,6 +843,8 @@ registerAll({
 
       // The clone that spins it — one at base, four at S3. Props, not minions.
       const helpers = ctx.s3 ? 4 : 1;
+      // The clones that spin the sphere are HIM, so they are drawn as him.
+      HELPER_PROP.sprite = p.sprite;
       for (let i = 0; i < helpers; i++) {
         const b = (i / helpers) * H.TAU + a;
         H.prop(run, p, o.x + Math.cos(b) * 34, o.y + Math.sin(b) * 34, HELPER_PROP);
@@ -913,6 +954,7 @@ registerAll({
                        DOUBLE_PINK, 18, 1.0, p);
 
       if (ctx.s5) {
+        DOUBLE_PROP.sprite = p.sprite;
         for (let i = 0; i < 3; i++) {
           const b = (i / 3) * H.TAU + a;
           H.prop(run, p, p.x + Math.cos(b) * 58, p.y + Math.sin(b) * 58, DOUBLE_PROP);
@@ -1412,6 +1454,8 @@ function growArmy(run, p, ctx, e) {
     BONUS_CLONE_SUMMON.damage = H.autoDamage(run, p, p.def.autoAttack.damage) * 0.6;
     BONUS_CLONE_SUMMON.attackInterval = p.def.autoAttack.interval;
     BONUS_CLONE_SUMMON.orbitAngle = H.runRng.angle();
+    // The army is copies of HIM, so they are drawn as him.
+    BONUS_CLONE_SUMMON.sprite = p.sprite;
     const a = H.runRng.angle();
     const m = H.summon(run, p, p.x + Math.cos(a) * 70, p.y + Math.sin(a) * 70, BONUS_CLONE_SUMMON);
     if (m) H.floaters.spawn(p.x, p.y - 52, 'ONE MORE', SPIRAL_ORANGE, 17, 1.0, p);

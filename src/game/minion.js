@@ -93,9 +93,25 @@ export class MinionSystem {
     m.orbitAngle = o.orbitAngle !== undefined ? o.orbitAngle : runRng.angle();
     m.orbitRadius = o.orbitRadius || 62;
     m.visual = o.visual || DEFAULT_MINION_VISUAL;
-    m.sprite = atlas.ensure(m.visual);
+    // A COPY OF SOMEBODY WEARS THAT SOMEBODY'S BODY.
+    //
+    // `o.sprite` is an ALREADY-REGISTERED atlas Sprite the caller hands over —
+    // in practice `p.sprite`, the summoner's own pixel art. A clone drawn as a
+    // coloured capsule is a pet; a clone drawn as a second copy of the character
+    // is a clone, and that distinction is the entire read on a kit built out of
+    // them. Nothing here learns whose sprite it is, so it stays generic.
+    //
+    // A pixel sprite is rastered at a whole-number upscale of its little grid,
+    // so it needs `unit` to cancel the rounding exactly the way player.js does;
+    // a shape sprite is already at its declared size and wants a plain 1.
+    if (o.sprite) {
+      m.sprite = o.sprite;
+      m.scale = (o.sprite.unit || 1) * (o.spriteScale || 1);
+    } else {
+      m.sprite = atlas.ensure(m.visual);
+      m.scale = 1;
+    }
     m.radius = m.visual.size || 12;
-    m.scale = 1;
     m.isMinion = o.isMinion !== false;      // props pass false explicitly
     m.element = o.element || null;
     m.onExpire = o.onExpire || null;

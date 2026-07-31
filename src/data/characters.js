@@ -312,11 +312,15 @@ const UZU = {
   // never lost a fight.
   autoAttack: {
     id: 'kage_bunshin_barrage', name: 'Kage Bunshin Barrage',
-    desc: '3 clones puff into existence AT the nearest enemy and strike for 12 ' +
-          'each, every 0.7s. No travel time, no line of sight. Every 4th barrage ' +
-          'ends the combo: they kick it up and he comes down heel-first for 24 ' +
-          'extra damage and a 0.6s knockdown.',
-    interval: 0.7, damage: 12, targeting: { mode: 'nearest' },
+    desc: '3 clones puff into existence AT the nearest enemy within 420px and ' +
+          'strike for 12 each, every 0.7s. No travel time, no line of sight. ' +
+          'Every 4th barrage ends the combo: they kick it up and he comes down ' +
+          'heel-first for 24 extra damage and a 0.6s knockdown.',
+    // 420, not targeting.js's default 900. The clones are drawn where they
+    // strike, and half the viewport at base zoom is 640px — so the default put
+    // his entire auto-attack off the side of the screen whenever the nearest
+    // enemy happened to be out there.
+    interval: 0.7, damage: 12, targeting: { mode: 'nearest', range: 420 },
   },
   special: {
     id: 'rasengan', name: 'RASENGAN', cooldown: 22,

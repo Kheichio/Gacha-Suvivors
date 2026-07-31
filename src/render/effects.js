@@ -70,8 +70,8 @@ const MAX_EFFECTS = 160;
 export const FX_TIER = { NORMAL: 0, EVOLVED: 1 };
 
 const K_SLASH = 0, K_SHOCK = 1, K_BEAM = 2, K_BURST = 3, K_IMPACT = 4, K_AFTER = 5;
-/** The PROP kinds. All three blit in the second, source-over pass. */
-const K_SWEEP = 6, K_FALL = 7, K_CHAIN = 8;
+/** The PROP kinds. All four blit in the second, source-over pass. */
+const K_SWEEP = 6, K_FALL = 7, K_CHAIN = 8, K_GHOST = 10;
 /** FIRE. A sprite kind too, but drawn additively with the rest of the energy. */
 const K_FLAME = 9;
 /** How fast the flame sheet cycles, in frames per unit of an effect's life. */
@@ -321,6 +321,34 @@ export class EffectSystem {
   }
 
   /**
+   * A BODY THAT IS THERE FOR A MOMENT — a clone, an afterimage, a double.
+   *
+   * `afterimage` already exists and draws a streak of ENERGY where something
+   * passed. This is the other thing: an actual figure, standing at a place,
+   * doing something, and then gone. The difference matters for a kit whose whole
+   * identity is that there are suddenly more of you — three particle bursts say
+   * "something happened here", and three copies of the character say who.
+   *
+   * It POPS IN and FADES OUT rather than simply fading: a clone that eases in
+   * reads as a ghost, and these are supposed to be solid enough to hit things.
+   *
+   * @param sprite an already-registered atlas Sprite — normally `p.sprite`
+   * @param opts   .scale (multiplied by the sprite's own `unit` by the CALLER,
+   *               which is the only place that knows the draw convention)
+   *               .life .alpha .angle
+   */
+  ghostSprite(x, y, sprite, opts) {
+    const o = opts || EMPTY;
+    if (!sprite) return null;
+    const e = this._begin(K_GHOST, x, y, o.color || WHITE, o, 0.26);
+    if (!e) return null;
+    e.sprite = sprite;
+    e.a0 = finite(o.angle) ? o.angle : 0;
+    e.w0 = o.scale > 0 ? o.scale : 1;
+    return e;
+  }
+
+  /**
    * A BREATH OF FIRE — one puff of a plume that fills a cone.
    *
    * ONE INSTANCE IS NOT THE WHOLE JET. Its wave front leaves the mouth and races
@@ -454,6 +482,7 @@ export class EffectSystem {
       if (e.kind === K_SWEEP) drawSweep(r, e, t);
       else if (e.kind === K_FALL) drawFall(r, e, t);
       else if (e.kind === K_CHAIN) drawChainLinks(r, e, t);
+      else if (e.kind === K_GHOST) drawGhostBody(r, e, t);
     }
     r.setAlpha(1);
   }
@@ -887,6 +916,24 @@ function drawChainLinks(r, e, t) {
     }
     px = x; py = y;
   }
+}
+
+/**
+ * A CLONE, FOR AS LONG AS IT IS THERE.
+ *
+ * Popped in over the first eighth of its life and faded out across the rest, so
+ * it lands with weight and leaves like smoke. The scale overshoot on arrival is
+ * small on purpose — a clone that balloons reads as a summon effect rather than
+ * as a person who was already mid-swing when they appeared.
+ */
+function drawGhostBody(r, e, t) {
+  const sp = e.sprite;
+  if (!sp) return;
+  const pop = t < 0.12 ? t / 0.12 : 1;
+  const A = e.alpha * (t < 0.12 ? pop : Math.pow(1 - (t - 0.12) / 0.88, 1.3));
+  if (A <= 0.02) return;
+  const s = e.w0 * (0.62 + 0.44 * pop);
+  r.drawSpriteRotated(sp, e.x, e.y, e.a0, s, A > 1 ? 1 : A, false);
 }
 
 /**

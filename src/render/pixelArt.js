@@ -58,7 +58,7 @@
 //     AND the +1 bob frame both have somewhere to go. Without that margin the
 //     boots' underside outline was silently clipped on every character.
 
-import { shade, mixHex, clamp } from '../core/math.js';
+import { shade, mixHex, clamp, lift, sink } from '../core/math.js';
 
 // ---------------------------------------------------------------------------
 // A tiny pixel buffer. Everything is plotted here first, then flushed to a
@@ -233,10 +233,13 @@ class PixelBuf {
       for (let x = 0; x < W; x++) {
         const c = at(x, y);
         if (!c || c === OUTLINE) continue;
-        if (open(at(x, y - 1))) this.set(x, y, shade(c, lightAmt));
-        else if (open(at(x - 1, y))) this.set(x, y, shade(c, lightAmt * 0.6));
-        else if (open(at(x, y + 1))) this.set(x, y, shade(c, -darkAmt));
-        else if (open(at(x + 1, y))) this.set(x, y, shade(c, -darkAmt * 0.55));
+        // lift/sink, not shade. The edge pass is the LAST thing to touch a
+        // pixel, so a flat mix here would undo the painterly ramp underneath it
+        // on exactly the rows the eye reads the form from.
+        if (open(at(x, y - 1))) this.set(x, y, lift(c, lightAmt));
+        else if (open(at(x - 1, y))) this.set(x, y, lift(c, lightAmt * 0.6));
+        else if (open(at(x, y + 1))) this.set(x, y, sink(c, darkAmt));
+        else if (open(at(x + 1, y))) this.set(x, y, sink(c, darkAmt * 0.55));
       }
     }
   }
@@ -293,7 +296,13 @@ class PixelBuf {
   }
 }
 
-const OUTLINE = '#0a0c14';
+// PURE BLACK, and that is a measurement rather than a preference. In the
+// reference sheet the outline is #000000 and it is 25% of every pixel in the
+// figure — a quarter of the drawing is the line around it, which is what lets
+// the interior stay muted (mean saturation 27%) and still read at a glance.
+// #0a0c14 was a very dark navy chosen to sit politely on the stage backdrop, and
+// politeness is the opposite of what an outline is for.
+const OUTLINE = '#000000';
 
 // ---------------------------------------------------------------------------
 // Palette derivation. A descriptor gives one or two colours; everything else —
@@ -316,14 +325,32 @@ const OUTLINE = '#0a0c14';
  * of light and the shadow as a fall-off. An evenly spaced ramp reads as a
  * gradient, and a gradient is the one thing pixel art must never look like.
  */
+/**
+ * AND THE TONES ARE SHADED THE WAY A PAINTER SHADES, not the way a computer
+ * does.
+ *
+ * These were `shade(base, ±n)` — a straight mix toward white or black — which is
+ * the flattest ramp there is: it desaturates in BOTH directions and rotates no
+ * hue, so every surface in the game was the same plastic however many bands it
+ * had. Measured off the reference sheet, material by material, light to dark:
+ *
+ *     teal    L 40 -> 14    S 35 -> 86     hue  +3deg
+ *     navy    L 74 ->  1    S 20 -> 100    hue  -4deg
+ *     purple  L 94 -> 15    S 15 -> 44     hue +19deg
+ *
+ * A shadow is darker, MORE SATURATED and cooler than the surface it falls on.
+ * `lift`/`sink` in core/math.js carry that, and this is the one place the sprite
+ * layer asks for it — so all 25 characters, 51 enemies and every boss pick the
+ * change up together, at no cost to the atlas and none to the draw loop.
+ */
 function ramp(base) {
-  const lite = shade(base, 0.34);
+  const lite = lift(base, 0.34);
   return {
     spec: mixHex(lite, '#ffffff', 0.36),
     lite,
     base,
-    dark: shade(base, -0.30),
-    deep: shade(base, -0.52),
+    dark: sink(base, 0.30),
+    deep: sink(base, 0.52),
   };
 }
 
@@ -1435,10 +1462,24 @@ function drawHead(b, m, P, d) {
 function drawFace(b, m, P, d) {
   const { cx, headY, headR, chinY } = m;
   const big = headR >= 5;
-  const eyeW = big ? 3 : 2;
-  const eyeH = big ? 3 : 2;
+  // THE FACE IS A FRACTION OF THE HEAD, NOT A FIXED NUMBER OF PIXELS.
+  //
+  // These were hardcoded 3s, which is correct at the 30x42 the roster is drawn
+  // on and wrong everywhere else — and "everywhere else" now includes the HUD
+  // icon, which is this same plan run at a ~90-row grid and cropped. A 3px eye
+  // in a 34px head is not a small eye, it is a freckle, and the whole figure
+  // read as a blank slab of skin.
+  //
+  // The ratios are chosen so that AT headR 6 — the roster's own head — every
+  // number below rounds to exactly what was hardcoded before, so no existing
+  // sprite moves by a pixel. Above it they grow, which is what lets one drawing
+  // serve both the 30px figure and the 40px bust.
+  const eyeW = Math.max(big ? 3 : 2, Math.round(headR * 0.55));
+  const eyeH = Math.max(big ? 3 : 2, Math.round(headR * 0.55));
   const eyeY = headY - 1;
-  const inset = 1;
+  const inset = Math.max(1, Math.round(headR * 0.18));
+  const irisW = Math.max(2, Math.round(eyeW * 0.66));
+  const dot = Math.max(1, Math.round(eyeW * 0.34));
   const iris = ramp(P.eyes);
   const covered = d.eyepatch ? (d.eyepatch === 'right' ? 1 : -1) : 0;
   for (const s of [-1, 1]) {
@@ -1451,11 +1492,12 @@ function drawFace(b, m, P, d) {
     b.hline(x, eyeY - 1, eyeW, P.hair.deep);                   // lash line
     b.set(s < 0 ? x - 1 : x + eyeW, eyeY - 1, P.hair.deep);    // the outer corner
     b.rect(x, eyeY, eyeW, eyeH, EYE_WHITE);
-    const ix = s < 0 ? x : x + eyeW - 2;
-    b.rect(ix, eyeY, 2, eyeH, iris.base);
-    b.set(ix + (s < 0 ? 0 : 1), eyeY + 1, iris.deep);          // pupil
-    b.set(ix + (s < 0 ? 0 : 1), eyeY, WHITE);                  // catch-light
-    b.set(ix + (s < 0 ? 1 : 0), eyeY + eyeH - 1, iris.lite);   // lit lower rim
+    const ix = s < 0 ? x : x + eyeW - irisW;
+    b.rect(ix, eyeY, irisW, eyeH, iris.base);
+    const px = s < 0 ? ix : ix + irisW - dot;
+    b.rect(px, eyeY + 1, dot, Math.max(1, eyeH - 1), iris.deep);   // pupil
+    b.rect(px, eyeY, dot, dot, WHITE);                             // catch-light
+    b.rect(s < 0 ? ix + irisW - dot : ix, eyeY + eyeH - 1, dot, 1, iris.lite);
     if (d.eyeSigil) {
       // A mark orbiting the pupil. At three pixels across, one contrasting dot
       // off-centre is the only "this eye is doing something" that survives.
@@ -1464,15 +1506,19 @@ function drawFace(b, m, P, d) {
     }
     if (P.glow) b.set(s < 0 ? x + eyeW - 1 : x, eyeY + eyeH, P.glow);
   }
-  // Nose and mouth. Two pixels each, and no wider — a 3px mouth plus a 2px
-  // blush on each cheek joined up into one line straight across the face.
-  b.set(cx, chinY - 3, P.skin.dark);
-  b.set(cx - 1, chinY - 1, mixHex(P.skin.deep, '#c05a5a', 0.5));
-  b.set(cx, chinY - 1, P.skin.deep);
+  // Nose and mouth. Narrow on purpose — a wide mouth plus a blush on each cheek
+  // joins up into one line straight across the face. Both scale off the head for
+  // the same reason the eyes do, and both round to the original single pixel at
+  // the roster's own headR of 6.
+  const fw = Math.max(1, Math.round(headR * 0.18));
+  b.rect(cx, chinY - 3, fw, 1, P.skin.dark);                         // nose
+  b.rect(cx - fw, chinY - 1, fw, 1, mixHex(P.skin.deep, '#c05a5a', 0.5));
+  b.rect(cx, chinY - 1, fw, 1, P.skin.deep);                         // mouth
   if (d.blush !== false) {
     const bl = mixHex(P.skin.base, '#ff8a9a', 0.4);
-    b.set(cx - headR + 2, chinY - 2, bl);
-    b.set(cx + headR - 2, chinY - 2, bl);
+    const bw = Math.max(1, Math.round(headR * 0.30));
+    b.rect(cx - headR + 2, chinY - 2, bw, Math.max(1, fw), bl);
+    b.rect(cx + headR - 1 - bw, chinY - 2, bw, Math.max(1, fw), bl);
   }
   if (d.whiskers) {
     // Three marks per cheek. Two is a smudge and four is a grille; three is the
@@ -2775,777 +2821,66 @@ function drawWeapon(b, m, P, d) {
 }
 
 // ---------------------------------------------------------------------------
-// THE PORTRAIT — a head-and-shoulders bust for the HUD, on its own 40x40 grid.
+// THE PORTRAIT — the head and shoulders of the WORLD SPRITE, and nothing else.
 //
-// This is the single most-looked-at piece of art in the game: it sits beside the
-// HP bar for a whole twenty-minute run. Everything the world sprite cannot
-// afford goes here — a real iris with a catch-light and a lit lower rim, brows
-// that carry expression, a nose, a mouth, hair with a highlight band and a
-// shadow band, the collar of the actual outfit, and whichever signature sits
-// above the neck. 32x32 could not fit an eye big enough to have an iris colour;
-// 40x40 can, which is the entire reason for the change.
+// This used to be a second, independent 760-line drawing of every character:
+// its own head, its own face, its own hair, its own collar, its own headgear.
+// It looked better than the world sprite, and that was exactly the problem —
+// the icon beside the HP bar and the figure you were steering were two
+// different pictures of two slightly different people, and every feature added
+// to one of them had to be re-implemented in the other or the two drifted
+// apart. They had drifted: the fox's robe was cream in her icon and vermilion
+// underfoot, the avenger's proportions were a boy's on the field and an adult's
+// in the corner, and nothing anywhere reported it because both drawings were
+// individually fine.
+//
+// So there is ONE drawing now. The body plan is run at a bigger grid — every
+// landmark in `humanMetrics` is a fraction of the grid, so the whole figure
+// simply grows into it — and the top of that figure is copied across. The icon
+// is therefore a CROP of the sprite, by construction, and the two cannot
+// disagree about hair, eyes, garment, crest or palette because there is only
+// one of each.
+//
+// It also keeps the thing the old bust was FOR: a 40x40 head is drawn from a
+// ~72-row figure, so the face lands at roughly 2.4x the resolution the world
+// sprite gives it and still gets a real iris, a brow and a mouth. The detail
+// was never the reason to have a second implementation; the grid was.
 // ---------------------------------------------------------------------------
+
+/**
+ * How much of the figure's HEIGHT the bust keeps, measured from the top of the
+ * hair. It lands the crop a few rows below the shoulder line at every grid size
+ * — head, neck, collar and the top of the chest, which is the framing a roster
+ * icon wants and the point past which a standing figure is all legs.
+ *
+ * 0.44 rather than the 0.56 that first looked right: the number does double
+ * duty, because keeping LESS of the figure means the source grid has to be
+ * BIGGER for the same icon, and the source grid is what the face is drawn at.
+ * At 0.56 a 40px icon came off a 71-row figure and the head filled 55% of the
+ * frame with 2px eyes; at 0.44 it comes off a 91-row figure, the head fills 70%,
+ * and the eyes get the resolution the old hand-drawn bust existed to buy.
+ */
+const BUST_FRACTION = 0.50;
+
 function drawPortrait(b, d) {
   const W = b.w, H = b.h;
-  const cx = W >> 1;
-  const P = humanPalette(d);
-  const hc = P.hair;
-  const young = !!d.young;
-  const rx = Math.max(5, Math.round(W * (young ? 0.28 : 0.26)));
-  const ry = Math.max(5, Math.round(H * (young ? 0.30 : 0.28)));
-  const headY = Math.round(H * 0.375);
-  const chinY = headY + ry;
-  const shoulderY = Math.min(H - 8, chinY + 4);
-  const top = headY - ry;
-  const eyeH = Math.max(3, Math.round(ry * 0.45));
-  const eyeW = Math.max(3, Math.round(rx * 0.6));
-  const eyeIn = Math.max(1, Math.round(rx * 0.22));
-  const eyeY = headY;
-  const noseY = eyeY + eyeH + 1;
-  const mouthY = chinY - 3;
-  const browY = eyeY - 4;
-  const style = d.hair || 'short';
-  const tie = d.hairTie ? slotRamp(d.hairTie, d.accent || '#c8203a') : P.trim;
+  // The source figure, sized so its top BUST_FRACTION fills this buffer's
+  // height, and kept at the humanoid plan's own 30:42 proportion so nothing is
+  // stretched. `drawHumanoid` derives every landmark from the grid it is given.
+  const srcH = Math.max(H, Math.round(H / BUST_FRACTION));
+  const srcW = Math.max(W, Math.round(srcH * (BODY_SIZE.humanoid[0] / BODY_SIZE.humanoid[1])));
+  const src = new PixelBuf(srcW, srcH);
+  drawHumanoid(src, d, POSE_IDLE);
 
-  // --- everything behind the head ------------------------------------------
-  if (d.aura) {
-    const a = slotRamp(d.aura, d.accent || '#ffe9a3');
-    for (let i = 0; i < 8; i++) {
-      b.set(2 + (i % 3) * 2, 3 + i * 2, i & 1 ? a.lite : a.base);
-      b.set(W - 3 - (i % 3) * 2, 4 + i * 2, i & 1 ? a.base : a.lite);
+  // Centred horizontally. A wider source than the icon is normal — the arms and
+  // whatever is in them sit outside the shoulders — and cropping those columns
+  // is what makes this a portrait rather than a small full-body sprite.
+  const ox = (srcW - W) >> 1;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const c = src.get(x + ox, y);
+      if (c) b.set(x, y, c);
     }
-  }
-  if (d.wings) {
-    // Only the leading edge of a wing makes it into a bust, which is enough:
-    // the viewer already knows the world sprite has them.
-    const wc = slotRamp(d.wingColor, d.accent || '#e8e8f0');
-    for (const s of [-1, 1]) {
-      const x = s < 0 ? 1 : W - 5;
-      b.taper(x, shoulderY - 6, 4, 4, H - shoulderY + 6, wc.dark);
-      b.vline(s < 0 ? x : x + 3, shoulderY - 5, H - shoulderY + 4, wc.base);
-      b.set(s < 0 ? x : x + 3, shoulderY - 6, wc.lite);
-    }
-  }
-  const backLen = ({ long: 18, bangs: 17, bob: 8, wave: 12, twin: 16, drills: 15,
-                     sidetail: 15, ponytail: 13, braid: 15, ducktail: 7,
-                     lowTwin: 16, twinLong: 18 })[style] || 0;
-  if (backLen) {
-    b.pair(cx, rx - 1, headY - ry + 3, 4, backLen, hc.base);
-    b.pair(cx, rx + 2, headY - ry + 5, 1, backLen - 4, hc.dark);
-    b.pair(cx, rx - 1, headY - ry + 6, 1, backLen - 6, hc.lite);
-  }
-  if (style === 'drills') {
-    // The same three cues as the world sprite — a scalloped edge, a lit thread
-    // wrapping the coil and a dark seam where it tucks behind itself — with the
-    // room a 40x40 grid buys to actually resolve them. The stacked blocks this
-    // replaced were a staircase, and a staircase is what a drill looks like only
-    // if you have never seen one.
-    const dTop = chinY - 7, dBot = H - 2;
-    const dLen = Math.max(8, dBot - dTop);
-    for (let j = 0; j <= dLen; j++) {
-      const y = dTop + j;
-      if (y >= H) break;
-      const t = j / dLen;
-      const k = j & 3;
-      const dx = rx - 1 + Math.round(3 * Math.min(1, t * 2.5));
-      const w = Math.min(Math.max(3, Math.round(8 - 5 * t)) + (k === 1 || k === 2 ? 1 : 0),
-                         Math.max(3, W - 1 - cx - dx));
-      b.pair(cx, dx, y, w, 1, k === 0 ? hc.dark : hc.base);
-      b.pair(cx, dx + Math.min(w - 1, k), y, 1, 1, k === 0 ? hc.deep : hc.lite);
-      if (k === 3) b.pair(cx, dx, y, 1, 1, hc.deep);
-    }
-  }
-  if (style === 'lowTwin') {
-    // Gathered at the NAPE, which on a bust is the one place a hairstyle is
-    // fully in frame — so the ties are drawn big and the fall is drawn straight.
-    b.pair(cx, rx - 1, chinY - 5, 5, 2, tie.lite);
-    b.pair(cx, rx - 1, chinY - 3, 5, 3, tie.base);
-    b.pair(cx, rx - 1, chinY, 5, 1, tie.dark);
-    b.pair(cx, rx - 1, chinY + 1, 5, H - chinY - 1, hc.base);
-    b.pair(cx, rx + 2, chinY + 3, 1, H - chinY - 5, hc.dark);
-    b.pair(cx, rx - 1, chinY + 4, 1, H - chinY - 7, hc.lite);
-  }
-  if (style === 'twin' || style === 'twinLong') {
-    b.pair(cx, rx, headY - ry + 1, 5, 5, hc.base);
-    b.pair(cx, rx, headY - ry + 6, 5, 2, tie.base);
-    b.pair(cx, rx + 1, headY - ry + 5, 3, 1, tie.lite);
-  }
-  if (style === 'twinLong') {
-    // The two falls, running straight off the bottom of the frame. A bust is
-    // the one crop where LONG hair cannot be shown as long, so what sells it
-    // instead is that the tails leave the picture rather than ending in it —
-    // and the swing outward, which is what tells them from a pair of curtains.
-    const fTop = headY - ry + 8;
-    for (let j = 0; fTop + j < H; j++) {
-      const dx = rx + Math.min(3, j >> 2);
-      b.pair(cx, dx, fTop + j, 4, 1, hc.base);
-      b.pair(cx, dx, fTop + j, 1, 1, mixHex(hc.lite, WHITE, 0.22));
-      b.pair(cx, dx + 3, fTop + j, 1, 1, hc.dark);
-      if (j % 6 === 5) b.pair(cx, dx + 2, fTop + j, 2, 1, hc.deep);
-    }
-  }
-  if (style === 'ponytail') {
-    b.rect(cx + rx - 1, headY - ry + 3, 5, 18, hc.base);
-    b.vline(cx + rx + 3, headY - ry + 6, 12, hc.lite);
-    b.rect(cx + rx - 1, headY - ry + 5, 5, 2, tie.base);
-  }
-  if (style === 'sidetail') {
-    b.rect(cx - rx - 3, headY - ry + 5, 5, 18, hc.base);
-    b.vline(cx - rx - 3, headY - ry + 8, 10, hc.lite);
-    b.rect(cx - rx - 3, headY - ry + 6, 5, 2, tie.base);
-  }
-  if (style === 'braid') {
-    for (let j = 0; j < 18; j++) {
-      b.rect(cx - rx - 3, chinY - 10 + j, 4, 1, j % 3 === 2 ? hc.deep : hc.base);
-      if (j % 3 === 0) b.set(cx - rx - 3, chinY - 10 + j, hc.lite);
-    }
-  }
-  if (style === 'ducktail') {
-    for (const s of [-1, 1]) {
-      for (let i = 0; i < 3; i++) {
-        b.spike(cx + s * (rx - 2 + i * 3) - 2, top + 4 + i * 2, 5, 6 + i * 2, -1,
-                i & 1 ? hc.lite : hc.base);
-      }
-    }
-  }
-  if (P.tip) b.retint(0, chinY, W, H - chinY, hc, P.tip);
-  if (d.hoodDown) {
-    // Drawn BEFORE the shoulders, so all that survives is the roll of cloth
-    // standing proud of the jaw on each side — which is the only part of a hood
-    // worn down that a head-and-shoulders crop can honestly show.
-    const c = slotRamp(d.hoodDown, d.outfit || '#e8e4dc');
-    const y = chinY - 4;
-    b.taper(cx - rx - 3, y, rx * 2 + 7, rx * 2 + 11, H - y, c.base);
-    b.hline(cx - rx - 2, y, rx * 2 + 5, c.lite);
-    for (const s of [-1, 1]) {
-      b.vline(cx + s * (rx + 2), y + 1, H - y - 2, c.dark);
-      b.set(cx + s * (rx + 3), y + 3, c.lite);
-    }
-  }
-
-  // --- shoulders, collar and outfit ----------------------------------------
-  const shBot = (W >> 1) - 3;
-  const shTop = Math.max(5, shBot - 5);
-  b.taper(cx - shTop, shoulderY, shTop * 2 + 1, shBot * 2 + 1, H - shoulderY, P.cloth.base);
-  b.hline(cx - shTop + 1, shoulderY, shTop * 2 - 1, P.cloth.lite);
-  b.hline(cx - shTop - 2, H - 2, shTop * 2 + 5, P.cloth.dark);
-  if (d.coat) {
-    b.rect(cx - shBot, shoulderY + 2, 6, H - shoulderY - 2, P.coat.base);
-    b.rect(cx + shBot - 5, shoulderY + 2, 6, H - shoulderY - 2, P.coat.base);
-    b.vline(cx - shBot + 6, shoulderY + 2, H - shoulderY - 2, P.coat.lite);
-    b.vline(cx + shBot - 6, shoulderY + 2, H - shoulderY - 2, P.coat.lite);
-    if (d.coatPattern === 'check') {
-      const alt = typeof d.coatPattern2 === 'string' ? d.coatPattern2 : shade(P.coat.base, -0.62);
-      b.patternCheck(0, shoulderY, W, H - shoulderY, P.coat, alt, 2);
-    }
-    if (d.coatTrim) {
-      b.vline(cx - shBot, shoulderY + 2, H - shoulderY - 2, d.coatTrim);
-      b.vline(cx + shBot, shoulderY + 2, H - shoulderY - 2, d.coatTrim);
-    }
-    if (d.coatLapels) {
-      // The lapels are the ONE part of a long coat a bust can show properly,
-      // and they are the reason the feature exists — a peaked collar is a face
-      // frame, so a portrait that crops it out has thrown away the thing the
-      // world sprite could only hint at.
-      const lc = slotRamp(d.coatLapels, d.coatTrim || P.coat.lite);
-      for (const s of [-1, 1]) {
-        for (let j = 0; j < H - shoulderY - 1; j++) {
-          const w = Math.max(2, 5 - ((j * 4 / Math.max(1, H - shoulderY)) | 0));
-          const x = s < 0 ? cx - 4 - w : cx + 5;
-          b.rect(x, shoulderY + 1 + j, w, 1, lc.base);
-          b.set(s < 0 ? x : x + w - 1, shoulderY + 1 + j, lc.dark);
-          b.set(s < 0 ? x + w - 1 : x, shoulderY + 1 + j, lc.lite);
-        }
-        b.rect(s < 0 ? cx - 9 : cx + 5, shoulderY - 2, 5, 3, lc.base);   // the collar
-        b.hline(s < 0 ? cx - 9 : cx + 5, shoulderY - 2, 5, lc.lite);
-      }
-    }
-    if (d.coatButtons) {
-      const bc = slotRamp(d.coatButtons, d.accent || '#e8c34a');
-      for (let y = shoulderY + 4; y < H - 1; y += 5) {
-        for (const s of [-1, 1]) {
-          b.rect(cx + s * 4 - (s < 0 ? 1 : 0), y, 2, 2, bc.base);
-          b.set(cx + s * 4 - (s < 0 ? 1 : 0), y, bc.lite);
-        }
-      }
-    }
-  }
-  if (d.shoulderCape) {
-    // A bust is almost entirely shoulder, so the mantle that the world sprite
-    // can only afford as a hem is most of the picture here — and it stays OPEN
-    // down the middle for the same reason it does there: the buttons and the
-    // crest live in those columns.
-    const c = slotRamp(d.shoulderCape, d.accent || '#e8e4dc');
-    b.rect(cx - shBot, shoulderY, shBot * 2 + 1, 2, c.base);
-    b.hline(cx - shBot + 1, shoulderY, shBot * 2 - 1, c.lite);
-    for (const s of [-1, 1]) {
-      const x = s < 0 ? cx - shBot - 1 : cx + 4;
-      const w = shBot - 2;
-      b.rect(x, shoulderY + 2, w, H - shoulderY - 3, c.base);
-      b.vline(s < 0 ? x : x + w - 1, shoulderY + 2, H - shoulderY - 3, c.dark);
-      b.vline(s < 0 ? x + w - 1 : x, shoulderY + 2, H - shoulderY - 3, c.deep);
-      for (let i = 0; i < w; i += 2) b.set(x + i, H - 2, c.deep);
-    }
-  }
-  if (d.pinafore) {
-    // The bib and its two straps are the whole of an apron that survives a bust,
-    // and they have to: a maid uniform with the pinafore cropped out of the
-    // portrait is a navy dress, which is a different character.
-    const c = slotRamp(d.pinafore, '#f4f1ea');
-    const bw = Math.max(3, shTop - 6);
-    b.rect(cx - bw, shoulderY + 2, bw * 2 + 1, H - shoulderY - 2, c.base);
-    b.hline(cx - bw, shoulderY + 2, bw * 2 + 1, c.lite);
-    b.vline(cx + bw, shoulderY + 3, H - shoulderY - 3, c.dark);
-    for (const s of [-1, 1]) {
-      b.vline(cx + s * bw, shoulderY - 1, 4, c.base);
-      b.set(cx + s * bw, shoulderY - 1, c.lite);
-    }
-  }
-  if (d.pauldrons || d.pauldron) {
-    const pc = slotRamp(d.pauldrons, d.accent || '#9aa7bd');
-    const sides = d.pauldron === 'left' ? [-1] : d.pauldron === 'right' ? [1] : [-1, 1];
-    for (const s of sides) {
-      const x = s < 0 ? cx - shTop - 6 : cx + shTop + 1;
-      b.rect(x, shoulderY - 1, 6, 5, pc.base);
-      b.hline(x, shoulderY - 1, 6, pc.lite);
-      b.hline(x, shoulderY + 3, 6, pc.deep);
-      b.hline(x + (s < 0 ? 1 : 0), shoulderY + 4, 5, pc.dark);
-    }
-  }
-  // neck
-  b.rect(cx - 3, chinY - 1, 7, shoulderY - chinY + 2, P.skin.dark);
-  b.hline(cx - 3, chinY + 1, 7, P.skin.deep);
-  b.set(cx - 3, chinY - 1, P.skin.base);
-  b.set(cx + 3, chinY - 1, P.skin.base);
-  if (d.highCollar) {
-    const c = slotRamp(d.highCollar, d.outfit || '#243050');
-    b.rect(cx - 6, chinY, 13, shoulderY - chinY + 4, c.base);
-    b.hline(cx - 6, chinY, 13, c.lite);
-    b.vline(cx - 6, chinY - 3, 4, c.base);
-    b.vline(cx + 6, chinY - 3, 4, c.base);
-    b.set(cx - 6, chinY - 3, c.lite);
-    b.set(cx + 6, chinY - 3, c.lite);
-    b.vline(cx, chinY + 2, shoulderY - chinY + 2, c.dark);
-  } else if (d.scarf) {
-    const sc = slotRamp(d.scarf, d.accent || '#c8342a');
-    b.rect(cx - 7, chinY + 1, 15, 4, sc.base);
-    b.hline(cx - 7, chinY + 1, 15, sc.lite);
-    b.hline(cx - 7, chinY + 4, 15, sc.dark);
-    b.rect(cx - 2, chinY + 2, 4, 3, sc.dark);                 // the knot
-    b.rect(cx - 9, chinY + 4, 4, 8, sc.dark);                 // the trailing end
-    b.set(cx - 9, chinY + 11, sc.deep);
-  } else {
-    b.hline(cx - 7, shoulderY, 15, P.trim.base);              // collar
-    b.hline(cx - 7, shoulderY + 1, 15, P.trim.dark);
-    b.set(cx, shoulderY + 1, P.trim.lite);
-    b.set(cx - 5, shoulderY + 1, P.trim.deep);
-    b.set(cx + 5, shoulderY + 1, P.trim.deep);
-  }
-  if (d.neckBow) {
-    // Drawn AFTER the collar rather than instead of it: the ribbon is tied over
-    // whatever the character's neckline already is, and at bust scale there is
-    // finally room for two loops, a knot and two ends that are all separable.
-    const c = slotRamp(d.neckBow, d.accent || '#c8342a');
-    const y = chinY + 2;
-    for (const s of [-1, 1]) {
-      const x = s < 0 ? cx - 7 : cx + 3;
-      b.rect(x, y, 4, 4, c.base);
-      b.hline(x, y, 4, c.lite);
-      b.hline(x, y + 3, 4, c.dark);
-      b.set(s < 0 ? x : x + 3, y + 1, c.deep);
-    }
-    b.rect(cx - 2, y, 5, 4, c.base);                          // the knot
-    b.hline(cx - 2, y, 5, mixHex(c.lite, WHITE, 0.3));
-    b.hline(cx - 2, y + 3, 5, c.dark);
-    b.set(cx, y + 1, c.deep);
-    b.rect(cx - 2, y + 4, 2, 3, c.base);                      // the two ends
-    b.rect(cx + 1, y + 4, 2, 3, c.base);
-    b.hline(cx - 2, y + 6, 2, c.deep);
-    b.hline(cx + 1, y + 6, 2, c.deep);
-  }
-  if (d.tie) {
-    const t = slotRamp(d.tie, d.accent || '#8a2020');
-    b.rect(cx - 2, shoulderY - 1, 5, 3, t.base);
-    b.hline(cx - 2, shoulderY - 1, 5, t.lite);
-    b.taper(cx - 2, shoulderY + 2, 5, 5, H - shoulderY - 2, t.base);
-    b.vline(cx, shoulderY + 2, H - shoulderY - 2, t.lite);
-  }
-  if (d.chest) {
-    // The character's crest, moved from mid-chest (cropped away by a bust) up
-    // onto the collarbone, so a portrait still carries the badge.
-    b.hline(cx - 2, shoulderY + 4, 5, d.chest);
-    b.hline(cx - 1, shoulderY + 3, 3, d.chest);
-    b.hline(cx - 1, shoulderY + 5, 3, d.chest);
-    b.set(cx, shoulderY + 2, d.chest);
-    b.set(cx, shoulderY + 6, d.chest);
-    b.set(cx, shoulderY + 4, shade(d.chest, 0.45));
-  }
-
-  // --- the crown of hair, UNDER the face -----------------------------------
-  // Highlights are drawn as smaller ELLIPSES, never as flat hlines: an hline
-  // wider than the dome it sits on leaves a notch of background inside the
-  // silhouette, which outline() then fills with a black bar through the skull.
-  if (style !== 'none') {
-    b.ellipse(cx, headY - 1, rx + 2, ry + 1, hc.base);
-    b.ellipse(cx, headY - 4, rx - 1, ry - 3, hc.lite);
-    b.ellipse(cx, headY - 5, rx - 4, ry - 6, mixHex(hc.lite, WHITE, 0.35));
-    b.ellipse(cx, headY + 2, rx + 2, ry - 2, hc.base);
-    b.vline(cx - rx - 1, headY - 2, 6, hc.dark);
-    b.vline(cx + rx + 1, headY - 2, 6, hc.dark);
-  }
-
-  // --- head ----------------------------------------------------------------
-  b.ellipse(cx, headY, rx, ry, P.skin.base);
-  b.taper(cx - rx + 3, chinY - 5, rx * 2 - 5, 5, 6, P.skin.base);
-  b.hline(cx - rx + 4, headY - ry + 1, rx * 2 - 7, P.skin.lite);
-  if (style !== 'none') {
-    // The crown of hair is drawn UNDER the face, and the face ellipse is taller
-    // than the crown's apex is wide: the top row of the skull pokes straight
-    // through the hair, so every single portrait in the game had a five-pixel
-    // BALD SPOT at the crown. Putting the apex back has to be an hline and not
-    // another ellipse, but nine columns is comfortably inside the fifteen the
-    // crown already occupies on that row, so outline() never sees it — which is
-    // the whole reason the highlights above are ellipses and this is allowed to
-    // be a bar.
-    b.hline(cx - 4, headY - ry, 9, hc.base);
-  }
-  b.hline(cx - rx + 2, chinY - 4, 3, P.skin.dark);            // jaw shadow
-  b.hline(cx + rx - 4, chinY - 4, 3, P.skin.dark);
-  b.set(cx - 3, chinY, P.skin.dark);
-  b.set(cx + 3, chinY, P.skin.dark);
-  // Ear nubs, so earrings have somewhere to hang from.
-  for (const s of [-1, 1]) {
-    const x = s < 0 ? cx - rx : cx + rx - 1;
-    b.rect(x, headY + 1, 2, 4, P.skin.base);
-    b.vline(s < 0 ? x : x + 1, headY + 2, 3, P.skin.dark);
-  }
-
-  // --- the face, which is the whole reason a portrait exists ---------------
-  const iris = ramp(P.eyes);
-  const covered = d.eyepatch ? (d.eyepatch === 'right' ? 1 : -1) : 0;
-  for (const s of [-1, 1]) {
-    const x = s < 0 ? cx - eyeIn - eyeW : cx + eyeIn + 1;
-    b.hline(x, browY, eyeW, hc.dark);                         // brow
-    b.hline(x + (s < 0 ? 0 : 1), browY - 1, eyeW - 1, hc.deep);
-    b.set(s < 0 ? x - 1 : x + eyeW, browY + 1, hc.dark);      // the outer lift
-    b.hline(x, eyeY - 2, eyeW, hc.base);                      // upper lid
-    b.hline(x, eyeY - 1, eyeW, hc.deep);                      // lash line
-    b.set(s < 0 ? x - 1 : x + eyeW, eyeY - 1, hc.deep);
-    b.rect(x, eyeY, eyeW, eyeH, EYE_WHITE);                   // sclera
-    b.rect(x + 1, eyeY, eyeW - 2, eyeH, iris.base);           // iris
-    b.rect(x + 2, eyeY + 1, Math.max(1, eyeW - 4), eyeH - 2, iris.deep);   // pupil
-    b.hline(x + 1, eyeY + eyeH - 1, eyeW - 2, iris.lite);     // lit lower rim
-    b.rect(s < 0 ? x + 1 : x + eyeW - 3, eyeY, 2, 2, WHITE);  // catch-light
-    b.set(s < 0 ? x + eyeW - 2 : x + 1, eyeY + eyeH - 2, mixHex(iris.lite, WHITE, 0.6));
-    b.hline(x, eyeY + eyeH, eyeW, P.skin.dark);               // under-eye line
-    if (d.eyeSigil) {
-      // Three marks orbiting the pupil. There is finally room for all three, and
-      // three is the number that makes the eye read as a sigil and not a defect.
-      const sg = typeof d.eyeSigil === 'string' ? d.eyeSigil : '#14141c';
-      b.set(x + 1, eyeY, sg);
-      b.set(x + eyeW - 2, eyeY + 1, sg);
-      b.set(x + 2, eyeY + eyeH - 1, sg);
-    }
-    if (P.glow) b.hline(x, eyeY + eyeH + 1, eyeW, P.glow);
-  }
-  b.set(cx, noseY - 1, P.skin.dark);                          // nose
-  b.set(cx - 1, noseY, P.skin.deep);
-  b.hline(cx - 1, mouthY, 3, P.skin.deep);                    // mouth
-  b.set(cx, mouthY + 1, mixHex(P.skin.dark, '#c05a5a', 0.4));
-  b.set(cx - 2, mouthY, mixHex(P.skin.dark, '#c05a5a', 0.3));
-  const blush = mixHex(P.skin.base, '#ff8a9a', 0.45);
-  b.hline(cx - rx + 2, noseY - 1, 3, blush);                  // cheeks
-  b.hline(cx + rx - 4, noseY - 1, 3, blush);
-  if (d.whiskers) {
-    const wc = typeof d.whiskers === 'string' ? d.whiskers : mixHex(P.skin.dark, '#7a4a2a', 0.65);
-    for (const s of [-1, 1]) {
-      const x = s < 0 ? cx - rx + 2 : cx + rx - 5;
-      for (let k = 0; k < 3; k++) b.hline(x, noseY - 1 + k, 3, wc);
-    }
-  }
-  if (covered) {
-    const c = slotRamp(d.eyepatchColor, '#14141c');
-    const s = covered;
-    const x = s < 0 ? cx - eyeIn - eyeW - 1 : cx + eyeIn;
-    b.rect(x, browY + 1, eyeW + 2, eyeH + 3, c.base);
-    b.hline(x, browY + 1, eyeW + 2, c.lite);
-    b.hline(x, browY + eyeH + 3, eyeW + 2, c.deep);
-    b.rect(x + 2, eyeY, 2, 2, mixHex(c.lite, WHITE, 0.4));
-    b.hline(s < 0 ? cx - rx + 1 : cx + eyeIn + eyeW + 1, browY + 2, rx - eyeIn - eyeW + 2, c.dark);
-  }
-
-  if (d.mask) {
-    const mc = slotRamp(d.mask, d.accent || '#243050');
-    b.rect(cx - rx + 3, noseY - 1, rx * 2 - 5, chinY - noseY + 2, mc.base);
-    b.hline(cx - rx + 3, noseY - 1, rx * 2 - 5, mc.lite);
-    b.hline(cx - rx + 3, chinY, rx * 2 - 5, mc.dark);
-  }
-  if (d.visor) {
-    const vc = slotRamp(d.visor, '#8ad8ff');
-    b.rect(cx - rx + 1, eyeY - 2, rx * 2 - 1, eyeH + 3, vc.dark);
-    b.hline(cx - rx + 1, eyeY + 1, rx * 2 - 1, vc.base);
-    b.hline(cx - rx + 2, eyeY - 2, 4, vc.lite);
-    b.set(cx + rx - 3, eyeY + eyeH, vc.lite);
-    b.hline(cx - 1, eyeY, 3, vc.deep);                        // the bridge
-  }
-
-  // --- the fringe, over the face but never over the eyes -------------------
-  if (style !== 'none') {
-    const fTop = headY - ry + 1;
-    const fH = Math.max(2, browY - fTop - 1);
-    b.rect(cx - rx + 2, fTop, rx * 2 - 3, fH, hc.base);
-    b.hline(cx - rx + 3, fTop, rx * 2 - 5, hc.lite);
-    b.hline(cx - rx + 2, fTop + fH - 1, rx * 2 - 3, hc.dark);
-    if (style === 'buzz' || style === 'undercut') {
-      b.rect(cx - rx + 3, fTop + 1, rx * 2 - 5, fH - 1, hc.dark);
-      b.hline(cx - rx + 3, fTop + 1, rx * 2 - 5, hc.base);
-      if (style === 'undercut') {
-        b.pair(cx, rx - 2, fTop + 2, 2, fH + 4, hc.deep);     // the shaved sides
-        b.rect(cx - rx + 4, fTop - 1, rx * 2 - 7, 3, hc.base);
-      }
-    } else if (style === 'bowl' || style === 'bangs') {
-      b.rect(cx - rx, fTop, rx * 2 + 1, fH + 1, hc.base);
-      b.hline(cx - rx, fTop, rx * 2 + 1, hc.lite);
-      b.hline(cx - rx, fTop + fH, rx * 2 + 1, hc.dark);
-      if (style === 'bangs') b.rect(cx - rx, fTop, 5, fH + eyeH + 4, hc.dark);
-    } else if (style === 'spiky' || style === 'wild' || style === 'flame' ||
-               style === 'plume' || style === 'ducktail') {
-      const n = style === 'plume' ? 4 : 5;
-      for (let i = 0; i < n; i++) {
-        const dx = -rx + 1 + Math.round(i * (rx * 2 - 2) / (n - 1));
-        const h = style === 'flame' ? 6 + Math.round(6 * (1 - Math.abs(i - 2) / 2.4))
-                : style === 'plume' ? 10 : style === 'wild' ? 4 + (i & 3)
-                : style === 'ducktail' ? 5 : 7;
-        b.spike(cx + dx - 2, fTop + 2, 5, h, -1, i & 1 ? hc.lite : hc.base);
-      }
-      if (style === 'ducktail') b.pair(cx, rx - 3, fTop, 3, fH + 6, hc.dark);
-    } else if (style === 'ahoge') {
-      b.vline(cx + 2, top - 6, 7, hc.base);
-      b.set(cx + 3, top - 6, hc.lite);
-      b.set(cx + 4, top - 5, hc.lite);
-      b.pair(cx, rx - 4, fTop, 3, fH + 4, hc.dark);
-    } else if (style === 'topknot') {
-      b.rect(cx - 4, top - 6, 9, 5, hc.base);
-      b.hline(cx - 4, top - 6, 9, hc.lite);
-      b.rect(cx - 3, top - 1, 7, 2, tie.base);
-    } else {
-      // A parted fringe: a lit strand, and two locks down past the temples.
-      b.rect(cx - rx + 2, fTop, 4, fH + 4, hc.dark);
-      b.rect(cx + rx - 5, fTop, 4, fH + 3, hc.dark);
-      b.hline(cx - 3, fTop, 7, mixHex(hc.lite, WHITE, 0.3));
-      b.hline(cx - 2, fTop + 1, 5, mixHex(hc.lite, WHITE, 0.15));
-    }
-    if (d.hairStreak) {
-      const sc = slotRamp(d.hairStreak, d.accent || '#3fb6c8');
-      const x = cx + rx - 7;
-      b.rect(x, fTop, 3, fH + 4, sc.base);
-      b.vline(x + 2, fTop, fH + 5, sc.dark);
-      b.hline(x, fTop, 3, sc.lite);
-      b.set(x + 1, fTop + fH + 4, sc.deep);
-    }
-    if (d.sideBraid) {
-      const bc = typeof d.sideBraid === 'string' ? ramp(d.sideBraid) : hc;
-      const bt = d.hairTie ? slotRamp(d.hairTie, d.accent || '#c8203a') : P.trim;
-      const x = cx - rx - 1;
-      const len = ry + 6;
-      for (let j = 0; j < len; j++) {
-        b.rect(x, fTop + 2 + j, 3, 1, j % 3 === 2 ? bc.deep : bc.base);
-        if (j % 3 === 0) b.hline(x, fTop + 2 + j, 2, bc.lite);
-      }
-      b.rect(x, fTop + 2 + len, 3, 2, bt.base);
-      b.hline(x, fTop + 2 + len, 3, bt.lite);
-    }
-    if (d.scar) {
-      const x = cx + (d.scar === 'left' ? -6 : 3);
-      const y = fTop + 1;
-      b.rect(x, y, 4, 5, P.skin.base);
-      b.hline(x, y, 4, P.skin.lite);
-      const sc = mixHex(P.skin.dark, '#b8452c', 0.7);
-      b.set(x + 3, y, sc); b.set(x + 2, y + 1, sc);
-      b.set(x + 2, y + 2, sc); b.set(x + 1, y + 3, sc);
-      b.set(x + 1, y + 4, mixHex(sc, P.skin.base, 0.4));
-    }
-  }
-
-  if (covered && d.eyepatchStrap) {
-    // AFTER the fringe, for the same reason it is after the fringe on the world
-    // sprite: the patch is painted with the face and the hair is painted over
-    // the face, so a strap drawn with the patch is a strap nobody ever sees.
-    // Diagonal, again — a level band across a brow is a headband.
-    const c = slotRamp(d.eyepatchStrap,
-                       typeof d.eyepatchColor === 'string' ? d.eyepatchColor : '#14141c');
-    const s = covered;
-    const x0 = cx + s * (eyeIn + eyeW + 1);
-    b.blade(x0, browY + 2, cx + s * (rx + 1), browY - 1, c.base, c.dark);
-    b.blade(cx + s * (rx + 1), browY - 1, cx + s * (rx - 3), top + 1, c.base, c.dark);
-    b.rect(cx + s * rx - (s < 0 ? 1 : 0), browY - 2, 3, 3, c.base);   // the buckle
-    b.hline(cx + s * rx - (s < 0 ? 1 : 0), browY - 2, 3, c.lite);
-    b.set(cx + s * rx, browY - 1, mixHex(c.lite, WHITE, 0.4));
-    b.blade(cx - s * (rx - 4), top, cx - s * (rx - 1), top + 3, c.dark, c.deep);
-  }
-
-  // --- the signature above the hairline ------------------------------------
-  const t = P.trim;
-  if (d.ears === 'fox' || d.ears === 'cat') {
-    const ec = d.earColor ? slotRamp(d.earColor, hc.base) : hc;
-    const ei = d.earInner ? slotRamp(d.earInner, ec.lite).base : mixHex(ec.lite, '#ff9ecb', 0.4);
-    const h = d.ears === 'fox' ? 9 : 6;
-    for (const s of [-1, 1]) {
-      b.spike(cx + s * (rx - 2) - 3, top + 1, 7, h, -1, ec.base);
-      b.spike(cx + s * (rx - 2) - 2, top, 5, h - 3, -1, ei);
-      b.set(cx + s * (rx - 2), top - h + 2, mixHex(ec.lite, WHITE, 0.4));
-    }
-  } else if (d.ears === 'long') {
-    // Long drooping mascot ears — they hang beside the head rather than stand.
-    for (const s of [-1, 1]) {
-      b.ellipse(cx + s * (rx + 3), headY - 2, 2, 9, P.skin.base);
-      b.vline(cx + s * (rx + 3), headY - 10, 5, P.skin.lite);
-      b.set(cx + s * (rx + 3), headY + 6, t.base);
-    }
-  } else if (d.ears === 'elf') {
-    for (const s of [-1, 1]) {
-      b.line(cx + s * rx, headY, cx + s * (rx + 4), headY - 6, P.skin.base);
-      b.line(cx + s * rx, headY + 1, cx + s * (rx + 3), headY - 4, P.skin.lite);
-    }
-  } else if (d.ears === 'ribbon') {
-    for (const s of [-1, 1]) {
-      b.rect(cx + s * (rx + 2) - 3, headY - 5, 7, 7, t.base);
-      b.rect(cx + s * (rx + 2) - 2, headY - 4, 5, 5, t.lite);
-      b.rect(cx + s * (rx + 2) - 1, headY - 3, 3, 3, t.base);
-      b.vline(cx + s * (rx + 2), headY + 3, 9, t.dark);
-      b.set(cx + s * (rx + 3), headY + 11, t.base);
-    }
-  } else if (d.ears === 'fin') {
-    b.spike(cx - 5, top - 7, 11, 9, 1, t.base);
-    b.line(cx + 4, top - 7, cx + 5, top - 1, t.lite);
-    b.set(cx - 1, top - 5, mixHex(t.lite, WHITE, 0.4));
-  } else if (d.ears === 'horns') {
-    for (const s of [-1, 1]) {
-      b.line(cx + s * (rx - 2), top + 1, cx + s * (rx - 1), top - 5, t.lite);
-      b.line(cx + s * (rx - 1), top + 1, cx + s * rx, top - 4, t.base);
-    }
-  } else if (d.ears === 'greatHorns') {
-    for (const s of [-1, 1]) {
-      b.blade(cx + s * (rx - 2), top + 2, cx + s * (rx + 4), top - 8, t.lite, t.base);
-      b.set(cx + s * (rx + 5), top - 9, mixHex(t.lite, WHITE, 0.5));
-    }
-  }
-  if (d.earrings) {
-    const c = slotRamp(d.earrings, '#f4f1ea');
-    const c2 = slotRamp(d.earringsMotif, d.accent || '#d64545');
-    for (const s of [-1, 1]) {
-      const x = s < 0 ? cx - rx - 2 : cx + rx;
-      b.set(x + (s < 0 ? 1 : 0), headY + 3, c.dark);
-      b.rect(x, headY + 4, 3, 6, c.base);
-      b.hline(x, headY + 4, 3, c.lite);
-      b.rect(x, headY + 6, 3, 2, c2.base);
-      b.hline(x, headY + 9, 3, c.dark);
-    }
-  }
-  if (d.hairpin) {
-    const c = slotRamp(d.hairpinColor, d.accent || '#ffe14a');
-    const x = cx - rx + 2, y = top + 3;
-    if (d.hairpin === 'star') {
-      b.set(x + 2, y - 2, c.lite);
-      b.hline(x, y, 5, c.base);
-      b.vline(x + 2, y - 1, 4, c.base);
-      b.set(x + 1, y + 1, c.dark);
-      b.set(x + 3, y + 1, c.dark);
-      b.set(x + 2, y, mixHex(c.lite, WHITE, 0.7));
-    } else if (d.hairpin === 'bell') {
-      // The same ornament as the world sprite with the rows a 40x40 bust can
-      // spend on it: a real dome, a real slit and a clapper that is its own
-      // shape rather than one pixel. Sited on the crown for the same reason â€”
-      // the temple is where the hair ties are.
-      const bx = cx - 3, by = top + 1;
-      b.ellipse(bx + 2, by + 3, 4, 4, c.base);
-      b.hline(bx, by, 6, c.lite);                              // the crown loop
-      b.hline(bx - 1, by + 4, 8, c.dark);                      // the mouth slit
-      b.hline(bx, by + 6, 6, c.deep);
-      b.rect(bx + 1, by + 1, 2, 2, mixHex(c.lite, WHITE, 0.6));
-      b.vline(bx + 2, by + 7, 2, c.dark);                      // the clapper
-    } else {
-      b.rect(x, y, 5, 3, c.base);
-      b.hline(x, y, 5, c.lite);
-    }
-  }
-  if (style === 'drills') {
-    // The ribbons, drawn LATE and AT THE ROOT OF THE FALL. In the back-hair pass
-    // they sat under the crown ellipse and half of each one was painted out by
-    // the very hair it is supposed to be tying; up at the temple they read as a
-    // pair of handlebars growing out of the head. They belong exactly where the
-    // coil starts, which is level with the jaw.
-    const ry0 = chinY - 9;
-    for (const s of [-1, 1]) {
-      const x = s < 0 ? cx - rx - 3 : cx + rx - 1;
-      b.rect(x, ry0 + 2, 4, 3, tie.base);                              // the knot
-      b.hline(x, ry0 + 2, 4, tie.lite);
-      b.hline(x, ry0 + 4, 4, tie.dark);
-      b.rect(x, ry0, 4, 2, tie.base);                                  // two loops
-      b.rect(x, ry0 + 5, 4, 2, tie.base);
-      b.hline(x, ry0, 4, tie.lite);
-      b.hline(x, ry0 + 6, 4, tie.deep);
-      b.set(s < 0 ? x + 3 : x, ry0 + 3, tie.deep);
-    }
-  }
-  if (d.headdress) {
-    // The frilled cap, sitting on top of the hair and NOT across the brow. On a
-    // bust it is in frame and unmissable, so the scallops get a full pixel of
-    // travel each instead of the single lit row the world sprite can afford.
-    const c = slotRamp(d.headdress, '#f4f1ea');
-    const r = slotRamp(d.headdressRibbon, typeof d.headdress === 'string' ? d.headdress : '#f4f1ea');
-    const y = Math.max(3, top + 1);
-    const x = cx - rx + 1;
-    const w = rx * 2 - 1;
-    b.rect(x, y, w, 3, c.base);
-    b.hline(x, y + 2, w, c.dark);
-    for (let i = 0; i < w; i++) {
-      b.set(x + i, y - 1, i & 1 ? c.base : c.lite);
-      if ((i & 3) === 1) b.vline(x + i, y - 3, 2, mixHex(c.lite, WHITE, 0.45));
-    }
-    for (const s of [-1, 1]) {
-      const rx2 = s < 0 ? x - 3 : x + w;
-      b.rect(rx2, y, 3, 3, r.base);
-      b.hline(rx2, y, 3, r.lite);
-      b.rect(s < 0 ? rx2 : rx2 + 1, y + 3, 2, 3, r.dark);
-      b.hline(s < 0 ? rx2 : rx2 + 1, y + 5, 2, r.deep);
-    }
-  }
-  if (d.headband) {
-    const c = slotRamp(d.headband, d.accent || '#1a1d2e');
-    const pl = slotRamp(d.headbandPlate, '#b9c4de');
-    const y = top + 4;
-    b.hline(cx - rx, y, rx * 2 + 1, c.base);
-    b.hline(cx - rx, y + 1, rx * 2 + 1, c.dark);
-    b.rect(cx - 5, y - 2, 11, 5, pl.base);
-    b.hline(cx - 5, y - 2, 11, pl.lite);
-    b.hline(cx - 5, y + 2, 11, pl.dark);
-    b.hline(cx - 2, y, 5, pl.deep);                           // the engraving
-    b.rect(cx - rx - 1, y + 2, 2, 6, c.dark);                 // the trailing tail
-  }
-  if (d.sparks) {
-    const c = slotRamp(d.sparks, '#7ad9ff');
-    const pts = [[-rx - 2, top + 4], [-rx - 4, top + 6], [-rx - 3, top + 9],
-                 [rx + 2, top + 3], [rx + 4, top + 5], [rx + 3, top + 8],
-                 [-2, top - 2], [3, top - 3]];
-    for (let i = 0; i < pts.length; i++) {
-      b.set(clamp(cx + pts[i][0], 0, W - 1), Math.max(0, pts[i][1]),
-            i & 1 ? c.base : mixHex(c.lite, WHITE, 0.4));
-    }
-  }
-  if (d.crown) {
-    const c = slotRamp(d.crown, d.accent || '#ffd76a');
-    b.hline(cx - rx + 2, top - 1, rx * 2 - 3, c.base);
-    b.hline(cx - rx + 2, top, rx * 2 - 3, c.dark);
-    for (let i = -rx + 2; i <= rx - 2; i += 3) b.set(cx + i, top - 2, c.lite);
-    b.set(cx, top - 3, c.lite);
-    b.set(cx, top - 1, mixHex(c.lite, WHITE, 0.6));
-  }
-  if (d.hat === 'tricorn') {
-    // The same hat as the world sprite and built out of the same three parts —
-    // a domed crown, a wide brim, and two corners cocked up against it — with
-    // the rows a 40x40 bust can spend on making each of them unmistakable.
-    // Anchored BELOW the crown of the head rather than above it: the old
-    // portrait put the hat's own crown at top-5, which on this grid is row -1,
-    // so the tallest thing on the character was drawn outside the buffer.
-    const c = slotRamp(d.hatColor, '#241826');
-    const g = slotRamp(d.hatTrim, d.accent || '#e8c34a');
-    const y = Math.max(7, top + 2);
-    const bw = rx + 5;
-    const crownH = 6;
-    b.taper(cx - rx + 3, y - crownH, rx * 2 - 5, rx * 2 + 1, crownH, c.base);
-    b.hline(cx - rx + 5, y - crownH, rx * 2 - 9, c.lite);
-    b.vline(cx + rx - 4, y - crownH + 2, crownH - 2, c.deep);
-    b.hline(cx - bw, y, bw * 2 + 1, c.base);                   // the brim
-    b.hline(cx - bw + 2, y + 1, bw * 2 - 3, c.dark);
-    b.hline(cx - rx + 1, y + 2, rx * 2 - 1, c.deep);
-    for (const s of [-1, 1]) {                                 // the cocked corners
-      const x = s < 0 ? cx - bw : cx + bw - 2;
-      for (let j = 1; j <= 6; j++) {
-        b.rect(x + (s < 0 ? (j >> 2) : -(j >> 2)), y - j, 3, 1, j & 1 ? c.base : c.lite);
-      }
-      b.hline(s < 0 ? x : x + 1, y - 7, 2, c.dark);
-    }
-    b.hline(cx - rx + 3, y - 2, rx * 2 - 5, g.base);           // the band
-    b.hline(cx - rx + 4, y - 3, rx * 2 - 7, g.dark);
-    b.hline(cx - bw, y, bw * 2 + 1, g.dark);                   // the brim piping
-    for (let i = -bw; i <= bw; i += 2) b.set(cx + i, y, g.base);
-    b.rect(cx - bw + 1, y - 5, 4, 4, g.base);                  // the cockade
-    b.hline(cx - bw + 1, y - 5, 4, g.lite);
-    b.rect(cx - bw + 2, y - 4, 2, 2, mixHex(g.lite, WHITE, 0.55));
-  }
-  if (d.hat === 'beret') {
-    // SMALL, and set off-centre. Sized off `rx` like the other headgear it came
-    // out as a white dome the width of the skull, which on a character who also
-    // has two white ears either side of the frame is one continuous pale mass
-    // with a face cut out of the middle of it. A beret only reads as soft
-    // because you can see the hair it is NOT covering.
-    const c = slotRamp(d.hatColor, '#f4f1ea');
-    const y = Math.max(4, top + 3);
-    b.ellipse(cx + 3, y, rx - 4, 2, c.base);
-    b.ellipse(cx + 2, y - 1, Math.max(1, rx - 7), 1, c.lite);
-    b.hline(cx - rx + 5, y + 2, rx * 2 - 9, c.dark);           // the band on the hair
-    b.set(cx + rx - 2, y + 1, c.deep);                         // the overhanging edge
-    b.set(cx + rx - 1, y, c.dark);
-    b.rect(cx + 2, y - 4, 2, 2, c.base);                       // the stalk
-    b.set(cx + 2, y - 4, mixHex(c.lite, WHITE, 0.5));
-  }
-  if (d.hat === 'topHat') {
-    const c = slotRamp(d.hatColor, '#1a1420');
-    b.hline(cx - 1, top - 1, 11, c.base);
-    b.hline(cx - 1, top, 11, c.deep);
-    b.rect(cx + 1, top - 6, 7, 6, c.base);
-    b.hline(cx + 1, top - 6, 7, c.lite);
-    b.hline(cx + 1, top - 2, 7, t.base);
-    b.set(cx + 6, top - 5, mixHex(c.lite, WHITE, 0.4));
-  }
-  if (d.hatPlume) {
-    const c = slotRamp(d.hatPlume, '#f4f1ea');
-    for (let j = 0; j < 9; j++) {
-      const w = Math.max(1, 4 - (j >> 1));
-      b.hline(cx + rx - 2 + (j >> 1), Math.max(0, top - 2 - j), w, j & 1 ? c.base : c.lite);
-    }
-    b.set(cx + rx + 3, Math.max(0, top - 10), mixHex(c.lite, WHITE, 0.5));
-  }
-  if (d.ears === 'rabbit') {
-    // Drawn after the headgear for the same reason as on the world sprite: they
-    // are taller than the frame and a cap on top of them cuts them off.
-    //
-    // On a bust there is finally room to show what the world sprite can only
-    // imply — the ears go up off the crown, turn over at the top edge, and come
-    // straight back down the OUTSIDE of the picture past the shoulders. They
-    // run off the bottom on purpose: an ear that stops inside the frame is an
-    // ear with a length, and the whole point of these is that they read as
-    // having none.
-    const ec = d.earColor ? slotRamp(d.earColor, hc.base) : hc;
-    const ei = d.earInner ? slotRamp(d.earInner, ec.lite).base : mixHex(ec.lite, '#ff9ecb', 0.4);
-    const outX = Math.max(1, cx - rx - 5);
-    for (const s of [-1, 1]) {
-      const x = s < 0 ? outX : W - outX - 3;
-      for (let j = 0; j < 5; j++) {                            // the root
-        const rxx = cx + s * (rx - 5 + j) - (s < 0 ? 4 : 0);
-        b.rect(rxx, Math.max(0, top + 2 - j), 5, 1, ec.base);
-        b.rect(rxx + 1, Math.max(0, top + 2 - j), 2, 1, ei);
-      }
-      b.rect(s < 0 ? outX : W - outX - 5, 0, 5, 2, ec.lite);   // the turn
-      for (let y = 1; y < H; y++) {                            // the fall
-        b.rect(x, y, 3, 1, ec.base);
-        b.set(s < 0 ? x + 2 : x, y, ec.dark);
-        // Pink for the top half only, exactly as on the world sprite: lined all
-        // the way down, two ears at the edges of a bust read as a striped
-        // border somebody has put the portrait inside.
-        if (y < H * 0.45 && y % 4 !== 3) b.set(s < 0 ? x : x + 2, y, ei);
-        if (y % 9 === 8) b.set(s < 0 ? x + 2 : x, y, ec.lite);
-      }
-    }
-  }
-  if (d.halo) {
-    const c = typeof d.halo === 'string' ? d.halo : '#ffe9a3';
-    const y = Math.max(0, top - (d.hair === 'ahoge' ? 8 : 5));
-    b.hline(cx - rx + 3, y, rx * 2 - 5, c);
-    b.set(cx - rx + 2, y + 1, shade(c, -0.25));
-    b.set(cx + rx - 2, y + 1, shade(c, -0.25));
-    b.set(cx - rx + 4, y, mixHex(c, WHITE, 0.5));
   }
 }
 

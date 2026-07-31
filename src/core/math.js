@@ -122,6 +122,99 @@ export function mixHex(a, b, t) {
 /** Lighten/darken a hex colour. Boot-time only. */
 export const shade = (hex, amt) => mixHex(hex, amt > 0 ? '#ffffff' : '#000000', Math.abs(amt));
 
+// --- painterly shading -------------------------------------------------------
+//
+// `shade` mixes toward white or black. That is what a COMPUTER does to a colour
+// and it is not what a painter does to a surface, which is why flat-ramped pixel
+// art reads as plastic no matter how many tones you give it.
+//
+// Measured off this project's own art reference (Example Folder), material by
+// material, lightest tone to darkest:
+//
+//     teal    L 40 -> 14    S 35 -> 86    hue  +3deg
+//     navy    L 74 ->  1    S 20 -> 100   hue  -4deg
+//     purple  L 94 -> 15    S 15 -> 44    hue +19deg
+//     skin    L 82 -> 30    S 87 -> 67    hue  +9deg
+//
+// A shadow is DARKER, MORE SATURATED and ROTATED COOLER than the surface it
+// falls on. Mixing toward black does the opposite on two of those three counts —
+// it desaturates, and it rotates nothing. Skin is the one family that behaves
+// the other way and desaturates into shadow, which `lift`/`sink` get for free
+// because saturation is scaled rather than set.
+//
+// Both are boot-time only: they allocate a string and do an HSL round trip.
+
+const SHADOW_HUE = 250;    // blue-violet, where cool shadows live
+const LIGHT_HUE = 45;      // warm straw, where a key light lives
+
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  const l = (mx + mn) / 2;
+  if (mx === mn) return [0, 0, l];
+  const d = mx - mn;
+  const s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+  let h;
+  if (mx === r) h = (g - b) / d + (g < b ? 6 : 0);
+  else if (mx === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+
+function hue2rgb(p, q, t) {
+  if (t < 0) t += 1;
+  if (t > 1) t -= 1;
+  if (t < 1 / 6) return p + (q - p) * 6 * t;
+  if (t < 1 / 2) return q;
+  if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+  return p;
+}
+
+function hslToHex(h, s, l) {
+  h = ((h % 360) + 360) % 360 / 360;
+  s = clamp(s, 0, 1); l = clamp(l, 0, 1);
+  let r, g, b;
+  if (s === 0) { r = g = b = l; } else {
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1 / 3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1 / 3);
+  }
+  const to = (v) => Math.round(clamp(v, 0, 1) * 255);
+  return '#' + ((1 << 24) | (to(r) << 16) | (to(g) << 8) | to(b)).toString(16).slice(1);
+}
+
+/** Rotate `h` a fraction `k` of the way toward `target`, the short way round. */
+function towardHue(h, target, k) {
+  const d = ((target - h + 540) % 360) - 180;
+  return h + d * k;
+}
+
+/** Toward the light: lighter, slightly less saturated, slightly warmer. */
+export function lift(hex, amt) {
+  const v = hexToInt(hex);
+  const [h, s, l] = rgbToHsl((v >> 16) & 255, (v >> 8) & 255, v & 255);
+  return hslToHex(towardHue(h, LIGHT_HUE, amt * 0.12),
+                  s * (1 - amt * 0.30),
+                  l + (1 - l) * amt);
+}
+
+/**
+ * Into shadow: darker, MORE saturated, rotated toward blue-violet.
+ *
+ * The additive term on saturation is what lets a near-grey take a tint at all —
+ * scaling alone leaves `s = 0` at zero forever, and an unlit grey is the one
+ * surface a cool shadow reads most strongly on.
+ */
+export function sink(hex, amt) {
+  const v = hexToInt(hex);
+  const [h, s, l] = rgbToHsl((v >> 16) & 255, (v >> 8) & 255, v & 255);
+  return hslToHex(towardHue(h, SHADOW_HUE, amt * 0.22),
+                  s * (1 + amt * 1.35) + amt * 0.07,
+                  l * (1 - amt));
+}
+
 export function withAlpha(hex, a) {
   const v = hexToInt(hex);
   return `rgba(${(v >> 16) & 255},${(v >> 8) & 255},${v & 255},${a})`;
