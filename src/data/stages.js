@@ -31,7 +31,7 @@
 //                   WHERE a rung is fought now sets what it costs. game/boss.js
 //                   reads MIDBOSS_HP_CURVE (below) instead of the flat +6%/min,
 //                   because the flat curve made the EARLIEST mini-boss the
-//                   hardest fight in the run â€” measured, and by 18x. The third
+//                   hardest fight in the run — measured, and by 18x. The third
 //                   stage now reads 1,097 -> 8,910 -> 42,504 across its three
 //                   mid-boss beats: the opener got CHEAPER and the closer got
 //                   eight times heavier, which is what "the ladder climbs" was
@@ -40,7 +40,7 @@
 //                   The FINALE stands well clear of that staircase on purpose:
 //                   game/boss.js applies `def.finaleHpMult` (10 on every stage
 //                   boss and on nothing else) when the closer walks on, so the
-//                   third stage's finale is 148,635 â€” 3.5x its own heaviest
+//                   third stage's finale is 148,635 — 3.5x its own heaviest
 //                   mid-boss. Every stage lands between 3.0x and 10.8x. `hp`
 //                   itself still does not move: it is what the Grand Finale's x8
 //                   elite pass multiplies, and that pass goes through
@@ -118,15 +118,21 @@ export const STAGES = [
     firstClearReward: { starFragments: 50 },
     // Tutorial stage: fodder dies a little faster than the curve says it should.
     hpMult: 0.9, xpMult: 1.0, goldMult: 1.0,
-    obstacles: 'rooftop_clutter',
-    backdrop: 'school_roof',
+    obstacles: 'academy_courtyard',
+    backdrop: 'school_courtyard',
     events: ['rooftop_confession', 'petal_drift'],
+    // The clock tower, tolling three, the moment a boss arrives. `bossIntro`
+    // plays everywhere and says "a boss is here"; this says WHERE you are, and
+    // every stage gets to answer that differently.
+    bossCue: 'clockTower',
     music: 'audio/stage1.ogg',
-    codex: 'Three years of your life happen on this roof. The fence is for leaning ' +
-      'on dramatically, the desk has been up here since before anyone can remember, ' +
-      'and the sunset is contractually obligated to be that colour. The petals fall ' +
-      'at exactly the rate that makes a confession feel inevitable. Nobody has ever ' +
-      'attended a class here. Nobody has ever questioned that.',
+    codex: 'Three years of your life happen in this courtyard. The gate is at your ' +
+      'back, the main doors are at the far end of the path, and the fountain has ' +
+      'been broken and then repaired so many times that repairing it is a club. ' +
+      'The benches are for confessions, the hedges are for eavesdropping on them, ' +
+      'and the sunset is contractually obligated to be that colour. The petals ' +
+      'fall at exactly the rate that makes a confession feel inevitable. Nobody ' +
+      'has ever attended a class here. Nobody has ever questioned that.',
   },
 
   {
@@ -586,6 +592,37 @@ export const HAZARDS = {
 // the draw is culled against the view either way, so it is not a perf dial.
 // -----------------------------------------------------------------------------
 export const BACKDROPS = {
+  /**
+   * STAGE 1 — the school COURTYARD, and it is a plan rather than a texture.
+   *
+   * Every other kind in this table is a surface: a hash picks a tone, a district
+   * hash picks a sheen, and the result is a convincing floor you could be
+   * standing anywhere on. That is right for a rooftop and wrong for the first
+   * place a player ever sees, because a courtyard is the one location in the
+   * game that has a FRONT and a BACK — you come in at the gate and the building
+   * is at the far end — and none of that survives being noise.
+   *
+   * So the `courtyard` case is keyed on the absolute cell indices instead. The
+   * cell walk is anchored to the world origin (see `_ground`), so cell (i,j) is
+   * always the world rect (i*200, j*200, 200, 200) in every run at every camera
+   * position, and the seed only ever perturbs the grain INSIDE a cell. That
+   * makes a fixed 20x20 plan expressible with no storage and no engine change.
+   *
+   * `tile` is now the paving, `mid` the grass, `far` the building floor and
+   * `farLit` the tiled roofs — the roles are the same seven names every kind
+   * uses, pointed at different materials.
+   */
+  school_courtyard: {
+    kind: 'courtyard',
+    desc: 'A paved path from the gate to the main doors, lawns and hedges either ' +
+          'side, the fountain in the middle, and blossom over all of it.',
+    far: '#4a2b48', farEdge: '#ff7f50', farLit: '#8a4668',
+    mid: '#3d5a3a', midEdge: '#24371f',
+    tile: '#6b5464', seam: '#4a3448',
+    detail: '#ff9ec4', glow: '#ffd166',
+    density: 1.0,
+  },
+
   school_roof: {
     kind: 'rooftop',
     desc: 'Concrete roof bays, drainage channels, court paint, drifted petals.',
@@ -681,6 +718,104 @@ export const OBSTACLE_SETS = {
   // Kept so a stage can honestly declare that it has none. Nothing uses it
   // today; every stage got geometry in this pass.
   none: { name: 'Open Ground', count: 0, spacing: 0, clearance: 0, forms: [] },
+
+  /**
+   * THE COURTYARD, AND IT IS PLACED RATHER THAN SCATTERED.
+   *
+   * Two things here are new and both are engine features this set is the first
+   * user of (see game/obstacles.js):
+   *
+   *   `kinds`   a list of named LOOKS. Every other set has ONE — one sprite, one
+   *             box fill, one detail pass — which is correct for "rubble" and
+   *             useless for a place that has benches AND hedges AND a fountain
+   *             in it. Each piece now carries a one-byte index into this list.
+   *
+   *   `layout`  literal pieces at absolute positions, as FRACTIONS of the arena
+   *             so the plan survives ARENA_W changing. `scatter` is rejection
+   *             sampling and can only say "things here and there"; a courtyard
+   *             has a fountain in the MIDDLE of it, benches ALONG the path and
+   *             hedges EDGING the lawns, and none of that is a random position.
+   *
+   * The layout is written against the same 20x20 cell plan the backdrop paints,
+   * so the hedges sit on the grass and the benches sit beside the paving rather
+   * than on it. Column 9-10 is the path (x 0.45-0.55); rows 0-1 and columns
+   * 0-2 / 17-19 are buildings, which the backdrop draws and which the arena
+   * edge already keeps the player out of.
+   *
+   * `count: 0`: nothing is scattered on top. A courtyard with random litter
+   * blocking it is a courtyard nobody swept, and the whole point of this stage
+   * is that it is the legible one.
+   */
+  academy_courtyard: {
+    name: 'Academy Courtyard',
+    count: 0, spacing: 260, clearance: 300, forms: [],
+    // Kind 0 — the set's own look, and the fallback for anything unnamed.
+    detail: 'slats',
+    visual: { shape: 'hedge', color: '#3f7a46', accent: '#16301c', size: 32, flash: false },
+    box: { color: '#6b4a2a', edge: '#241608' },
+    kinds: [
+      {
+        id: 'hedge', detail: 'none',
+        visual: { shape: 'hedge', color: '#3f7a46', accent: '#16301c', size: 32, flash: false },
+        box: { color: '#2f6a38', edge: '#16301c' },
+      },
+      {
+        id: 'fountain', detail: 'none',
+        visual: { shape: 'fountain', color: '#9aa4b0', accent: '#2a3038', size: 32, flash: false },
+        box: { color: '#8e98a6', edge: '#2a3038' },
+      },
+      {
+        // A bench is a BOX, not a circle: it is wide and shallow, and a circular
+        // hitbox round it would either swallow the path or miss the ends. Boxes
+        // never blit a sprite (obstacles.js draws them as a rect plus a detail
+        // pass), so the slats ARE the bench.
+        id: 'bench', detail: 'slats',
+        visual: { shape: 'hedge', color: '#6b4a2a', accent: '#241608', size: 32, flash: false },
+        box: { color: '#6b4a2a', edge: '#241608' },
+      },
+      {
+        id: 'planter', detail: 'bolts',
+        visual: { shape: 'hedge', color: '#3f7a46', accent: '#16301c', size: 32, flash: false },
+        box: { color: '#7a6a52', edge: '#2a2018' },
+      },
+    ],
+    layout: [
+      // THE FOUNTAIN, dead centre — which is also where the player spawns, so
+      // it is offset a little up the path rather than exactly on 0.5/0.5.
+      { kind: 'fountain', x: 0.50, y: 0.42, r: 0.042 },
+
+      // BENCHES facing the path, in pairs, down its length.
+      { kind: 'bench', x: 0.415, y: 0.30, w: 0.040, h: 0.011 },
+      { kind: 'bench', x: 0.585, y: 0.30, w: 0.040, h: 0.011 },
+      { kind: 'bench', x: 0.415, y: 0.58, w: 0.040, h: 0.011 },
+      { kind: 'bench', x: 0.585, y: 0.58, w: 0.040, h: 0.011 },
+      { kind: 'bench', x: 0.415, y: 0.74, w: 0.040, h: 0.011 },
+      { kind: 'bench', x: 0.585, y: 0.74, w: 0.040, h: 0.011 },
+
+      // HEDGES edging the four lawns. Two runs either side, set well off the
+      // kerb so the path itself is never pinched — the horde steers rather than
+      // pathfinds, and a corridor is the one shape that turns that into a wall.
+      { kind: 'hedge', x: 0.30, y: 0.22, r: 0.030 },
+      { kind: 'hedge', x: 0.30, y: 0.34, r: 0.030 },
+      { kind: 'hedge', x: 0.30, y: 0.46, r: 0.030 },
+      { kind: 'hedge', x: 0.70, y: 0.22, r: 0.030 },
+      { kind: 'hedge', x: 0.70, y: 0.34, r: 0.030 },
+      { kind: 'hedge', x: 0.70, y: 0.46, r: 0.030 },
+      { kind: 'hedge', x: 0.30, y: 0.62, r: 0.030 },
+      { kind: 'hedge', x: 0.30, y: 0.74, r: 0.030 },
+      { kind: 'hedge', x: 0.30, y: 0.86, r: 0.030 },
+      { kind: 'hedge', x: 0.70, y: 0.62, r: 0.030 },
+      { kind: 'hedge', x: 0.70, y: 0.74, r: 0.030 },
+      { kind: 'hedge', x: 0.70, y: 0.86, r: 0.030 },
+
+      // PLANTERS flanking the main doors at the top of the path, and two more
+      // just inside the gate, so both ends of the walk are announced.
+      { kind: 'planter', x: 0.44, y: 0.13, w: 0.016, h: 0.016 },
+      { kind: 'planter', x: 0.56, y: 0.13, w: 0.016, h: 0.016 },
+      { kind: 'planter', x: 0.44, y: 0.855, w: 0.016, h: 0.016 },
+      { kind: 'planter', x: 0.56, y: 0.855, w: 0.016, h: 0.016 },
+    ],
+  },
 
   rooftop_clutter: {
     name: 'Rooftop Clutter',
@@ -1072,7 +1207,7 @@ export const SCALING = {
 };
 
 // -----------------------------------------------------------------------------
-// MID-BOSS HP â€” [minutes into the run, multiplier on `def.hp`].
+// MID-BOSS HP — [minutes into the run, multiplier on `def.hp`].
 //
 // THIS REPLACES THE FLAT +6%/MIN FOR MID-BOSSES, and it exists because that flat
 // curve had the difficulty of a run running BACKWARDS. Play report: "mini bosses
@@ -1087,21 +1222,21 @@ export const SCALING = {
 //
 // Eighteen times the fight for a fifteenth of the health bar. The opener was the
 // hardest thing in the run and the finale was the easiest, and on the two late
-// stages â€” which borrow a 6,400-HP rung for their minute-4 opener â€” that same
+// stages — which borrow a 6,400-HP rung for their minute-4 opener — that same
 // fight measured 361s and 644s. Player damage compounds ~270x across a run
 // against an HP curve that grows 2.1x, and the pre-boss calm CLEARS THE FIELD,
 // so every point of a build's area damage lands on the finale while a mid-boss
 // soaks a fraction of it through a 200-enemy crowd.
 //
 // So "much more HP" cannot be a flat multiplier: it would double a fight that is
-// already a ten-minute wall. It is a CURVE â€” an opener is cheap because nothing
+// already a ten-minute wall. It is a CURVE — an opener is cheap because nothing
 // can kill it yet, a closer is ten times its base because by minute 16 the
 // player deletes the old number in eight seconds. Re-measured on the same twelve
 // samples, this table gives 36.1s / 27.5s / 33.5s against a 49.5s finale.
 //
-// Linear between points, flat outside them â€” the same shape as the WaveDirector's
+// Linear between points, flat outside them — the same shape as the WaveDirector's
 // density curve. Retune THIS, not SCALING.hp: mid-bosses are the only thing that
-// reads it, and fodder HP must keep growing slower than player DPS (Â§14).
+// reads it, and fodder HP must keep growing slower than player DPS (§14).
 // -----------------------------------------------------------------------------
 export const MIDBOSS_HP_CURVE = [
   [0,   0.35],

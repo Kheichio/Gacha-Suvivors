@@ -95,7 +95,7 @@ const DEFAULT_TRANSITION = {
  * The SHAPE is data (data/stages.js MIDBOSS_HP_CURVE) and this is only the
  * lookup, exactly like waveDirector's density curve. Read off `run.data` rather
  * than imported, because this file deliberately imports nothing from the data
- * layer â€” render/prewarm.js's import graph goes circular the moment it does.
+ * layer — render/prewarm.js's import graph goes circular the moment it does.
  *
  * The fallback is the old flat curve, so a data layer without the table still
  * produces the pre-change numbers instead of a NaN health bar.
@@ -167,7 +167,7 @@ export class BossController {
     // minute 16 the player deletes the old number in eight seconds.
     //
     // `def.hp` still does not move for either. It is what the codex quotes and
-    // what the Grand Finale's x8 elite pass multiplies â€” and that pass runs
+    // what the Grand Finale's x8 elite pass multiplies — and that pass runs
     // through Run.spawnElite, which never comes here, so a recap elite is still
     // a recap elite and not a wall.
     const minutes = run.time / 60;
@@ -176,7 +176,7 @@ export class BossController {
       ? def.hp * scale * midBossHpMult(run, minutes)
       : def.hp * (def.finaleHpMult || 1) * scale * (1 + 0.06 * minutes);
     e.radius = (def.visual.size || 60);
-    // Bosses take their raw authored size as a radius, which runs to 150 â€” past
+    // Bosses take their raw authored size as a radius, which runs to 150 — past
     // the old fixed 140px broadphase pad, so the outer body of the biggest boss
     // in the game was never returned by a small AoE's query. The adaptive pad
     // covers it, but only if it is told the instant the radius is overwritten.
@@ -213,6 +213,15 @@ export class BossController {
     }
 
     audio.play('bossIntro');
+    // THE STAGE'S OWN CUE, over the top of the universal one.
+    //
+    // `bossIntro` says "a boss is here" and is the same everywhere, which is
+    // correct — it is a gameplay signal. `bossCue` says WHERE you are, and it is
+    // per stage: a clock tower tolling over the school courtyard, and whatever
+    // the next map's equivalent turns out to be. Optional, and an unknown name
+    // is a silent no-op in `audio.play`, so a stage that declares nothing or
+    // declares a cue that has not been written yet simply gets the universal one.
+    if (run.stage && run.stage.bossCue) audio.play(run.stage.bossCue);
     shake.medium();
     events.emit(EV.BOSS_SPAWNED, e, def);
     return e;

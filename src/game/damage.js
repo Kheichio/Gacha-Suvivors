@@ -58,8 +58,8 @@ export function dealDamage(run, e, amount, src, opts) {
   // --- invulnerability (the boss intro card, the phase-transition shell) -----
   // The only entities that ever carry `invulnT` are bosses: game/boss.js sets it
   // for the length of the intro card and for the shell at the top of a phase
-  // break. It was WRITTEN in both places and READ IN NEITHER â€” `isInvuln` was
-  // imported into this file for the player path alone â€” so the intro card's own
+  // break. It was WRITTEN in both places and READ IN NEITHER — `isInvuln` was
+  // imported into this file for the player path alone — so the intro card's own
   // comment ("invulnerable and inert while the card is up") had never once been
   // true, and a phase transition had no way to say "not yet".
   if (isInvuln(e.st)) {
@@ -150,8 +150,8 @@ export function dealDamage(run, e, amount, src, opts) {
     // A built player standing in a fast swarm lands 284 hits a tick, which asked
     // this line for ~789 particles a tick against an 800-particle cap: the pool
     // was completely churned every single frame (`_take` evicts the oldest when
-    // full), every emit allocated a `colour|shape` cache key â€” about 47,000
-    // string allocations a second of pure GC pressure â€” and the sparks were
+    // full), every emit allocated a `colour|shape` cache key — about 47,000
+    // string allocations a second of pure GC pressure — and the sparks were
     // evicted before they were ever drawn. It also handed the renderer a
     // permanently saturated 800-sprite pass carrying no information at all.
     // Measured: 0.252ms/tick for the emits alone, 0.033ms/tick once they stand
@@ -441,7 +441,7 @@ const EMPTY = {};
 /** Module-level, per the house rule: a hit may not build its own options bag. */
 const HIT_SPARK = { speed: 150, life: 0.2, size: 0.34 };
 /**
- * Live particles above which the per-hit spark stands down. 60% of the cap â€”
+ * Live particles above which the per-hit spark stands down. 60% of the cap —
  * high enough that ordinary play never notices, low enough that a screen-filling
  * horde cannot churn the whole pool once per frame, and above RICH_LIMIT (320)
  * so it never re-enables the particle draw's extra passes as a side effect.

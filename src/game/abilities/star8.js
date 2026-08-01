@@ -56,7 +56,16 @@ const C_NIGHT = '#1e2f5c';
 // silhouette, in the ground, point-down, is the read — "that is hers, do not
 // stand there" — and it has to be learnable in the first thirty seconds.
 //
-// `triangle` points +X, so an `angle` of π/2 stands it on its nose. The prop
+// AND IT IS AN ACTUAL CARROT NOW. It was `triangle`: an orange wedge, which is
+// a perfectly serviceable projectile silhouette and says nothing whatsoever
+// about what she is throwing. Everything in this kit is a carrot — it is the
+// epithet, the joke and the ordnance at once — and it was reading as a dart.
+// `SHAPES.carrot` is a tapered root with the leaves IN the stroked path, so the
+// top survives the outline pass at the nine pixels the barrage bakes at.
+//
+// `carrot` points +X, so an `angle` of π/2 stands it on its nose — the fronds
+// then sit in the dirt, which is exactly right for something stuck in the
+// ground point-down. The prop
 // variant is deliberately `flash: false` and not `rotates`: `drawSpriteRotated`
 // reads frame 0 and turns on the context, nothing can hit it, and both fields
 // are part of the atlas key — a descriptor that differs by one of them
@@ -66,8 +75,8 @@ const C_NIGHT = '#1e2f5c';
 // them in the atlas before the boot pass ever looks: `register` is a cache hit
 // if prewarm got here first and an ordinary raster if this module loaded first,
 // and either way it happens before the first frame.
-const V_CARROT = { shape: 'triangle', color: C_CARROT, accent: C_NIGHT, size: 9, rotates: true, glow: true };
-const V_ORDNANCE = { shape: 'triangle', color: C_CARROT, accent: C_NIGHT, size: 13, flash: false };
+const V_CARROT = { shape: 'carrot', color: C_CARROT, accent: C_NIGHT, size: 9, rotates: true, glow: true };
+const V_ORDNANCE = { shape: 'carrot', color: C_CARROT, accent: C_NIGHT, size: 13, flash: false };
 const SP_ORDNANCE = H.atlas.register(V_ORDNANCE);
 H.atlas.register(V_CARROT);
 

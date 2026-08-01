@@ -206,8 +206,8 @@ matters — if every telegraphed fight paid out fully, the signature one would
 stop reading as special.
 
 **Run out of things to claim and the final boss comes for you.** When
-`run.nothingLeftToClaim()` goes true â€” every card source empty, so the level-up
-screen can only pay gold â€” a **sixty second countdown** starts on the HUD, and the
+`run.nothingLeftToClaim()` goes true — every card source empty, so the level-up
+screen can only pay gold — a **sixty second countdown** starts on the HUD, and the
 last fifteen seconds of it are `callBossEarly()`'s own lead-in, so the clock hits
 zero exactly as the boss walks on. `run.buildComplete()` is the second, weaker
 trigger for the same countdown; both are latched, so they cannot double-fire and

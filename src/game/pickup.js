@@ -167,8 +167,8 @@ export class PickupSystem {
   /**
    * NOTHING EVER LANDS ON A WALL.
    *
-   * Every drop in the game funnels through here â€” dropGem, dropGold, dropPickup
-   * and therefore dropChest and dropWeapon, and dropRelic â€” so this is the one
+   * Every drop in the game funnels through here — dropGem, dropGold, dropPickup
+   * and therefore dropChest and dropWeapon, and dropRelic — so this is the one
    * place the rule has to be stated. See ObstacleField.pushOut for why a drop
    * inside static geometry is not a cosmetic problem: a chest, a relic, a weapon
    * crate and a heart are collected by TOUCH, and the player cannot get close
@@ -205,7 +205,7 @@ export class PickupSystem {
    * has been on the floor for two minutes.
    *
    * O(pickups x obstacles) and therefore NOT a per-frame call. It runs once per
-   * wall event â€” a few times a minute on the two stages that have one.
+   * wall event — a few times a minute on the two stages that have one.
    */
   evictFromObstacles() {
     const obstacles = this.run.obstacles;

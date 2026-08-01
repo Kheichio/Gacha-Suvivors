@@ -181,6 +181,31 @@ const STUB_CTX = new Proxy({}, {
 
 // --- shape painters ----------------------------------------------------------
 // Each paints centred at (cx, cy) with radius r into a 2D context.
+
+/**
+ * The three leaves off a carrot's shoulder, as subpaths on the CURRENT path.
+ *
+ * Shared by `SHAPES.carrot` and its overlay rather than written twice: the shape
+ * needs them so the outline pass puts them in the silhouette, and the overlay
+ * needs the identical geometry so it can fill exactly those pixels green. Two
+ * copies of this would drift by a pixel and leave an orange rim on every leaf.
+ */
+function carrotFronds(ctx, cx, cy, r) {
+  for (let i = -1; i <= 1; i++) {
+    // Spread wide and run LONG — 0.8r, not half that. `register` strokes every
+    // shape at `size * 0.14` centred on the boundary, so a leaf shorter than
+    // about 0.6r arrives as pure outline with no green left inside it, and the
+    // three of them merge into one dark blob on the back of the root.
+    const a = Math.PI + i * 0.62;
+    const bx = cx - r * 0.34, by = cy + i * r * 0.20;
+    const tx = bx + Math.cos(a) * r * 0.80, ty = by + Math.sin(a) * r * 0.80;
+    ctx.moveTo(bx, by - r * 0.17);
+    ctx.lineTo(tx, ty);
+    ctx.lineTo(bx, by + r * 0.17);
+    ctx.closePath();
+  }
+}
+
 const SHAPES = {
   circle(ctx, cx, cy, r) {
     ctx.beginPath();
@@ -379,6 +404,172 @@ const SHAPES = {
   },
 
   /**
+   * A STONE FOUNTAIN, seen from above: an outer basin, a rim, and a pedestal
+   * with a spout bowl on it.
+   *
+   * Obstacle sprites are drawn with `rot = 0` always (obstacles.js) and scaled by
+   * `r / 32`, so this is authored UPRIGHT and top-down rather than pointing +X
+   * like a projectile. The rim is 0.30r wide, not the 0.18 that looks right on
+   * paper: the atlas strokes at `size * 0.14` centred on the boundary, so a
+   * thinner ring arrives as pure outline with no stone left in it.
+   */
+  fountain(ctx, cx, cy, r) {
+    ctx.beginPath();
+    ctx.moveTo(cx + r, cy);
+    ctx.arc(cx, cy, r, 0, TAU);                       // the basin's outer wall
+    ctx.moveTo(cx + r * 0.70, cy);
+    ctx.arc(cx, cy, r * 0.70, 0, TAU, true);          // ...punched to a ring
+    ctx.moveTo(cx + r * 0.46, cy);
+    ctx.arc(cx, cy, r * 0.46, 0, TAU);                // the pedestal
+    ctx.moveTo(cx + r * 0.30, cy);
+    ctx.arc(cx, cy, r * 0.30, 0, TAU, true);
+    ctx.moveTo(cx + r * 0.16, cy);
+    ctx.arc(cx, cy, r * 0.16, 0, TAU);                // the spout
+    ctx.closePath();
+  },
+
+  /**
+   * A CLIPPED HEDGE, top-down: a rounded mass with a bitten outline.
+   *
+   * A circle would read as a boulder and a rectangle as a wall. What says
+   * "planted, and somebody trims it" is that the silhouette is *nearly* round
+   * and then interrupted — eight lobes on a fixed pattern, so it is a shrub
+   * rather than a cog, and fixed rather than rolled because an obstacle that is
+   * a different shape on a replay of the same seed is an obstacle that spent the
+   * run stream on being pretty.
+   */
+  hedge(ctx, cx, cy, r) {
+    ctx.beginPath();
+    const N = 11;
+    const bump = [1.0, 0.84, 0.97, 0.80, 1.0, 0.87, 0.93, 0.79, 1.0, 0.86, 0.95];
+    for (let i = 0; i < N; i++) {
+      const a = i * TAU / N;
+      const rr = r * bump[i];
+      const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(x, y);
+      else {
+        const am = a - TAU / N * 0.5;
+        const rm = r * 1.03;
+        ctx.quadraticCurveTo(cx + Math.cos(am) * rm, cy + Math.sin(am) * rm, x, y);
+      }
+    }
+    ctx.closePath();
+  },
+
+  /**
+   * A CARROT. Tapers to a point along +X, fronds trailing off the back.
+   *
+   * The character who throws these had them drawn as `triangle` — an orange
+   * wedge — which is a perfectly good projectile silhouette and says nothing at
+   * all about what she is throwing. Every single thing in her kit is a carrot;
+   * it is the joke, the epithet and the weapon, and it was reading as a dart.
+   *
+   * THE FRONDS ARE IN THE MAIN PATH, not in the overlay, and that is the whole
+   * design. `register` fills the path and then strokes it with the accent, so
+   * anything outside the path is a coloured smudge with no outline — and at the
+   * nine-pixel size the barrage bakes at, the outline IS the silhouette. Leaves
+   * that are part of the stroked path survive being three pixels long; leaves
+   * painted afterwards do not. The overlay then only has to recolour them, which
+   * is the cheap half.
+   *
+   * The taper is deliberately blunt at the shoulder (0.40r) rather than smoothly
+   * conical: a cone with leaves on it is a party hat, and what separates a
+   * carrot from a cone is that the shoulder is nearly as wide as it is deep.
+   */
+  carrot(ctx, cx, cy, r) {
+    ctx.beginPath();
+    ctx.moveTo(cx + r, cy);
+    ctx.quadraticCurveTo(cx + r * 0.16, cy - r * 0.50, cx - r * 0.30, cy - r * 0.56);
+    ctx.quadraticCurveTo(cx - r * 0.52, cy, cx - r * 0.30, cy + r * 0.56);
+    ctx.quadraticCurveTo(cx + r * 0.16, cy + r * 0.50, cx + r, cy);
+    ctx.closePath();
+    carrotFronds(ctx, cx, cy, r);
+  },
+
+  /**
+   * A FLOWER seen from above: five petals round a centre.
+   *
+   * The meadow was seeding `star` particles and calling them flowers. A star is
+   * a five-pointed shape with CONCAVE sides and points that meet at the middle,
+   * which is a sparkle; a flower is five CONVEX lobes that meet at a disc. That
+   * distinction is the entire difference between a field of flowers and a field
+   * of glitter, and it costs one quadratic per petal.
+   */
+  flower(ctx, cx, cy, r) {
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const a = -Math.PI / 2 + i * TAU / 5;
+      const px = cx + Math.cos(a) * r * 0.60, py = cy + Math.sin(a) * r * 0.60;
+      const w = r * 0.46;
+      ctx.moveTo(cx, cy);
+      ctx.quadraticCurveTo(px - Math.sin(a) * w, py + Math.cos(a) * w,
+                           cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+      ctx.quadraticCurveTo(px + Math.sin(a) * w, py - Math.cos(a) * w, cx, cy);
+      ctx.closePath();
+    }
+  },
+
+  /** A tuft of grass: three blades off one root, leaning apart. */
+  grass(ctx, cx, cy, r) {
+    ctx.beginPath();
+    for (let i = -1; i <= 1; i++) {
+      const lean = i * r * 0.52;
+      const w = r * 0.17;
+      ctx.moveTo(cx + lean * 0.2 - w, cy + r);
+      ctx.quadraticCurveTo(cx + lean * 0.5, cy, cx + lean, cy - r * 0.9);
+      ctx.quadraticCurveTo(cx + lean * 0.5 + w, cy, cx + lean * 0.2 + w, cy + r);
+      ctx.closePath();
+    }
+  },
+
+  /** A small bunch of grapes — six berries in a triangle, on a stem. */
+  grapes(ctx, cx, cy, r) {
+    const b = r * 0.30;
+    const rows = [[-1, 0, 1], [-0.5, 0.5], [0]];
+    ctx.beginPath();
+    ctx.rect(cx - r * 0.07, cy - r, r * 0.14, r * 0.4);
+    for (let j = 0; j < rows.length; j++) {
+      for (const k of rows[j]) {
+        const x = cx + k * b * 1.7, y = cy - r * 0.44 + j * b * 1.55;
+        ctx.moveTo(x + b, y);
+        ctx.arc(x, y, b, 0, TAU);
+      }
+    }
+    ctx.closePath();
+  },
+
+  /**
+   * A SPELL SIGIL — a ring with four cardinal ticks and an inner ring.
+   *
+   * THE COLLECTION casts twenty spells in ten seconds and, before this, every
+   * one of them announced itself with the same shockwave in a different colour.
+   * Colour alone is not an identity at that cadence on a stage that is already
+   * four colours; a stamped glyph at the cast point is. It is deliberately
+   * generic — the caller tints it per page — because what has to read is "that
+   * was a DIFFERENT page", not which one.
+   */
+  sigil(ctx, cx, cy, r) {
+    ctx.beginPath();
+    ctx.moveTo(cx + r, cy);
+    ctx.arc(cx, cy, r, 0, TAU);
+    ctx.moveTo(cx + r * 0.74, cy);
+    ctx.arc(cx, cy, r * 0.74, 0, TAU, true);
+    const t = r * 0.13;
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 2;
+      const c = Math.cos(a), s = Math.sin(a);
+      const px = cx + c * r * 0.50, py = cy + s * r * 0.50;
+      ctx.moveTo(px - c * r * 0.30 - s * t, py - s * r * 0.30 + c * t);
+      ctx.lineTo(px + c * r * 0.30 - s * t, py + s * r * 0.30 + c * t);
+      ctx.lineTo(px + c * r * 0.30 + s * t, py + s * r * 0.30 - c * t);
+      ctx.lineTo(px - c * r * 0.30 + s * t, py - s * r * 0.30 - c * t);
+      ctx.closePath();
+    }
+    ctx.moveTo(cx + r * 0.24, cy);
+    ctx.arc(cx, cy, r * 0.24, 0, TAU);
+  },
+
+  /**
    * A TORII GATE, seen head on, as one closed silhouette: two pillars leaning
    * inward off their footing stones, the curved KASAGI with its ends swept up,
    * the straight NUKI below it, and the GAKUZUKA tablet standing between them.
@@ -500,6 +691,81 @@ SHAPES.ofuda.overlay = function (ctx, cx, cy, r, color, accent) {
   ctx.fillRect(cx - w, cy + r * 0.20, w * 2, t);
   ctx.fillStyle = accent || '#e8452f';
   ctx.fillRect(cx - r * 0.15, cy + r * 0.42, r * 0.30, r * 0.20);
+};
+
+/**
+ * The green top, and the grooves that stop the root reading as a cone.
+ *
+ * Both are painted over a shape that has ALREADY been filled orange and stroked,
+ * so the leaves keep the outline the main path gave them and only change colour.
+ * The grooves are drawn as short arcs bowing toward the tip because that is the
+ * direction a real carrot's rings curve; straight ticks read as a screw thread.
+ */
+SHAPES.carrot.overlay = function (ctx, cx, cy, r, color, accent) {
+  // The grooves are a DETAIL and they are gated on size. Below about eleven the
+  // stroke is already a third of the root's depth, and three more bars across it
+  // is not texture, it is a barcode.
+  if (r >= 11) {
+    ctx.strokeStyle = accent || 'rgba(122,52,12,0.6)';
+    ctx.lineWidth = Math.max(1, r * 0.07);
+    ctx.globalAlpha = 0.42;
+    for (let i = 0; i < 3; i++) {
+      const x = cx + r * (0.44 - i * 0.30);
+      const h = r * (0.14 + i * 0.08);
+      ctx.beginPath();
+      ctx.moveTo(x, cy - h);
+      ctx.quadraticCurveTo(x + r * 0.10, cy, x, cy + h);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  ctx.beginPath();
+  carrotFronds(ctx, cx, cy, r);
+  ctx.fillStyle = '#4fae4a';
+  ctx.fill();
+  // One lit leaf, so the top has a form instead of being a green blob.
+  ctx.beginPath();
+  ctx.moveTo(cx - r * 0.34, cy - r * 0.34);
+  ctx.lineTo(cx - r * 0.98, cy - r * 0.56);
+  ctx.lineTo(cx - r * 0.38, cy - r * 0.10);
+  ctx.closePath();
+  ctx.fillStyle = '#8fd96a';
+  ctx.fill();
+};
+
+/** The water in the basin and in the spout bowl, and the light on it. */
+SHAPES.fountain.overlay = function (ctx, cx, cy, r, color, accent) {
+  ctx.fillStyle = 'rgba(120,190,235,0.55)';
+  ctx.beginPath();
+  ctx.moveTo(cx + r * 0.70, cy);
+  ctx.arc(cx, cy, r * 0.70, 0, TAU);
+  ctx.moveTo(cx + r * 0.46, cy);
+  ctx.arc(cx, cy, r * 0.46, 0, TAU, true);
+  ctx.fill();
+  // One lit crescent on the water, upper left, so the ring is a surface rather
+  // than a hole cut in the stone.
+  ctx.strokeStyle = 'rgba(220,244,255,0.7)';
+  ctx.lineWidth = Math.max(1, r * 0.07);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.58, Math.PI * 1.05, Math.PI * 1.55);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(200,236,255,0.9)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.14, 0, TAU);
+  ctx.fill();
+};
+
+/** Two lighter clumps of foliage, so the mass has a top and not just an edge. */
+SHAPES.hedge.overlay = function (ctx, cx, cy, r, color) {
+  ctx.fillStyle = 'rgba(255,255,255,0.16)';
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.26, cy - r * 0.30, r * 0.34, 0, TAU);
+  ctx.arc(cx + r * 0.22, cy - r * 0.10, r * 0.24, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.18, cy + r * 0.36, r * 0.30, 0, TAU);
+  ctx.fill();
 };
 
 /** The white-hot heart of the flame. */

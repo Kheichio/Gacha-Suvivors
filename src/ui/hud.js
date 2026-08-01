@@ -904,21 +904,21 @@ class Hud {
   }
 
   /**
-   * THE FINALE COUNTDOWN â€” the loudest thing this HUD draws that is not a boss.
+   * THE FINALE COUNTDOWN — the loudest thing this HUD draws that is not a boss.
    *
    * WHY IT IS NOT IN THE CENTRE. It is on screen for a full minute, which is an
    * order of magnitude longer than the kill-streak callout or the QTE prompt, and
    * the founding rule of this file is that the middle 70% stays clear. Those two
    * break it because they are on screen for a second or two. This one is not, so
-   * it hangs off the TOP-CENTRE COLUMN instead, one plate under the run timer â€”
+   * it hangs off the TOP-CENTRE COLUMN instead, one plate under the run timer —
    * which is exactly where the player already looks to answer "how long left".
    * Answering that question one line lower with a shorter, redder clock is the
    * whole idea: the run timer stops being the one that matters the moment this
    * appears.
    *
    * IT STEPS OUT FROM UNDER THE BOSS BAR. A mid-boss can perfectly well be alive
-   * while this is counting â€” that is the exact case callBossEarly refuses and
-   * retries â€” and the drop-down boss plate occupies 52..132 * s. Same reasoning
+   * while this is counting — that is the exact case callBossEarly refuses and
+   * retries — and the drop-down boss plate occupies 52..132 * s. Same reasoning
    * and the same spelling as _qte's clamp against the duration stack.
    *
    * ZERO IS A REAL STATE, NOT A ROUNDING ERROR. The clock floors at zero and the
@@ -947,7 +947,7 @@ class Hud {
       color: 'rgba(12,6,14,0.94)', borderColor: col, borderWidth: 3, radius: 8,
       alpha: 0.85 + beat * 0.15,
     });
-    ui.text('âš   FINAL BOSS INBOUND', W / 2, y + 20 * s, {
+    ui.text('⚠  FINAL BOSS INBOUND', W / 2, y + 20 * s, {
       size: 15, color: col, align: 'center', weight: 800, mono: true, outline: true,
     });
     ui.text(handover ? 'INCOMING' : formatTime(Math.ceil(t)), W / 2, y + 50 * s, {
@@ -960,7 +960,7 @@ class Hud {
     }
     // The reason, in plain words, outside the plate. A warning that does not say
     // why it appeared reads as the game breaking rather than as the game paying.
-    ui.text('nothing left to claim â€” bank the coins', W / 2, y + h + 14 * s, {
+    ui.text('nothing left to claim — bank the coins', W / 2, y + h + 14 * s, {
       size: 12, color: PALETTE.textDim, align: 'center', weight: 700, outline: true,
     });
   }

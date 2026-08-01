@@ -157,7 +157,7 @@ const POOL_4 = ['hoshino_rei', 'yamikage', 'uzu', 'captain_yuli', 'kagura', 'uni
 // she would roll off both the 8% band and the 1% band and the pull screen would
 // print two different beam colours for the same result.
 const POOL_5 = ['rin', 'niten', 'shiro_same', 'reika', 'nekromina', 'hikari', 'kira',
-                'yukine', 'wren', 'brant'];
+                'yukine', 'wren', 'brant', 'karin', 'nika'];
 
 /**
  * The full ★6 roster, shared by every rate-up banner.
@@ -181,7 +181,7 @@ const POOL_5 = ['rin', 'niten', 'shiro_same', 'reika', 'nekromina', 'hikari', 'k
  * you off the losing half of the coin flip. Featuring is a scheduling dial the
  * owner turns; obtainability is a pool invariant, and the pool is correct.
  */
-const POOL_6 = ['sovereign_alicia', 'sora', 'han', 'aoi', 'mirel', 'akane', 'pekora'];
+const POOL_6 = ['sovereign_alicia', 'sora', 'han', 'aoi', 'mirel', 'akane', 'pekora', 'rima'];
 
 // -----------------------------------------------------------------------------
 // BANNERS
@@ -289,7 +289,10 @@ export const BANNERS = [
     desc: 'Rate-up: ★6 Aoi. Half of every ★5 you pull here is Yukine.',
     subDesc: 'Guaranteed ★6 by pull 80, guaranteed ★5 by pull 50. She has already apologised for the odds.',
     featured6: 'aoi',
-    featured5: ['yukine'],
+    // Karin joins this one so the disjointness invariant survives her arrival:
+    // every ★5 in the game is favoured on EXACTLY one rate-up, and this banner
+    // was carrying a single name while the others carried two or three.
+    featured5: ['yukine', 'karin'],
     pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: POOL_6 },
     costSingle: 15,
     costTen: 135,
@@ -345,7 +348,9 @@ export const BANNERS = [
     desc: 'Rate-up: ★6 Usaki. Half of every ★5 you pull here is Nekromina or Kira.',
     subDesc: 'Guaranteed ★6 by pull 80, guaranteed ★5 by pull 50. She insists the counters were her idea.',
     featured6: 'pekora',
-    featured5: ['nekromina', 'kira'],
+    // ...and Nika here, for the same reason. Twelve ★5s across five rate-ups no
+    // longer divides evenly, so the two banners that were light take one each.
+    featured5: ['nekromina', 'kira', 'nika'],
     pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: POOL_6 },
     costSingle: 15,
     costTen: 135,
@@ -406,7 +411,10 @@ export const BANNERS = [
     featured5: [],
     pool: {
       relics: [
-        // 25 signature relics, one per character.
+        // 28 signature relics, one per character.
+        'the_long_way_round',
+        'the_ninth_tail',
+        'the_loose_cannon',
         'secret_technique_109',
         'dual_blades',
         'hoshiyomi_penlight',
@@ -451,7 +459,7 @@ export const BANNERS = [
      *  This number must equal `pool.relics.length` — data/index.js validate()
      *  now checks it, because a stale count retires the banner one relic early
      *  and the last one becomes unbankable with no error anywhere. */
-    completesAt: 30,
+    completesAt: 33,
     // Premium against the character banners: a bank is permanent and stacks
     // across every future run, where a character dupe is 40 letters.
     costSingle: 25,

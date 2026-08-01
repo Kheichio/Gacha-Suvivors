@@ -37,6 +37,51 @@ export const REFS = {
   // This is what an artist works from; do not trim it.
   // ===========================================================================
 
+  karin: {
+    ref: 'Katarina Du Couteau',
+    refSource: 'League of Legends',
+    refNotes: "Short crimson hair pulled into a low tail, green eyes, a scar " +
+              "across the left one. Dark leather bodice with a steel-edged " +
+              "collar over a red half-skirt, thigh straps, blades sheathed all " +
+              "over her. Fights with a short blade in each hand and never once " +
+              "stands still: her whole kit is throw, dash to where it landed, " +
+              "pick it up, do it again. Picking a blade back up is what resets " +
+              "her — the retrieval IS the rotation, and a player who only " +
+              "throws is playing half the character. Arrogant, bored by " +
+              "anything that takes more than one exchange.",
+  },
+
+  rima: {
+    ref: 'Ahri',
+    refSource: 'League of Legends',
+    refNotes: "Long black hair, gold eyes, fox ears and NINE tails. Fitted " +
+              "dark-blue dress with gold trim and a short mantle at the " +
+              "shoulders. Her orb goes out and comes back and damages on both " +
+              "passes, which is the whole feel of her — the return trip is half " +
+              "the damage and it only lands if you held your ground. She charms " +
+              "rather than kills: the crowd stops being able to see her at all " +
+              "and turns on itself. Three dashes held at once, spent one at a " +
+              "time. Careful: the roster ALREADY has a nine-tailed fox (the " +
+              "pink shrine one), so this design must separate at the " +
+              "silhouette — a single long fall of hair, a dress, an orb — and " +
+              "never merely at the palette.",
+  },
+
+  nika: {
+    ref: 'Jinx',
+    refSource: 'League of Legends',
+    refNotes: "Two enormous blue braids hanging past the hip, a magenta streak " +
+              "in the fringe, pink eyes with a manic ring to them. Rust-brown " +
+              "crop top, purple shorts, deliberately mismatched legwear — one " +
+              "long stocking, one short — and tattoos up both arms. Carries a " +
+              "minigun AND a rocket launcher and switches between them " +
+              "mid-fight: fast and single-target, or slow and explosive. Throws " +
+              "grenades that grab the floor and stop everything moving. Nothing " +
+              "about her is symmetrical or tidy and that is the point; she is " +
+              "having the time of her life and the arithmetic is somebody " +
+              "else's problem.",
+  },
+
   // --- 3-star ---------------------------------------------------------------
   mochi: {
     ref: 'Mokona',
@@ -118,7 +163,7 @@ export const REFS = {
     ref: 'Tamamo-no-Mae',
     refSource: 'Fate/Grand Order',
     refNotes: "Very long pink hair in twin-tails, golden-blonde fox ears, nine " +
-              "enormous fox tails, a modernised miko outfit â€” white top with " +
+              "enormous fox tails, a modernised miko outfit — white top with " +
               "wide detached sleeves over a bright vermilion hakama, gold " +
               "accents and a large gold bell in the hair. Carries a polished " +
               "mirror. Aggressively affectionate one moment and murderous " +
@@ -1262,6 +1307,33 @@ export const REFS = {
   // ===========================================================================
 
   // --- 25 signature relics --------------------------------------------------
+  the_long_way_round: {
+    ref: 'Katarina Du Couteau',
+    refSource: 'League of Legends',
+    refNotes: "Her passive is the retrieval, not the throw: a blade picked back " +
+              "up is what resets her. Owner: Karin. The relic pays for the " +
+              "walking half of that loop, which is the half a careless player " +
+              "skips.",
+  },
+
+  the_ninth_tail: {
+    ref: 'Ahri',
+    refSource: 'League of Legends',
+    refNotes: "The tails are a count of what she has taken, not decoration — " +
+              "she gains them by collecting essence. Owner: Rima. Same series " +
+              "as the other two newcomers and deliberately non-overlapping " +
+              "with either.",
+  },
+
+  the_loose_cannon: {
+    ref: 'Jinx',
+    refSource: 'League of Legends',
+    refNotes: "Everything she owns has had the safety removed from it. Owner: " +
+              "Nika. It fires on the special because her special is the " +
+              "shortest cooldown on the roster, which is what makes a " +
+              "per-special relic hers and nobody else's.",
+  },
+
   secret_technique_109: {
     ref: 'Mokona',
     refSource: 'Magic Knight Rayearth',

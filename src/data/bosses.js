@@ -23,7 +23,7 @@
 // from 2,500 to 38,000:
 //   S1 2,500  S2 4,000  S3 6,300  S4 9,800  S5 15,200  S6 24,000  S7 38,000
 // Mid-bosses sit at ~42% of their stage boss. Named elites at ~15%. `hp` is the
-// RUNG, not the fight â€” game/boss.js decides what a rung costs at the minute it
+// RUNG, not the fight — game/boss.js decides what a rung costs at the minute it
 // is actually walked on.
 //
 // THE FINALE MULTIPLIER, TWICE. The first play report was "make final bosses
@@ -32,7 +32,7 @@
 // to kill than the final match boss", and it was CORRECT: measured headlessly,
 // four characters x three seeds on the 20-minute stage, the 1,443-HP opener at
 // minute 5 took a median 76.9 SECONDS and the 21,450-HP finale at minute 19 took
-// 4.2. The 2.5 was never the problem â€” the finale is fought on a field the calm
+// 4.2. The 2.5 was never the problem — the finale is fought on a field the calm
 // beat has just EMPTIED, so a build's whole area output lands on one target,
 // while a mid-boss soaks a fraction of it through two hundred other bodies.
 //
@@ -47,7 +47,7 @@
 // elite pass multiplies (that pass runs through Run.spawnElite and never sees
 // this number), it is what the codex quotes, and it is the mid-boss rung.
 //
-// MID-BOSSES DO NOT CARRY THE FIELD, and must not â€” but the 1,100 -> 15,600
+// MID-BOSSES DO NOT CARRY THE FIELD, and must not — but the 1,100 -> 15,600
 // staircase is a rung, not a fight. data/stages.js MIDBOSS_HP_CURVE turns a rung
 // into a health bar based on WHEN it is fought, which is why the same Drum Oni
 // is 3,744 as a minute-4 opener and 66,668 as a minute-16 closer. Moving a
@@ -57,7 +57,7 @@
 // A MID-BOSS IS ALSO A TWO-PHASE FIGHT NOW, on the same machinery the finales
 // use and not a second one. Every phase-2 block below authors a `transition`
 // with an `invuln` shell, an `attackRateMult`, a `telegraphMult`, and an attack
-// list DISJOINT from phase one's â€” the break has to change what the thing DOES,
+// list DISJOINT from phase one's — the break has to change what the thing DOES,
 // or 2.5x the health is 2.5x the same forty seconds.
 //
 // A PHASE IS A DIFFERENT FIGHT. Every final boss's phase list is now DISJOINT
@@ -1239,7 +1239,7 @@ const THE_ARMORED = {
       attackRateMult: 1.0, telegraphMult: 1.0,
       attacks: ['exposed_nape', 'hardening_charge', 'plate_shockwave'] },
     // Cracked plating sheds shards and braces instead of stamping. The nape
-    // window crosses the boundary because it is a MECHANIC and not an attack â€”
+    // window crosses the boundary because it is a MECHANIC and not an attack —
     // the one exception this file allows, and this is it.
     { name: 'Cracked Plating', hpFrom: 0.5, hpTo: 0.0, speedMult: 1.24, enrage: true,
       attackRateMult: 1.35, telegraphMult: 0.9,
@@ -1474,7 +1474,7 @@ const TIDE_WARDEN = {
       attackRateMult: 1.0, telegraphMult: 1.0,
       attacks: ['bulwark_shell', 'claw_slam', 'bubble_volley'] },
     // SHELL CRACKED now means the shell. `bulwark_shell` is what re-applies the
-    // block, and it is gone from this list â€” the flanking exam is over and the
+    // block, and it is gone from this list — the flanking exam is over and the
     // arena exam starts, with a current pulling you into it.
     { name: 'SHELL CRACKED', hpFrom: 0.5, hpTo: 0.0, speedMult: 1.28, enrage: true,
       attackRateMult: 1.4, telegraphMult: 0.88,

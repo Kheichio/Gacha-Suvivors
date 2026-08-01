@@ -57,14 +57,14 @@ const EARLY_BOSS_LEAD = 10;
  * THE GRIND MINUTE.
  *
  * Play report: "make the final boss spawn if the player has no more upgrades to
- * claim and it's just currency claims â€” give a 1 min countdown so the player can
+ * claim and it's just currency claims — give a 1 min countdown so the player can
  * grind some more coins just before he spawns."
  *
  * So the finale is no longer CALLED the moment a build finishes; a sixty second
  * countdown starts instead, on screen, and the call happens inside it. The minute
  * is not padding. Gold is the only thing a finished build can still earn, the
  * shrine is the only place it goes, and a player told "you are done" with ten
- * seconds of warning cannot act on it â€” sixty seconds of a fully-covered arena at
+ * seconds of warning cannot act on it — sixty seconds of a fully-covered arena at
  * a finished build's kill rate is a real payout, and it is the last one the run
  * has left to give.
  *
@@ -75,7 +75,7 @@ export const FINALE_COUNTDOWN = 60;
 
 /**
  * The tail of that countdown that belongs to callBossEarly's OWN sequence:
- * EARLY_BOSS_LEAD of warning, then feel.preBossCalm of silence, then the boss â€”
+ * EARLY_BOSS_LEAD of warning, then feel.preBossCalm of silence, then the boss —
  * the same shape the authored timeline uses at duration-60s / duration-55s. The
  * call is therefore made at T-15 rather than at T-0, so the number on the HUD
  * reaches zero exactly as the boss walks on instead of fifteen seconds before it.
@@ -84,7 +84,7 @@ const FINALE_HANDOVER = EARLY_BOSS_LEAD + 5;
 
 /**
  * How often nothingLeftToClaim() is evaluated, as a mask on the SIM TICK counter
- * â€” every 32 ticks, a little over half a second at the fixed 60Hz step. It walks
+ * — every 32 ticks, a little over half a second at the fixed 60Hz step. It walks
  * the weapon rack and the whole upgrade table, which is cheap but not free, and
  * nothing about a finished build can change inside half a second.
  *
@@ -132,8 +132,8 @@ export class Run {
        * THIS FIELD WAS COMPUTED AND READ BY NOTHING for the entire life of the
        * project. Curse's advertised "+8% all rewards per level" paid exactly
        * zero, which made a 34,000-gold row that doubles the enemy count a
-       * strictly negative purchase; and every difficulty tier's rewardMult â€”
-       * Kamige's x2.5, printed on the stage-select card as "REW x2.5" â€” paid
+       * strictly negative purchase; and every difficulty tier's rewardMult —
+       * Kamige's x2.5, printed on the stage-select card as "REW x2.5" — paid
        * exactly zero with it. The only thing that ever read it was the test that
        * was supposed to prove it was alive, which asserted the field had been
        * ASSIGNED rather than that anything consumed it.
@@ -164,7 +164,7 @@ export class Run {
     /**
      * THE FINALE COUNTDOWN, in seconds of sim time, or -1 when nothing is
      * counting. Set by _startFinaleCountdown, drained by _tickFinale, read by the
-     * HUD. It floors at 0 rather than going negative â€” see _tickFinale for why 0
+     * HUD. It floors at 0 rather than going negative — see _tickFinale for why 0
      * is a state the player can actually be left sitting in.
      */
     this.finaleCountdown = -1;
@@ -213,8 +213,8 @@ export class Run {
     this.player.px = this.player.x; this.player.py = this.player.y;
 
     // REVIVES ARE COUNTED PER SOURCE, NOT AS A POOL. `_reviveCharges()` asks each
-    // source how many charges it grants â€” the Shrine's Revival row is read
-    // straight out of save.data.shrine.revival there â€” `revivesUsed` counts
+    // source how many charges it grants — the Shrine's Revival row is read
+    // straight out of save.data.shrine.revival there — `revivesUsed` counts
     // charges SPENT per source, and `revivesLeftNow()` is the only number the HUD
     // may draw. There is deliberately no `revivesLeft` snapshot here: it was
     // assigned once at run start from `player.stats.revives`, read by nothing, and
@@ -330,8 +330,15 @@ export class Run {
       sprite: atlas.ensure({ shape: 'triangle', color: '#ff5f7e', accent: '#3a0a18', size: 22, emoji: '⛩' }),
     };
 
-    // Now that both keep-out positions are known, populate the map.
-    if (this.obstacleSet) this.obstacles.scatter(this.obstacleSet);
+    // Now that both keep-out positions are known, populate the map. AUTHORED
+    // PIECES FIRST: a stage that is a place rather than a field — a courtyard
+    // with a gate, a path and a fountain — puts its furniture where the design
+    // says, and the scatter then fills the ground AROUND it, because scatter's
+    // own `spacing` test measures against everything already down.
+    if (this.obstacleSet) {
+      this.obstacles.place(this.obstacleSet);
+      this.obstacles.scatter(this.obstacleSet);
+    }
     this.stageEvents.load(stage, this.data.stages.STAGE_EVENTS);
 
     this.weapons.init();
@@ -1454,7 +1461,7 @@ export class Run {
   _dropWeaponCrate(x, y) {
     const def = this._rollWeaponDrop();
     if (!def) return false;
-    // The crate may land somewhere other than asked â€” a boss can die against a
+    // The crate may land somewhere other than asked — a boss can die against a
     // wall, and pickups are pushed clear of static geometry. The label follows
     // the crate, not the request.
     const p = this.pickups.dropWeapon(x, y, def);

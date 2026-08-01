@@ -615,8 +615,8 @@ function drawHumanoid(b, d, pose) {
   if (d.hoodDown) drawHoodDown(b, m, P, d);
   drawHairBack(b, m, P, d);
   // AFTER the back hair and not before it. A tail fan roots at the hip and
-  // sweeps out to the edge of the grid; a long back mass â€” `long`, `twinLong`,
-  // `lowTwin`, `drills` â€” occupies exactly those columns for exactly those
+  // sweeps out to the edge of the grid; a long back mass — `long`, `twinLong`,
+  // `lowTwin`, `drills` — occupies exactly those columns for exactly those
   // rows, so tails drawn first are simply painted out. On the one character who
   // has NINE of them that is the whole design gone: at 38x54 only 29 pixels of
   // a nine-tail fan survived the hair. Nothing else on the roster overlaps at
@@ -992,7 +992,7 @@ function drawTorso(b, m, P, d) {
     b.set(cx - 2, shoulderY, u.lite);
   }
   if (d.hakama) {
-    // A HAKAMA â€” the long pleated DIVIDED skirt of a shrine garment.
+    // A HAKAMA — the long pleated DIVIDED skirt of a shrine garment.
     //
     // `skirt` is the other one and this is not a length setting on it: that is
     // four rows of taper at the hip with three pleat ticks in it, which is a
@@ -1005,7 +1005,7 @@ function drawTorso(b, m, P, d) {
     // ABOVE the hip, at the bottom of the ribs, because that is where the ties
     // sit and it is what makes the torso above it read as short. It is PLEATED
     // with hard creases running the whole drop rather than three ticks at the
-    // waist. And it is DIVIDED â€” a shadow seam down the centre from the knee to
+    // waist. And it is DIVIDED — a shadow seam down the centre from the knee to
     // the hem, which is the detail that says these are trousers rather than a
     // tube, and the only one of the three that costs a single draw call.
     const hk = slotRamp(d.hakama, d.accent || '#c8342a');
@@ -1016,7 +1016,7 @@ function drawTorso(b, m, P, d) {
     b.taper(cx - wTop, hTop, wTop * 2 + 1, wBot * 2 + 1, hh, hk.base);
     b.hline(cx - wTop, hTop, wTop * 2 + 1, hk.lite);           // the waist ties
     // The pleats. Kept inside the NARROWEST row of the taper, because the
-    // garment only ever widens downward â€” a crease plotted at the hem's width
+    // garment only ever widens downward — a crease plotted at the hem's width
     // hangs off the waist in mid-air and outline() then wraps it.
     for (let i = -wTop + 1; i <= wTop - 1; i += 3) {
       b.vline(cx + i, hTop + 1, hh - 2, hk.dark);
@@ -3029,7 +3029,7 @@ function drawTrinkets(b, m, P, d) {
     } else if (d.hairpin === 'bell') {
       // A BELL, and a LARGE one: the big cast ornament worn on the crown rather
       // than the flat 3x2 bar the default draws. It ignores the shared pin
-      // position on purpose â€” that sits at the left temple, which is exactly
+      // position on purpose — that sits at the left temple, which is exactly
       // where a pair of hair ribbons already is, and a gold bar under a gold
       // ribbon is one gold shape. On the crown, between the ears, it has the
       // whole top of the skull to itself.

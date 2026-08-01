@@ -231,6 +231,31 @@ const SFX = {
     a.noise({ freq: 4200, freqTo: 1200, dur: 0.08, gain: 0.12, filter: 'bandpass', q: 4 });
   },
   telegraph: (a) => a.tone({ type: 'triangle', freq: 320, freqTo: 320, dur: 0.5, gain: 0.1 }),
+  /**
+   * A CLOCK TOWER, TOLLING THREE.
+   *
+   * A stage cue rather than a combat one, and it is built like a bell instead of
+   * like a hit: three strikes a beat and a half apart, each one a low sine
+   * fundamental with two INHARMONIC partials over it and a long tail. The
+   * partials are what make it a bell — 2.76x and 5.4x are the classic minor-third
+   * and nominal ratios of a cast bell, and they are deliberately not whole
+   * multiples, because a stack of harmonics is an organ.
+   *
+   * Every strike also opens with a scrape of filtered noise at a twentieth of
+   * the gain: that is the clapper, and without it the bell starts out of nowhere
+   * and reads as a synth pad. Nothing here sustains above 5kHz, per the bank's
+   * own rule — the fifth partial is 594Hz.
+   */
+  clockTower: (a) => {
+    if (!a._canPlay('clockTower', 2.0)) return;
+    for (let k = 0; k < 3; k++) {
+      const d = k * 1.5;
+      a.noise({ freq: 2600, freqTo: 900, dur: 0.05, gain: 0.05, filter: 'bandpass', q: 3, delay: d });
+      a.tone({ type: 'sine', freq: 110, freqTo: 108, dur: 2.6, gain: 0.26, delay: d });
+      a.tone({ type: 'sine', freq: 303, freqTo: 300, dur: 1.9, gain: 0.11, delay: d });
+      a.tone({ type: 'sine', freq: 594, freqTo: 588, dur: 1.2, gain: 0.05, delay: d });
+    }
+  },
   bossIntro: (a) => {
     a.tone({ type: 'sawtooth', freq: 55, freqTo: 110, dur: 1.6, gain: 0.3 });
     a.arp([110, 138, 165, 220], 0.16, { type: 'sawtooth', dur: 0.8, gain: 0.16 });

@@ -291,7 +291,14 @@ export class Player {
       ? Math.max(this.run.data.evolutions.EVOLUTIONS_BY_ID.zero_cooldown.params.cooldownFloor,
                  this.def.escape.cooldown * s.cooldownMult * 0.0)
       : this.def.escape.cooldown * s.cooldownMult;
-    this.escape.configure(escapeCd, star >= 5 ? 2 : this.escape.maxCharges);
+    // `def.escape.charges` is honoured the same way `def.special.charges`
+    // already is, and through a `max` so it can only ever ADD. Before this the
+    // escape's charge count was engine-only — `star >= 5 ? 2 : whatever it was`
+    // — so "she holds three dashes at once" was a sentence the data layer could
+    // not say, and the S5 rule would have quietly taken the third one away.
+    // Every existing character omits the field, reads 1, and is unchanged.
+    this.escape.configure(escapeCd,
+      Math.max(this.def.escape.charges || 1, star >= 5 ? 2 : this.escape.maxCharges));
 
     this.radius = feel.playerHitRadius;
   }

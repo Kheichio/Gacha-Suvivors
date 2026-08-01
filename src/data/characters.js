@@ -1647,6 +1647,243 @@ const AKANE = {
  * the key stayed put and the name moved. `name` is the string a player reads,
  * and spec line 333 requires that one to be safe to display on its own.
  */
+/**
+ * THE BLADE COMES BACK. A ★5 whose entire kit is one loop the player performs
+ * with their FEET rather than with a button: throw, decide, walk, collect.
+ *
+ * Every other ranged character on the roster is a damage faucet you point. She
+ * leaves nine seconds of unclaimed value on the floor behind every volley, and
+ * the only way to bank it is to go and stand on it — which turns her positioning
+ * into a resource decision twenty times a minute in a genre whose only verb is
+ * movement. The escape teleports TO one, so retrieval and disengage are the same
+ * press and pressing it well means having thrown well ten seconds earlier.
+ *
+ * Steel because everything she uses is a thrown object, and steel's weakness to
+ * fire is the honest cost of a kit that has to walk into where it just threw.
+ */
+const KARIN = {
+  id: 'karin',
+  name: 'Karin',
+  epithet: 'The Blade Comes Back',
+  rarity: 5,
+  archetype: 'Reset Assassin',
+  element: 'steel',
+  visual: { shape: 'capsule', color: '#c0182f', accent: '#dfe8f5', emoji: '🗡', size: 16 },
+  stats: {
+    hp: 112, armor: 0, moveSpeed: 178, pickupRadius: 54,
+    damageMult: 1.05, attackSpeedMult: 1.1, areaMult: 0.95,
+    critChance: 0.10, critMult: 2.1, cooldownMult: 1.0, luck: 1,
+  },
+  autoAttack: {
+    id: 'bouncing_blade', name: 'Bouncing Blade',
+    desc: 'One blade thrown at the nearest thing every 0.42s: 34 damage in a ' +
+          '46px bite where it lands, and then it STAYS there, standing in the ' +
+          'ground, for 9 seconds. Nothing she throws is spent until she has ' +
+          'walked back over it.',
+    interval: 0.42, damage: 34, targeting: { mode: 'nearest' },
+  },
+  special: {
+    id: 'death_lotus', name: 'DEATH LOTUS', cooldown: 24,
+    desc: 'She stops moving and starts spinning. For 2.4s, everything within ' +
+          '300px takes 42 damage every 0.22s and 3 more blades go out on a ' +
+          'turning spoke every time — about thirty of them, all of which land ' +
+          'point-down and all of which are still worth picking up afterwards.',
+  },
+  escape: {
+    id: 'shunpo', name: 'Shunpo', cooldown: 5, iframes: 0.5,
+    desc: 'She steps to the nearest blade she has left lying around, up to ' +
+          '460px, fully invulnerable, and sweeps it up on arrival. With nothing ' +
+          'on the floor it is a plain 460px step the way she was already going ' +
+          '— which is the tell that she has been throwing badly.',
+  },
+  passive: {
+    id: 'voracity', name: 'Voracity',
+    desc: 'Every blade she picks up takes 0.7s off BOTH cooldowns and adds a ' +
+          'permanent 1.2% damage for the rest of the run. Uncapped. Walking ' +
+          'over her own mess is not the upkeep of the build, it IS the build.',
+  },
+  starUpgrades: {
+    s3: 'DEATH LOTUS covers 380px and throws 4 blades a volley instead of 3.',
+    s5: 'Shunpo holds 2 charges, so she can chain 2 retrievals back to back.',
+  },
+  signatureRelic: 'the_long_way_round',
+  barks: {
+    spawn: 'I dropped these on purpose. All of them. Watch.',
+    levelUp: 'Faster. Which means further. Which means more of them.',
+    lowHp: 'Fine — I only have to reach ONE of them.',
+    kill: 'Mine. That one was mine. I want it back.',
+    boss: 'Big. Slow. Standing on about nine of my knives.',
+    victory: 'Right. Give me a minute, I have to go round and collect.',
+    defeat: 'I threw the last one too far. That is the whole story.',
+    idle: 'A knife on the floor is not a lost knife. It is a saved trip.',
+  },
+  buildPaths: [
+    'The circuit — Quick Recovery + Long Haul + move speed; every second shaved ' +
+    'off Shunpo is another blade retrieved, and Voracity never stops compounding',
+    'The flurry — Extra Shot + Sharp Edge; more blades per throw is more blades ' +
+    'on the floor, and DEATH LOTUS turns a crowd into thirty pickups at once',
+  ],
+};
+
+/**
+ * NINE REASONS TO STAY. The ★6 whose damage is a function of standing still.
+ *
+ * The orb goes out and COMES BACK, and it hurts on both passes — so her output
+ * depends on holding a line long enough for the return trip to land, which is
+ * the exact opposite instinct to every other ranged character here and is the
+ * whole reason she plays differently on identical stats.
+ *
+ * The charm is the only ability in the game that takes the player out of the
+ * fight without taking the fight away. For five seconds nothing can target her
+ * and everything in the circle is dragged onto one point and left grinding
+ * itself down there. She is not invulnerable. She is IRRELEVANT, and those are
+ * different feelings.
+ *
+ * Three dashes held at once is a data field the engine did not previously have —
+ * `escape.charges` — and she is the reason it exists.
+ */
+const RIMA = {
+  id: 'rima',
+  name: 'Rima',
+  epithet: 'Nine Reasons To Stay',
+  rarity: 6,
+  archetype: 'Arcane Charmer',
+  element: 'spirit',
+  visual: { shape: 'capsule', color: '#ff7ad0', accent: '#ffd76a', emoji: '🦊', size: 16, glow: true },
+  stats: {
+    hp: 128, armor: 1, moveSpeed: 172, pickupRadius: 56,
+    damageMult: 1.08, attackSpeedMult: 1.0, areaMult: 1.05,
+    critChance: 0.07, critMult: 2.0, cooldownMult: 0.95, luck: 1,
+  },
+  autoAttack: {
+    id: 'orb_of_deception', name: 'Orb of Deception',
+    desc: 'An orb thrown 430px out and pulled straight back to her hand. ' +
+          '30 damage going, 30 coming home, and it passes through everything ' +
+          'both ways. Half her damage is on the return trip, so the shot is ' +
+          'only worth what her feet were doing while it was away.',
+    interval: 0.62, damage: 30, targeting: { mode: 'nearest' },
+  },
+  special: {
+    id: 'charm', name: 'CHARM', cooldown: 20,
+    desc: 'For 5s nothing within 340px can see her at all. They are dragged to ' +
+          'the middle of their own crowd and left there taking 34 damage a ' +
+          'second off each other, and she is untargetable for the whole of it.',
+  },
+  escape: {
+    id: 'spirit_rush', name: 'Spirit Rush', cooldown: 7, iframes: 0.45, charges: 3,
+    desc: 'THREE dashes, held at once and spent one at a time. 320px each, ' +
+          'invulnerable through it, 55 damage to everything she passes through. ' +
+          'They recharge individually, so the question is never whether to dash ' +
+          'but how many she can afford to.',
+  },
+  passive: {
+    id: 'essence_theft', name: 'Essence Theft',
+    desc: 'Every kill heals her 0.6 HP and adds a permanent 0.8% damage. A ' +
+          'thousand years of other people\'s magic, collected one piece at a ' +
+          'time, and never once given back.',
+  },
+  starUpgrades: {
+    s3: 'CHARM runs 7s instead of 5.',
+    s5: 'Spirit Rush recharges 30% faster, so the third dash is genuinely a ' +
+        'resource rather than an emergency.',
+  },
+  signatureRelic: 'the_ninth_tail',
+  barks: {
+    spawn: 'Come closer. Everyone always does.',
+    levelUp: 'Oh, that IS new. I have not felt that one before.',
+    lowHp: 'Rude. I was being charming.',
+    kill: 'Thank you. I will look after it.',
+    boss: 'You are very large and very certain. Both of those are fixable.',
+    victory: 'They all wanted to stay. That is the part nobody believes.',
+    defeat: 'I have had a thousand years. One bad afternoon is survivable.',
+    idle: 'Nine tails. Nine reasons. Ask me about any of them.',
+  },
+  buildPaths: [
+    'The long line — Piercing Will + Long Haul + area; the orb already pierces ' +
+    'everything, so every extra pixel of travel is a second full pass through it',
+    'The revolving door — Quick Recovery + Wide Reach; CHARM every fifteen ' +
+    'seconds over 400px is a fight she simply never participates in',
+  ],
+};
+
+/**
+ * THE FUN PART. Two weapons on one trigger, and the special IS the trigger.
+ *
+ * MINIGUN is fast, single-target and small. ROCKETS fire every OTHER shot and
+ * that one is an area blast. The cadence is halved in the implementation rather
+ * than through the attack-speed stat, and deliberately: the card quotes one
+ * interval and the player reads it once, so a mode that silently rewrote it
+ * would be lying about a number already on screen. Skipping every second shot is
+ * a thing you can watch happen.
+ *
+ * The escape is not a dodge. It is a floor full of traps that takes everybody's
+ * legs at once — three seconds of a completely still arena, then three more of a
+ * slow one — which is the only hard crowd-stop on the roster and the reason she
+ * can be a ★5 with 108 HP and no armour.
+ */
+const NIKA = {
+  id: 'nika',
+  name: 'Nika',
+  epithet: 'The Fun Part',
+  rarity: 5,
+  archetype: 'Loose Cannon',
+  element: 'lightning',
+  visual: { shape: 'capsule', color: '#ff5fa8', accent: '#6ad8ff', emoji: '💥', size: 16, glow: true },
+  stats: {
+    hp: 108, armor: 0, moveSpeed: 174, pickupRadius: 52,
+    damageMult: 1.0, attackSpeedMult: 1.15, areaMult: 1.05,
+    critChance: 0.08, critMult: 2.2, cooldownMult: 1.0, luck: 2,
+  },
+  autoAttack: {
+    id: 'switcheroo', name: 'Switcheroo!',
+    desc: 'MINIGUN: one shot every 0.34s at the nearest thing for 21. ROCKETS: ' +
+          'every OTHER shot, aimed at the thickest part of the crowd, for 48 in ' +
+          'a 120px blast. Same trigger, same interval, half the cadence and ' +
+          'five times the splash.',
+    interval: 0.34, damage: 21, targeting: { mode: 'nearest' },
+  },
+  special: {
+    id: 'switcheroo_swap', name: 'SWITCHEROO', cooldown: 12,
+    desc: 'She swaps guns. The one coming in fires a free volley of 5 on the ' +
+          'way and she moves 25% faster for 3s while she is enjoying it. The ' +
+          'shortest cooldown on the roster because the swap is the rotation, ' +
+          'not a cooldown you save.',
+  },
+  escape: {
+    id: 'flame_chompers', name: 'Flame Chompers!', cooldown: 8, iframes: 0.6,
+    desc: '5 chompers thrown out in a 190px ring. Everything within 320px is ' +
+          'bitten for 70, CANNOT MOVE for 3s, and is slowed 55% for 3s after ' +
+          'that. She is invulnerable for 0.6s while she throws them.',
+  },
+  passive: {
+    id: 'get_excited', name: 'Get Excited!',
+    desc: 'Every kill is a permanent 2% damage and 0.9 move speed, up to 25 ' +
+          'stacks. She does not calm down afterwards, and there is no version ' +
+          'of this where she calms down afterwards.',
+  },
+  starUpgrades: {
+    s3: 'The free swap volley is 8 shots instead of 5.',
+    s5: 'Flame Chompers throws 8 instead of 5, and the haste lasts 6s.',
+  },
+  signatureRelic: 'the_loose_cannon',
+  barks: {
+    spawn: 'Rockets? Minigun? Rockets. No — minigun. BOTH. Watch this.',
+    levelUp: 'MORE of it! That was the correct answer!',
+    lowHp: 'This is FINE. This is the exciting part!',
+    kill: 'Ha! Did you see? Nobody ever sees.',
+    boss: 'Oh, you are BIG. I have exactly the wrong gun out. Perfect.',
+    victory: 'Told you. Nobody ever believes the plan until after the plan.',
+    defeat: 'Worth it. Do not check the arithmetic.',
+    idle: 'The trick is to never stop moving and never stop reloading.',
+  },
+  buildPaths: [
+    'Rockets forever — area + Sharp Edge; the half cadence stops mattering the ' +
+    'moment one blast covers the whole screen, and Get Excited pays per corpse',
+    'Minigun forever — attack speed + Extra Shot + crit; the fastest interval ' +
+    'in the game multiplied by everything that keys off shots fired',
+  ],
+};
+
 const PEKORA = {
   id: 'pekora',
   name: 'Usaki',
@@ -1742,9 +1979,9 @@ export const CHARACTERS = [
   HOSHINO_REI, YAMIKAGE, UZU, CAPTAIN_YULI, KAGURA, UNIT_09,
   // 5-star
   RIN, NITEN, SHIRO_SAME, REIKA, NEKROMINA, HIKARI, KIRA,
-  YUKINE, WREN, BRANT,
+  YUKINE, WREN, BRANT, KARIN, NIKA,
   // 6-star
-  SOVEREIGN_ALICIA, SORA, HAN, AOI, MIREL, AKANE, PEKORA,
+  SOVEREIGN_ALICIA, SORA, HAN, AOI, MIREL, AKANE, PEKORA, RIMA,
 ];
 
 /** id -> character. Written literally so no lookup logic lives in a data file. */
@@ -1767,6 +2004,8 @@ export const CHARACTERS_BY_ID = {
   yukine: YUKINE,
   wren: WREN,
   brant: BRANT,
+  karin: KARIN,
+  nika: NIKA,
   sovereign_alicia: SOVEREIGN_ALICIA,
   sora: SORA,
   han: HAN,
@@ -1774,6 +2013,7 @@ export const CHARACTERS_BY_ID = {
   mirel: MIREL,
   akane: AKANE,
   pekora: PEKORA,
+  rima: RIMA,
 };
 
 /**
@@ -1792,6 +2032,6 @@ export const CHARACTERS_BY_RARITY = {
   3: ['mochi', 'alto'],
   4: ['hoshino_rei', 'yamikage', 'uzu', 'captain_yuli', 'kagura', 'unit_09'],
   5: ['rin', 'niten', 'shiro_same', 'reika', 'nekromina', 'hikari', 'kira',
-      'yukine', 'wren', 'brant'],
-  6: ['sovereign_alicia', 'sora', 'han', 'aoi', 'mirel', 'akane', 'pekora'],
+      'yukine', 'wren', 'brant', 'karin', 'nika'],
+  6: ['sovereign_alicia', 'sora', 'han', 'aoi', 'mirel', 'akane', 'pekora', 'rima'],
 };

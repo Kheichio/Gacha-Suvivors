@@ -70,9 +70,37 @@ const CODE_PARTICLE_COLORS = [
   '#ff8fc7', '#ff9a3c', '#ff9ecb', '#ff9f4d', '#ffb020', '#ffb3d9', '#ffcf4d',
   '#ffd0ff',
   '#ffd23f', '#ffd84a', '#ffe6a8',
+  // Karin's blood red and Rima's arcane pink. Neither lands on a visual
+  // descriptor the harvest can see — they are ability-module consts.
+  '#c8203a', '#ff7ad0', '#ff5fa8',
 ];
 
 const PARTICLE_SHAPES = ['circle', 'diamond', 'square', 'star', 'shard'];
+
+/**
+ * ONE-OFF particle sprites, as explicit [colour, shape] PAIRS.
+ *
+ * `PARTICLE_SHAPES` is baked as a CROSS PRODUCT against the whole harvested
+ * palette — roughly four hundred colours — so a shape added there costs four
+ * hundred rasters whether or not anything ever draws it in three hundred and
+ * ninety of those colours. That price is right for `circle` and `shard`, which
+ * every ability in the game bursts in its own tint, and wrong for a shape that
+ * belongs to ONE character in FOUR known colours.
+ *
+ * So: bespoke shapes are listed as pairs and baked individually. Same guarantee,
+ * six rasters instead of twelve hundred. `tests/renderSmoke.js` is what keeps
+ * the list honest — burst a pair that is not here and the build fails naming it.
+ */
+const PARTICLE_PAIRS = [
+  // Mirel's meadow: four ordinary flowers standing in green grass.
+  ['#f2f6ff', 'flower'], ['#ff8fc7', 'flower'], ['#c8a24a', 'flower'],
+  ['#c9a6ff', 'flower'], ['#8fe6a8', 'grass'],
+  // ...and the page of the book that only makes the fruit better.
+  ['#a86bff', 'grapes'],
+  // Rima's charm scatters flowers; Nika's chompers bite in hexes. Neither shape
+  // is in the cross product and neither ever will be — one character each.
+  ['#ff7ad0', 'flower'], ['#7bf59a', 'hex'],
+];
 
 /**
  * Colours and shapes that belong to a STAGE or an AFFIX rather than to an entity.
@@ -170,6 +198,23 @@ const EFFECT_VISUALS = [
   // --- evolved-weapon and boss telegraph visuals ---------------------------
   { shape: 'crescent', color: '#ffd76a', accent: '#ff7a3d', size: 22, rotates: true, glow: true },
   { shape: 'triangle', color: '#ffb020', accent: '#e0452c', size: 11, rotates: true, glow: true },
+
+  // --- the three newcomers' kits (game/abilities/star9.js) -----------------
+  //
+  // Field for field the same literals as the consts in that file. Registering at
+  // ability-module scope alone is not enough here: whether that import has run
+  // by the time the boot pass snapshots the atlas is an ORDERING accident, and
+  // tests/renderSmoke.js fails the build the moment it goes the other way.
+  // Listing them makes it the boot pass's job either way.
+  { shape: 'shard', color: '#dfe8f5', accent: '#1b1f2a', size: 9, rotates: true, glow: true },
+  { shape: 'shard', color: '#dfe8f5', accent: '#1b1f2a', size: 11, flash: false },
+  { shape: 'circle', color: '#ff7ad0', accent: '#2a1a3a', size: 13, rotates: true, glow: true },
+  { shape: 'shard', color: '#ff5fa8', accent: '#2a2233', size: 7, rotates: true, glow: true },
+  { shape: 'triangle', color: '#6ad8ff', accent: '#2a2233', size: 11, rotates: true, glow: true },
+  { shape: 'hex', color: '#7bf59a', accent: '#14301c', size: 13, flash: false },
+  // ...and the two projectiles their signature relics throw (game/relicHooks.js).
+  { shape: 'shard', color: '#dfe8f5', accent: '#1b1f2a', size: 9, rotates: true, glow: true },
+  { shape: 'flower', color: '#ff7ad0', accent: '#2a1a3a', size: 11, rotates: true, glow: true },
 
   // --- PROPS: swung and dropped objects (effects.sweepSprite / fallSprite) --
   //
@@ -300,6 +345,11 @@ export async function prewarmAtlas(data, onProgress) {
       particles.spriteFor(c, s);
       await bump();
     }
+  }
+  // 4b. and the bespoke ones, which are pairs rather than a cross product.
+  for (const [c, s] of PARTICLE_PAIRS) {
+    particles.spriteFor(c, s);
+    await bump();
   }
 
   // 5. UI glyph sets used by the HUD and the results screen

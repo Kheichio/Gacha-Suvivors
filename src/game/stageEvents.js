@@ -320,7 +320,7 @@ export class StageEventSystem {
       // A MOTE INSIDE A BLOCKER IS AN UNWINNABLE OBJECTIVE. MOTE_REACH is 52 and
       // the player is hard-resolved out of static geometry at 15px of clearance,
       // so a mote at the centre of any piece thicker than ~37px cannot be
-      // touched â€” and `gather` needs ALL of them. That is a guaranteed failure
+      // touched — and `gather` needs ALL of them. That is a guaranteed failure
       // banner with nothing on screen that would ever explain it.
       if (this.run.obstacles.count > 0 && this.run.obstacles.pushOut(mx, my, 16, FREE)) {
         mx = FREE.x; my = FREE.y;

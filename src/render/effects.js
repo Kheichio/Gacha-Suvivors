@@ -104,6 +104,32 @@ const CHAIN_LAG = 0.22;
 const CHAIN_SWEEP_END = 0.62;
 /** Lateral slack at mid-chain, as a fraction of the deployed length. */
 const CHAIN_SAG = 0.14;
+/**
+ * THE FIST — how far out from the wielder the chain is actually HELD.
+ *
+ * Every link, the hot spine and the wedge all used to start at the wielder's
+ * exact centre, so the chain converged ON the character rather than being held
+ * BY them. At one lash that is a small overlap. The evolution fires SIX at once,
+ * five times a second, in six different directions — so six chains, six spines
+ * and six additive wedges all piled onto the same forty pixels and the player
+ * could not see their own sprite at all. That is a real problem in a game where
+ * the only way to dodge is to know where you are standing.
+ *
+ * A hand's reach out from the middle fixes it geometrically rather than by
+ * turning anything down: the character occupies a disc, nothing is ever drawn
+ * inside that disc, and the lash still reads as coming from them because the
+ * root TRACKS THE SWING — it is on the hand's own current angle, not pinned.
+ *
+ * It is a fraction of reach with hard stops, and the stops are MEASURED, not
+ * picked: a character registers at `size` 16, `unit` is `size * 2.6 / spriteH`,
+ * and the draw multiplies by `playerDrawScale` 1.30 — so the figure lands at
+ * about 39 x 54 on screen, i.e. 19 half-wide and 27 half-tall. The floor clears
+ * the taller of those at a 130px level-one lash; the ceiling stops it becoming a
+ * dead zone at a 330px evolved one.
+ */
+const CHAIN_ROOT_FRAC = 0.20;
+const CHAIN_ROOT_MIN = 22;
+const CHAIN_ROOT_MAX = 34;
 
 /**
  * Normalise whatever a caller put in `opts.tier` into 0 or 1.
@@ -812,6 +838,19 @@ function chainSweep(tt) {
 // not allocate. Index 0 is the TIP; the last entry is nearest the fist.
 const CHAIN_CX = new Float64Array(CHAIN_MAX_PAIRS + 1);
 const CHAIN_CY = new Float64Array(CHAIN_MAX_PAIRS + 1);
+/**
+ * Where the fist is THIS FRAME. Written by layoutChain, read by both passes, for
+ * exactly the same reason the joint arrays are shared and for exactly the same
+ * reason it is safe: both passes recompute the layout from scratch, so neither
+ * can ever be looking at another lash's fist.
+ */
+let CHAIN_FX = 0, CHAIN_FY = 0;
+
+/** How far out the chain is held, for this lash. See CHAIN_ROOT_FRAC. */
+function chainRoot(e) {
+  const r = e.r0 * CHAIN_ROOT_FRAC;
+  return r < CHAIN_ROOT_MIN ? CHAIN_ROOT_MIN : (r > CHAIN_ROOT_MAX ? CHAIN_ROOT_MAX : r);
+}
 
 /**
  * WHERE EVERY JOINT OF ONE LASH IS, THIS FRAME. Returns how many were written.
@@ -836,14 +875,22 @@ const CHAIN_CY = new Float64Array(CHAIN_MAX_PAIRS + 1);
 function layoutChain(e, t) {
   const R = e.r0;
   const L = R * chainExtend(t);
-  if (!(L > 2)) return 0;
-  const step = R / e.count;
+  const root = chainRoot(e);
   const start = e.a0 - e.spin * e.arc * 0.5;
+  // THE FIST, on the HAND's own current angle rather than on the lagged one the
+  // links use — the hand leads, which is what makes the chain trail off it.
+  const ah = start + e.spin * e.arc * chainSweep(t);
+  CHAIN_FX = e.x + Math.cos(ah) * root;
+  CHAIN_FY = e.y + Math.sin(ah) * root;
+  if (!(L > root + 2)) return 0;
+  const step = R / e.count;
   const bow = -e.spin * CHAIN_SAG * L * (4 * t * (1 - t));
   let n = 0;
   for (let j = 0; j < e.count; j++) {
     const d = L - j * step;
-    if (d < step * 0.45) break;             // the rest is still in the fist
+    // The rest is still in the fist — and `root` is now part of that test, so a
+    // joint is never placed inside the wielder's own silhouette.
+    if (d < root + step * 0.45) break;
     const f = d / R;
     const a = start + e.spin * e.arc * chainSweep(t - CHAIN_LAG * f);
     const off = bow * Math.sin(Math.PI * (d / L));
@@ -869,13 +916,22 @@ function drawChainGlow(r, e, t) {
   const A = e.alpha * fade;
   const start = e.a0 - e.spin * e.arc * 0.5;
   const head = start + e.spin * e.arc * chainSweep(t - CHAIN_LAG);
-  pie(r, e.x, e.y, e.r0 * 0.99, start, head, e.color, 0.08 * A);
+  // AN ANNULUS SECTOR, NOT A PIE. The wedge is the cone `coneDamage` really
+  // resolved and it is right that it is shown — but a wedge has its apex at the
+  // wielder, so six of them additively stacked bleach the character out of their
+  // own sprite. Drawn as a thick ARC from the fist outward it covers the same
+  // ground everywhere it matters and leaves the middle alone. `band` strokes at
+  // a radius, so the mid-radius and the width together are the annulus.
+  const root = chainRoot(e);
+  const mid = (root + e.r0 * 0.99) * 0.5;
+  band(r, e.x, e.y, mid, start, head, e.color, e.r0 * 0.99 - root, 0.08 * A);
 
   const n = layoutChain(e, t);
   if (n === 0) return;
   // A hot spine threaded through the joints, so a chain whose links are a link
-  // apart at full stretch still reads as one continuous object.
-  let px = e.x, py = e.y;
+  // apart at full stretch still reads as one continuous object. From the FIST,
+  // not from the middle of the wielder.
+  let px = CHAIN_FX, py = CHAIN_FY;
   for (let j = n - 1; j >= 0; j--) {
     const x = CHAIN_CX[j], y = CHAIN_CY[j];
     streak(r, px, py, x, y, e.color, e.w0 * (0.45 + 0.55 * (1 - j / n)), A * 0.28);
@@ -905,7 +961,7 @@ function drawChainLinks(r, e, t) {
   const n = layoutChain(e, t);
   if (n === 0) return;
   const unit = e.extra;
-  let px = e.x, py = e.y;
+  let px = CHAIN_FX, py = CHAIN_FY;
   for (let j = n - 1; j >= 0; j--) {
     const x = CHAIN_CX[j], y = CHAIN_CY[j];
     const dx = x - px, dy = y - py;

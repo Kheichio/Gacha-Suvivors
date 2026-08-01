@@ -328,8 +328,8 @@ export class ProjectileSystem {
     // has to cover the largest enemy radius in the game or big targets stop
     // being hit by projectiles entirely — with no error anywhere.
     // The pad is `run.enemies.queryPad`, not a constant: this is the single
-    // hottest broadphase in the game â€” 322 calls a tick gathering 16,158 indices
-    // in a dense crowd â€” and the exact test on the next lines is
+    // hottest broadphase in the game — 322 calls a tick gathering 16,158 indices
+    // in a dense crowd — and the exact test on the next lines is
     // `p.radius + e.radius`, which for fodder is about 15px against a 147px
     // query. Sized to the crowd that is alive it gathers a quarter of that and
     // still covers the biggest thing on the field. 0.373ms -> 0.087ms per tick,

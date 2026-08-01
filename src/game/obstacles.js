@@ -50,12 +50,24 @@ export class ObstacleField {
     this.isBox = new Uint8Array(MAX_OBSTACLES);
     this.life = new Float32Array(MAX_OBSTACLES); // 0 = permanent
     this.fade = new Float32Array(MAX_OBSTACLES);
-    this.sprite = null;
+    /**
+     * WHICH LOOK EACH PIECE WEARS. Index into `this.kinds`; 0 is the set's own.
+     *
+     * The look used to be four scalars on the FIELD — one sprite, one box fill,
+     * one edge, one detail — so every blocker on a stage was the same object in
+     * the same colour. That is right for "rubble" and wrong the moment a stage
+     * wants furniture: a courtyard has benches AND hedges AND a fountain, and
+     * with a per-field look the only way to say that is to pick one and lie
+     * about the other two. One byte per piece buys the whole vocabulary.
+     */
+    this.kind = new Uint8Array(MAX_OBSTACLES);
+    this.kinds = [DEFAULT_STYLE];
+    this.sprites = [null];
     this.style = DEFAULT_STYLE;
-    this.color = DEFAULT_STYLE.box.color;
-    this.edge = DEFAULT_STYLE.box.edge;
-    this.detail = 'none';
   }
+
+  /** The look for piece `i`, always defined — an unknown index falls back. */
+  _kind(i) { return this.kinds[this.kind[i]] || this.kinds[0] || DEFAULT_STYLE; }
 
   /**
    * Give the field a per-stage LOOK, from an OBSTACLE_SETS entry.
@@ -72,11 +84,19 @@ export class ObstacleField {
    */
   setStyle(set) {
     this.style = (set && set.visual) ? set : DEFAULT_STYLE;
-    const box = (set && set.box) || DEFAULT_STYLE.box;
-    this.color = box.color;
-    this.edge = box.edge || '#0b0d16';
-    this.detail = (set && set.detail) || 'none';
-    this.sprite = null;
+    // Kind 0 is the set itself, so every existing stage — which names no kinds
+    // at all — keeps drawing exactly what it drew before, and `scatter` can go
+    // on placing pieces without saying which look they wear.
+    this.kinds = [this.style];
+    if (set && set.kinds) for (const k of set.kinds) this.kinds.push(k);
+    this.sprites = new Array(this.kinds.length).fill(null);
+  }
+
+  /** Index of a named kind from the set, or 0 (the set's own look). */
+  kindIndex(name) {
+    if (!name) return 0;
+    for (let i = 1; i < this.kinds.length; i++) if (this.kinds[i].id === name) return i;
+    return 0;
   }
 
   /**
@@ -145,22 +165,57 @@ export class ObstacleField {
     return placed;
   }
 
-  addCircle(x, y, r, life) {
+  addCircle(x, y, r, life, kind) {
     if (this.count >= MAX_OBSTACLES) return -1;
     const i = this.count++;
     this.x[i] = x; this.y[i] = y; this.r[i] = r;
     this.isBox[i] = 0; this.life[i] = life || 0; this.fade[i] = 0;
+    this.kind[i] = kind || 0;
     return i;
   }
 
-  addBox(x, y, hw, hh, life) {
+  addBox(x, y, hw, hh, life, kind) {
     if (this.count >= MAX_OBSTACLES) return -1;
     const i = this.count++;
     this.x[i] = x; this.y[i] = y;
     this.hw[i] = hw; this.hh[i] = hh;
     this.r[i] = Math.hypot(hw, hh);
     this.isBox[i] = 1; this.life[i] = life || 0; this.fade[i] = 0;
+    this.kind[i] = kind || 0;
     return i;
+  }
+
+  /**
+   * PLACE A SET'S AUTHORED PIECES, at absolute world positions.
+   *
+   * `scatter` is rejection sampling — right for "things here and there", and no
+   * use at all for a stage that is supposed to be a PLACE. A courtyard has a
+   * fountain in the middle of it, not a fountain somewhere; the gate is at the
+   * bottom because that is where you come in. Rolled positions cannot say any of
+   * that, so a set may also carry a `layout` array of literal pieces, and the
+   * two compose: authored first, then scatter fills the leftover ground around
+   * them (its own `spacing` check then keeps the litter off the furniture).
+   *
+   * Coordinates are FRACTIONS of the arena, not pixels. The arena is 4000x4000
+   * today and that is a tuning constant in core/config.js, not a promise — a
+   * layout written in pixels would silently re-centre itself the day it changes.
+   */
+  place(set) {
+    if (!set || !set.layout || !set.layout.length) return 0;
+    const b = this.run.bounds;
+    const W = b.maxX - b.minX, H = b.maxY - b.minY;
+    let placed = 0;
+    for (const p of set.layout) {
+      const x = b.minX + W * p.x, y = b.minY + H * p.y;
+      const k = this.kindIndex(p.kind);
+      const idx = p.w !== undefined
+        ? this.addBox(x, y, p.w * W * 0.5, p.h * H * 0.5, 0, k)
+        : this.addCircle(x, y, p.r * W, 0, k);
+      if (idx < 0) break;
+      this.fade[idx] = 1;             // authored geometry has always been there
+      placed++;
+    }
+    return placed;
   }
 
   clear() { this.count = 0; }
@@ -172,6 +227,9 @@ export class ObstacleField {
       this.hw[i] = this.hw[last]; this.hh[i] = this.hh[last];
       this.isBox[i] = this.isBox[last]; this.life[i] = this.life[last];
       this.fade[i] = this.fade[last];
+      // Swap-and-pop compaction. Forget this line and a surviving piece
+      // silently inherits the dead one's appearance.
+      this.kind[i] = this.kind[last];
     }
   }
 
@@ -186,7 +244,10 @@ export class ObstacleField {
           // the box fill is a raw hex on a data table that the harvest in
           // prewarm.js never sees — bursting it would rasterise a particle
           // sheet on the frame a piece of rubble crumbles.
-          particles.burst(this.x[i], this.y[i], 8, this.style.visual.color, { speed: 120, life: 0.5, size: 0.7 });
+          const k = this._kind(i);
+          particles.burst(this.x[i], this.y[i], 8,
+                          (k.visual || DEFAULT_STYLE.visual).color,
+                          { speed: 120, life: 0.5, size: 0.7 });
           this.removeAt(i);
           i--;
         }
@@ -237,8 +298,8 @@ export class ObstacleField {
    * IS A CIRCLE AT (x, y, radius) INSIDE ANYTHING?
    *
    * The broad reject is the whole method. `this.r[i]` is a valid bounding radius
-   * for BOTH forms â€” the circle's own radius, and `hypot(hw, hh)` for a box, set
-   * in addBox â€” so one squared-distance compare rules a piece out without ever
+   * for BOTH forms — the circle's own radius, and `hypot(hw, hh)` for a box, set
+   * in addBox — so one squared-distance compare rules a piece out without ever
    * entering _penetration. For a point in open ground on a full field that is 128
    * multiplies and no branch taken, which is what makes it affordable on the drop
    * path.
@@ -257,8 +318,8 @@ export class ObstacleField {
    * PUSH A POINT OUT OF THE GEOMETRY, TO THE NEAREST FREE SPOT.
    *
    * NOTHING MAY REST ON A WALL. Everything the game drops is spawned at the
-   * position of whatever produced it â€” an enemy that died, an event marker, a
-   * boss that fell over â€” and not one of those is obliged to have been standing
+   * position of whatever produced it — an enemy that died, an event marker, a
+   * boss that fell over — and not one of those is obliged to have been standing
    * somewhere the player can reach. enemy.js only steers what is ON SCREEN, and
    * even that is a soft lateral push rather than a block, so a mob killed by an
    * off-screen orbital dies inside a wall as often as not.
@@ -266,7 +327,7 @@ export class ObstacleField {
    * For an XP gem that was merely ugly: the magnet drags it out through the wall.
    * For everything else it was a LOST DROP. A chest, a relic, a weapon crate and
    * a heart are all collected by TOUCHING them, and the player is hard-resolved
-   * out of static geometry at `radius + 6` â€” so a chest at the centre of even a
+   * out of static geometry at `radius + 6` — so a chest at the centre of even a
    * small scattered box sits ~37px from the closest the player can stand and
    * needs to be inside 35. It could be seen and it could never be taken.
    *
@@ -276,12 +337,12 @@ export class ObstacleField {
    *      This is the answer for the overwhelming majority of drops.
    *   2. Relaxation. _penetration already exits a box along its SHALLOWER axis
    *      and a circle along its radius, which is the shortest way out and stays
-   *      correct at any depth â€” so "deep inside a large wall" is handled by a
+   *      correct at any depth — so "deep inside a large wall" is handled by a
    *      single push, not by iteration. The passes exist for the other case:
    *      leaving one piece can enter its neighbour, and hazard-dropped rubble
    *      does pile up.
    *   3. A ring search around the ORIGINAL point, for a pocket walled in on every
-   *      side. Fixed directions from a table â€” no RNG, no wall clock, no trig â€”
+   *      side. Fixed directions from a table — no RNG, no wall clock, no trig —
    *      so a replayed seed puts the drop in exactly the same place.
    *
    * @param x,y     where the drop wanted to land
@@ -294,7 +355,7 @@ export class ObstacleField {
     if (this.count === 0) return false;
     if (!this.overlaps(x, y, radius)) return false;
 
-    // Tier 2 â€” relax. The extra 0.5px per push is slop: landing EXACTLY on the
+    // Tier 2 — relax. The extra 0.5px per push is slop: landing EXACTLY on the
     // surface leaves the next compare at the mercy of float error.
     let px = x, py = y;
     for (let pass = 0; pass < 4; pass++) {
@@ -313,7 +374,7 @@ export class ObstacleField {
       if (!moved) { out.x = px; out.y = py; return true; }
     }
 
-    // Tier 3 â€” boxed in. Walk a ring outward from where it wanted to be, so the
+    // Tier 3 — boxed in. Walk a ring outward from where it wanted to be, so the
     // drop still lands as close as possible to the kill that paid for it.
     for (let step = 1; step <= RING_STEPS; step++) {
       const rad = radius + step * RING_GAP;
@@ -401,8 +462,6 @@ export class ObstacleField {
    */
   draw(r, alpha) {
     if (this.count === 0) return;
-    if (!this.sprite) this.sprite = atlas.ensure(this.style.visual);
-    const detail = this.detail;
     for (let i = 0; i < this.count; i++) {
       const x = this.x[i], y = this.y[i];
       if (x + this.r[i] < r.cullMinX || x - this.r[i] > r.cullMaxX ||
@@ -410,28 +469,40 @@ export class ObstacleField {
       const f = this.fade[i];
       const dying = this.life[i] > 0 && this.life[i] < 1 ? this.life[i] : 1;
       const a = f * dying;
+      // The look is resolved PER PIECE now. `_kind` never returns undefined, so
+      // a layout naming a kind the set does not declare draws as the set's own
+      // rather than throwing halfway through the frame.
+      const ki = this.kind[i];
+      const k = this._kind(i);
+      const box = k.box || DEFAULT_STYLE.box;
+      const edge = box.edge || '#0b0d16';
       if (this.isBox[i]) {
         const hw = this.hw[i], hh = this.hh[i];
-        r.drawRect(x - hw, y - hh, hw * 2, hh * 2, this.color, a);
-        r.strokeRect(x - hw, y - hh, hw * 2, hh * 2, this.edge, 3, a);
-        if (detail !== 'none') this._detail(r, x, y, hw, hh, a);
+        r.drawRect(x - hw, y - hh, hw * 2, hh * 2, box.color, a);
+        r.strokeRect(x - hw, y - hh, hw * 2, hh * 2, edge, 3, a);
+        const detail = k.detail || 'none';
+        if (detail !== 'none') this._detail(r, x, y, hw, hh, a, detail, edge);
       } else {
+        // Sprites are resolved lazily and cached per kind, not per piece: a
+        // courtyard with sixteen hedges must call `ensure` once, not sixteen
+        // times a frame.
+        let sp = this.sprites[ki];
+        if (!sp) sp = this.sprites[ki] = atlas.ensure(k.visual || DEFAULT_STYLE.visual);
         const s = (this.r[i] / 32) * f;
-        r.drawSprite(this.sprite, x, y, 0, s, dying, false, 0);
+        r.drawSprite(sp, x, y, 0, s, dying, false, 0);
         // A hard rim under the sprite. The sprite's own outline is 14% of its
         // radius, which reads at 32px and disappears at 58 — and a blocker whose
         // edge you cannot find is a blocker you keep walking into.
-        r.strokeCircle(x, y, this.r[i], this.edge, 2, a * 0.7);
+        r.strokeCircle(x, y, this.r[i], edge, 2, a * 0.7);
       }
     }
     r.setAlpha(1);
   }
 
   /** The two-or-three-line pass that gives a rectangle a material. */
-  _detail(r, x, y, hw, hh, a) {
-    const c = this.edge;
+  _detail(r, x, y, hw, hh, a, detail, c) {
     const al = a * 0.55;
-    switch (this.detail) {
+    switch (detail) {
       case 'slats': {
         // Drawer fronts / vent fins: horizontal rules down the face.
         const n = Math.min(3, Math.max(1, (hh / 12) | 0));
@@ -488,7 +559,7 @@ const RING = [
 /**
  * Eight rings 44px apart reaches 352px from the original point. The widest thing
  * on any stage is the shifting-rooms slab at 220 half-extents, and its SHORT axis
- * is 26 â€” the first ring already clears it, because escaping a long wall never
+ * is 26 — the first ring already clears it, because escaping a long wall never
  * means walking its length.
  */
 const RING_STEPS = 8;

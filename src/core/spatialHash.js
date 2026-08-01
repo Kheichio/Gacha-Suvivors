@@ -128,9 +128,9 @@ export class SpatialHash {
    *
    * So the exact test moves in here and the walk stops the moment it has
    * `maxNeighbours`. Same cells in the same order, same rejection tests, same
-   * accumulation order â€” the displacement is bit-identical to the old
+   * accumulation order — the displacement is bit-identical to the old
    * query-then-filter loop (verified: max position delta 0.0 across every
-   * density from 1400px down to 140px) â€” but nothing is written to the result
+   * density from 1400px down to 140px) — but nothing is written to the result
    * buffer and the cost stops scaling with density. 0.263ms -> 0.191ms at 200px,
    * 0.353ms -> 0.204ms at 140px.
    *

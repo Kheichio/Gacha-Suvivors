@@ -133,8 +133,8 @@ export class EnemySystem {
     /**
      * LIVE POPULATION PER ENEMY ID.
      *
-     * Every enemy in the game â€” wave events, the baseline trickle, summoners,
-     * splitters, the Splitting affix, stage events â€” is born in `spawn()`, so
+     * Every enemy in the game — wave events, the baseline trickle, summoners,
+     * splitters, the Splitting affix, stage events — is born in `spawn()`, so
      * one Map maintained here is the whole of `params.maxAlive`. Per-run, never
      * module-level: the determinism suite replays a seed after an intervening
      * run and would catch that immediately.
@@ -145,7 +145,7 @@ export class EnemySystem {
      *
      * Every hit test in the game is `hash.query(x, y, r + pad)` followed by an
      * exact test against `r + e.radius`, so the pad must cover the largest
-     * radius on the field or big targets silently stop being hittable â€” with no
+     * radius on the field or big targets silently stop being hittable — with no
      * error anywhere. It used to be the constant 140, which cost a screen of
      * 8px fodder a 320x320px gather per projectile and STILL did not cover a
      * 150-radius boss. Recomputed once per tick in `refreshQueryPad`, and
@@ -157,7 +157,7 @@ export class EnemySystem {
   /**
    * O(n) over the array the spatial hash was just built from. Called from
    * run.update immediately after `enemyHash.build`, before anything queries it.
-   * ~800 property reads, under 0.003ms â€” against 0.29ms saved on the projectile
+   * ~800 property reads, under 0.003ms — against 0.29ms saved on the projectile
    * broadphase alone at horde density.
    */
   refreshQueryPad() {
@@ -172,7 +172,7 @@ export class EnemySystem {
   }
 
   /**
-   * Raise the pad for an enemy whose radius grew after `spawn` returned â€” the
+   * Raise the pad for an enemy whose radius grew after `spawn` returned — the
    * elite 1.35x in run.spawnElite and the raw boss radius in boss.js. The pad
    * only ever moves UP here; the per-tick refresh is what brings it back down.
    */
@@ -190,14 +190,14 @@ export class EnemySystem {
    */
   spawn(def, x, y, opts) {
     if (this.run.totalEntities() >= CONFIG.MAX_ENTITIES) return null;
-    // CONCURRENCY CAP â€” `params.maxAlive`, authored in data/enemies.js.
+    // CONCURRENCY CAP — `params.maxAlive`, authored in data/enemies.js.
     //
     // Play report: "the quick moving straight line mobs appear too many at once
     // causing lag". The timeline asks for up to 60 of one fast swarm mob at a
     // time (waves.js), and because they outrun the player they all survive to
     // reach him, so the ask and the population are the same number. Refusing
     // the spawn here rather than editing 56 wave rows means the cap is a
-    // property of the CREATURE â€” one number next to its speed, honoured by the
+    // property of the CREATURE — one number next to its speed, honoured by the
     // wave director, the trickle, summoners and the Splitting affix alike.
     //
     // A refusal is not an error: `_spawnBatch` already stops on a null and the
@@ -676,14 +676,14 @@ const BLAST_HIT = { fromX: 0, fromY: 0 };
 // tethered mob deals damage of its own at all.
 
 /**
- * PASS-THROUGH â€” the shared half of `chaser` and `swarmer`, and the answer to
+ * PASS-THROUGH — the shared half of `chaser` and `swarmer`, and the answer to
  * "make them go at the player quicker so they don't stack on top of each other".
  *
  * Everything in this file steers at the player's exact position on every tick,
  * forever. For a mob that is SLOWER than the player that is fine: it never
- * arrives, so it never has to leave. For the fast ones â€” 124 to 145 base speed
+ * arrives, so it never has to leave. For the fast ones — 124 to 145 base speed
  * against the player's 165, which SECTION 8's speed scaling passes inside four
- * minutes â€” it is a design bug wearing a performance bug's clothes. They arrive,
+ * minutes — it is a design bug wearing a performance bug's clothes. They arrive,
  * they have nowhere to go, `_separate` packs them into a shell, and the shell
  * thickens for the rest of the run. That pile is what makes every broadphase
  * query in the game return ten times as many candidates: the SAME 900 enemies
@@ -695,7 +695,7 @@ const BLAST_HIT = { fromX: 0, fromY: 0 };
  * way a shoal does, and the crowd stops being a static wall to path through.
  *
  * Entirely data-gated on `params.passLock`, so every mob that does not declare
- * it is byte-for-byte the enemy it was. Uses aiState/aiT2/aiF â€” never aiT, which
+ * it is byte-for-byte the enemy it was. Uses aiState/aiT2/aiF — never aiT, which
  * the swarmer's wobble phase owns.
  *
  * @returns true if it moved the enemy this tick and the caller must not.
@@ -1038,7 +1038,7 @@ const BEHAVIORS = {
       if (e.aiT <= 0 && d2p < fire * fire) {
         // THREE SHELLS IN THE AIR, ARENA-WIDE, AND NOT ONE MORE.
         // Nothing capped how many mortars could be marking at once, and on
-        // Stage 3 twenty of them alive is ordinary â€” see the note on
+        // Stage 3 twenty of them alive is ordinary — see the note on
         // HazardSystem.requestSalvo() for the count and where it comes from.
         if (!run.hazards.requestSalvo(e.params.salvoSpacing || 0.5)) {
           // Losing the gate must not cost this mortar its turn, or the ones at
@@ -1058,7 +1058,7 @@ const BEHAVIORS = {
         // pixel-IDENTICAL mark: ten circles stacked in one hole instead of ten
         // circles covering ground. `scatter` is deliberately smaller than the
         // blast (130 against 145 + 9 of player hitbox), so a player who stands
-        // still is still hit and the archetype keeps its entire job â€” it just
+        // still is still hit and the archetype keeps its entire job — it just
         // is not a guaranteed dead-centre hit any more, and two shells half a
         // second apart now land up to 260px apart instead of on top of each
         // other.
@@ -1344,7 +1344,7 @@ const EMPTY = {};
 
 /** SECTION 3's separation sample size. Six neighbours read as a blob; more do not. */
 const SEPARATION_SAMPLES = 6;
-/** Reused out-vector for separationPush â€” a separation pass may not allocate. */
+/** Reused out-vector for separationPush — a separation pass may not allocate. */
 const SEP = { x: 0, y: 0 };
 
 /**

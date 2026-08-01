@@ -299,12 +299,12 @@ export const CHARACTER_SPRITES = {
   },
   // Shrine fox, rebuilt line by line against the brief.
   //
-  // VERY LONG ROSE TWIN-TAILS with gold ties â€” long loose hair was half of it
+  // VERY LONG ROSE TWIN-TAILS with gold ties — long loose hair was half of it
   // and the half that was missing is the half you can name her by. Large
   // GOLDEN-BLONDE fox ears rather than pink ones. NINE tails. A modernised
   // shrine outfit: a white top with wide DETACHED SLEEVES over a VERMILION
   // HAKAMA, which is the signature colour of the whole design and which the
-  // previous pass had as a blue mini â€” `skirt` was the only garment the
+  // previous pass had as a blue mini — `skirt` was the only garment the
   // vocabulary had and it says "school uniform", so the one thing the costume
   // is famous for was both the wrong shape and the wrong colour. Gold at the
   // ties, the obi plate, the collar and the mirror's rim; a large gold BELL on
@@ -924,6 +924,85 @@ export const CHARACTER_SPRITES = {
     // carrot the green end IS the handle, so the vocabulary already had a word
     // for it and did not need a second one.
     weapon: 'carrot', weaponColor: '#ff8f2e', gripColor: '#4fae4a',
+  },
+
+  // THE RETRIEVAL ASSASSIN. Short crimson hair in a low tail, a dark leather
+  // bodice over a red half-skirt, thigh straps, and a blade in each hand — the
+  // silhouette has to say "carries a lot of knives and is about to be somewhere
+  // else". Green eyes and a scar across one of them.
+  //
+  // She is the only red-headed character on the roster who is NOT a warrior in a
+  // coat (that is Brant, in brick red with cream lapels): crimson rather than
+  // brick, cropped rather than shaggy, and armed with two short blades rather
+  // than one enormous axe. Colour off, the two share nothing.
+  karin: {
+    body: 'humanoid', hair: 'ponytail', hairColor: '#b8202f', hairTie: '#2a2028',
+    skin: '#f2c9a8', outfit: '#26222c', accent: '#dfe8f5', eyes: '#5fd08a',
+    scar: 'left',
+    // A hard bodice over the shirt with a steel-edged collar, then the red
+    // half-skirt: the two-tone torso is what separates her from a plain
+    // assassin in black.
+    coat: '#1c1920', coatTrim: '#c0182f', highCollar: '#1c1920',
+    sash: '#c0182f', sashBuckle: '#dfe8f5',
+    skirt: '#a41528', shorts: '#26222c',
+    armWraps: '#3a3038', gloves: '#1c1920',
+    legColor: '#22202a', boots: '#2e2830', bootHeight: 'thigh',
+    chest: '#dfe8f5',
+    weapon: 'dual', weaponColor: '#dfe8f5',
+  },
+
+  // THE CHARMER. Long black hair with the fox ears and the nine tails, gold
+  // eyes, and a fitted dark-blue dress with gold trim.
+  //
+  // The roster already has a nine-tailed fox — the pink shrine one — so this had
+  // to separate at the silhouette and not at the palette: hers is `twinLong`
+  // (two long falls either side), a hakama and detached sleeves, and a mirror.
+  // This one is a SINGLE long mass, a fitted dress with a short cape, and an orb
+  // held in the hand. Colour off, the two read as different people.
+  rima: {
+    body: 'humanoid', hair: 'long', hairColor: '#1e1a2c', hairTip: '#3d2e5c',
+    skin: '#fbe0cc', outfit: '#1e2a52', accent: '#ffd76a', eyes: '#ffc93f',
+    ears: 'fox', earColor: '#241f34', earInner: '#ff9ecb',
+    // A high gold-trimmed collar and a short mantle, so the shoulders read even
+    // with the hair down over them.
+    shoulderCape: '#2a3a6e', highCollar: '#2a3a6e',
+    coat: '#1e2a52', coatTrim: '#ffd76a',
+    underLayer: '#f2ece0', chest: '#ff7ad0',
+    earrings: '#ffd76a', earringsMotif: '#ff7ad0',
+    sash: '#ff7ad0', sashBuckle: '#ffd76a',
+    skirt: '#1a2446',
+    // Nine of them, in a warmer black than the hair so the fan separates from
+    // the fall it hangs behind.
+    tails: 9, tailColor: '#4a3a5c',
+    legColor: '#f7d8bc', boots: '#2a2440',
+    aura: '#ff7ad0', weapon: 'orb', weaponColor: '#ff7ad0',
+  },
+
+  // THE LOOSE CANNON. Two enormous blue braids past the hip, a magenta stripe
+  // through the fringe, pink eyes, and the least coordinated outfit in the game:
+  // a rust-brown crop top, purple shorts, one long stocking and one short one,
+  // and a rocket launcher.
+  //
+  // The braids are the read and they are `twinLong` — which the pirate captain
+  // and the shrine fox also wear — so the separation is colour and length: hers
+  // are the only BLUE pair, they are the longest, and nothing else about her is
+  // symmetrical, which is the note the asymmetric legwear carries.
+  nika: {
+    body: 'humanoid', hair: 'twinLong', hairColor: '#4a63d8', hairTie: '#2a2233',
+    hairStreak: '#ff5fa8', skin: '#f5cba0',
+    outfit: '#8a4a3a', accent: '#ff5fa8', eyes: '#ff5fa8', eyeGlow: '#ff9ecb',
+    // Cropped top over bare midriff, then the purple shorts and the belt she
+    // hangs everything off.
+    underLayer: '#f5cba0',
+    sash: '#5f3a8a', sashBuckle: '#ffd23f',
+    shorts: '#5f3a8a',
+    harness: '#4a3a2a', armWraps: '#c8c2ba', gloves: '#2a2233',
+    // Mismatched legwear on purpose: one leg dark, one bare. `legColor` is one
+    // value, so the dark one wins and the boots go pale to keep the break.
+    legColor: '#3a3050', boots: '#e8e4dc', bootHeight: 'knee',
+    chest: '#6ad8ff',
+    sparks: '#6ad8ff',
+    weapon: 'gun', weaponColor: '#6ad8ff', gripColor: '#5f3a8a',
   },
 
   // ALTERNATE FORMS -----------------------------------------------------------

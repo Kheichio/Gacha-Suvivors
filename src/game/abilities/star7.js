@@ -509,6 +509,7 @@ const SPELL_FX = { tier: 0, life: 0.3, size: 18 };
 const SPELL_COUNT = 5;
 const SPELL_USELESS = 4;
 
+
 // --- spell 0: a patch of ground turned to sand ------------------------------
 /** Pale, dry and not remotely gold — the ground it used to be is gone. */
 const C_SAND = '#d8d2c4';
@@ -558,7 +559,33 @@ const C_GRAPE = '#a86bff';
 const GRAPE_RADIUS = 110;
 const GRAPE_TIME = 5;
 const GRAPE_PULL = { param: 80 };
-const GRAPE_DROP = { speed: 90, life: 0.9, size: 0.36, drag: 4.5 };
+/** Actual grapes falling on the patch — `grapes` is a bunch, not a blob. */
+const GRAPE_DROP = { speed: 90, life: 0.9, size: 0.42, drag: 4.5, shape: 'grapes' };
+
+// --- the page she just turned, stamped on the ground she aimed at ------------
+//
+// Twenty casts in ten seconds, and before this every one of them announced
+// itself with the same shockwave in a different colour. Colour alone is not an
+// identity at that cadence on a stage that is already four colours: the player
+// sees a strobe and learns nothing about what the book is doing. A GLYPH stamped
+// where the spell landed is a distinct event each time, and because it is the
+// SAME glyph in five colours it reads as five pages of one book rather than as
+// five unrelated abilities.
+//
+// Five registered sprites rather than one tinted at blit time, because a baked
+// prop cannot be recoloured without a composite pass per draw — and five 44px
+// single-frame rasters with no rotation and no flash twin is a rounding error
+// against the atlas budget. They are registered HERE, at module scope, for the
+// same reason every other prop in the ability layer is: it happens before the
+// first frame whichever of prewarm and this module gets there first.
+//
+// `fallSprite` and not an effect kind: props blit in the source-over pass, which
+// is the only way a hard-edged rune survives over a lit floor. Additively it is
+// a smear — the same argument the chain and the scythe already make.
+const SIGIL_SIZE = 22;
+const SIGIL_SPRITES = [C_SAND, C_MEADOW, C_RUST_DUST, C_PLAIN, C_GRAPE].map(
+  (c) => H.atlas.register({ shape: 'sigil', color: c, accent: '#2a2438', size: SIGIL_SIZE, flash: false }));
+const SIGIL_FX = { life: 0.5, from: 0, size: 1.0, alpha: 0.9 };
 
 // --- spell 1: THE FIELD OF FLOWERS ------------------------------------------
 //
@@ -623,8 +650,13 @@ const FLOWER_COLORS = [C_PLAIN, '#ff8fc7', C_GOLD, '#c9a6ff'];
  * source-over rather than additive for the same reason the props are — a petal
  * lit additively over a dark stage is a smear of light, not a petal.
  */
-const FLOWER_HEAD = { color: C_PLAIN, life: 2.4, size: 0.44, sizeEnd: 0.38, drag: 0, grav: 0, alpha: 0.95, shape: 'star' };
-const GRASS_BLADE = { color: C_MEADOW, life: 1.9, size: 0.32, sizeEnd: 0.28, drag: 0, grav: 0, alpha: 0.8, shape: 'shard' };
+// `flower` and `grass`, not `star` and `shard`. A star is a five-pointed shape
+// with CONCAVE sides whose points meet in the middle — that is a sparkle, and a
+// field of them is a field of glitter. A flower is five CONVEX lobes round a
+// disc, and a blade of grass is not a dart. The distinction is the whole
+// difference between the meadow reading as ground she grew and as an effect.
+const FLOWER_HEAD = { color: C_PLAIN, life: 2.4, size: 0.50, sizeEnd: 0.44, drag: 0, grav: 0, alpha: 0.95, shape: 'flower' };
+const GRASS_BLADE = { color: C_MEADOW, life: 1.9, size: 0.40, sizeEnd: 0.36, drag: 0, grav: 0, alpha: 0.8, shape: 'grass' };
 
 /**
  * A fixed ring of meadow records, one per live patch that is still being seeded.
@@ -1296,6 +1328,12 @@ registerAll({
       const x = t.found ? t.x : p.x;
       const y = t.found ? t.y : p.y;
       const r = H.area(p, SPELL_SAND_RADIUS);
+
+      // THE PAGE, stamped on the ground before the spell on it goes off. Spell 1
+      // is the only one that lands at her own feet rather than downrange, so its
+      // glyph goes there too or the mark and the meadow are in two places.
+      H.effects.fallSprite(spell === 1 ? p.x : x, spell === 1 ? p.y : y,
+                           SIGIL_SPRITES[spell], SIGIL_FX);
 
       switch (spell) {
         case 0: {  // a spell that turns a patch of ground to sand

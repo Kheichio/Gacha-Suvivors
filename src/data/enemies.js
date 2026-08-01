@@ -190,7 +190,7 @@ export const ENEMIES = [
     // Tighter, faster wobble than the Chibi Ghost's: at this speed the ghost's
     // 2.2Hz weave reads as a wide arc and the pack stops looking like a pack.
     // `maxAlive` is the concurrency ceiling, enforced in game/enemy.js's spawn()
-    // â€” the timeline may ask for 44 of these at once (waves.js) and it will get
+    // — the timeline may ask for 44 of these at once (waves.js) and it will get
     // 30. `pass*` is the run-THROUGH: at 88px it commits to a heading, crosses
     // at 1.7x for 0.45s and comes out the far side rather than parking on the
     // player. Play report: "too many at once causing lag ... make them go at the
@@ -233,7 +233,7 @@ export const ENEMIES = [
     // 0.35s warning, which is the exact thing DECISIONS.md §25 keeps saying no
     // to. Small blast, short fuse, no chain: it is a mine that runs at you.
     // No pass-through: `exploder` owns aiState, and a mine that runs PAST you is
-    // not the enemy this is. It gets the concurrency cap only â€” 34 fast
+    // not the enemy this is. It gets the concurrency cap only — 34 fast
     // exploders arriving together (waves.js) is the one case where the count
     // alone is the problem.
     params: { fuse: 1.6, blastRadius: 56, blastDamage: 9, chains: false, maxAlive: 24 },
@@ -729,7 +729,7 @@ export const ENEMIES = [
       // the roster runs 168px/s and nothing on this stage slows the player, so
       // that is 154/168 = 0.92s of running, plus feel.accelTime 0.07s to get up
       // to speed, plus 0.25s to notice a new mark on a covered screen: 1.24s
-      // minimum. It shipped with 1.1 â€” short, for a mob the stage fields twenty
+      // minimum. It shipped with 1.1 — short, for a mob the stage fields twenty
       // of. 1.45 clears the floor with 0.21s of margin and STILL punishes a
       // straight line: keep running and you finish 168 * (1.45 - 0.07) = 232px
       // out against a lead point 0.55 * 168 = 92px out, 140px apart, inside the

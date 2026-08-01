@@ -78,7 +78,7 @@ export const CONFIG = {
    * IT IS NO LONGER THE PAD. A single constant sized for the biggest thing in
    * the game is wrong in BOTH directions at once. Too big: on a screen of 8px
    * fodder every projectile gathers a 320x320px neighbourhood to find a 15px
-   * overlap â€” 73,701 broadphase candidates per tick to produce 572 real hits,
+   * overlap — 73,701 broadphase candidates per tick to produce 572 real hits,
    * 0.373ms against 0.087ms at a pad of 40 (measured, 700 enemies in a 300px
    * disc, 330 projectiles). Too small: game/boss.js assigns a boss its raw
    * `visual.size` as a radius, and the Kraken Producer is 150, so the pad never
@@ -94,7 +94,7 @@ export const CONFIG = {
    * broadphase circle has to reach around the target AND across the sampling
    * gap; MIN_PAD keeps the number sane on a near-empty arena. Over a full
    * 19-minute Stage 6 run the live maximum is under 40 for 71% of ticks and
-   * over 60 for 1% â€” the boss fights, where the fodder has been cleared anyway.
+   * over 60 for 1% — the boss fights, where the fodder has been cleared anyway.
    */
   BROADPHASE_MIN_PAD: 40,
   BROADPHASE_SLACK: 16,

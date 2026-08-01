@@ -242,9 +242,87 @@ function resolveParams(run, relic, resonant) {
 // Keyed by relic id, each an object of hook handlers. Signature is always
 // (run, p, params, state, a, b, c). Nothing here allocates per call.
 
+/** The loose cannon's crater. Falloff, because it is a blast and not an aura. */
+const LOOSE_HIT = { falloff: 0.3, element: 'lightning', knockback: 140 };
+/** The relic-thrown blade. Module scope: an interval path must not allocate. */
+const LONG_BLADE = {
+  damage: 0, speed: 700, life: 1.2, radius: 9, knockback: 60,
+  pierce: 1, tag: 'relic_blade',
+  visual: { shape: 'shard', color: '#dfe8f5', accent: '#1b1f2a', size: 9, rotates: true, glow: true },
+};
+/** The ninth tail's wisp. Homes, because a wisp that misses is a firework. */
+const NINTH_WISP = {
+  damage: 0, speed: 420, life: 2.4, radius: 13, knockback: 30,
+  pierce: 0, tag: 'ninth_wisp', motion: 1,
+  visual: { shape: 'flower', color: '#ff7ad0', accent: '#2a1a3a', size: 11, rotates: true, glow: true },
+};
+
 const RELIC_IMPL = {
 
   // --- signature relics -----------------------------------------------------
+
+  /**
+   * KARIN — a slow drip of extra blades, but only while she is actually moving.
+   *
+   * The `movingT` gate is the entire relic. Her kit already rewards walking to
+   * where her blades landed; a flat interval proc would pay a player who stands
+   * still and throws, which is the one way to play her wrong. Reading the
+   * player's own move timer costs nothing and makes the relic an argument.
+   */
+  the_long_way_round: {
+    onInterval(run, p, params, state) {
+      if (p.movingT !== undefined && p.movingT <= 0) return;
+      const t = nearestTo(run, p.x, p.y, 720, null);
+      const a = t ? angleTo(p.x, p.y, t.x, t.y) : p.facing;
+      LONG_BLADE.damage = p.def.autoAttack.damage * (params.damageMult || 0.6) * p.autoDamageMultiplier();
+      spread(run, p, p.x, p.y, a, params.count || 2, 0.22, LONG_BLADE);
+      audio.play('shoot');
+    },
+  },
+
+  /**
+   * RIMA — every Nth kill is a wisp, and every kill is a trickle of health.
+   *
+   * `onInterval` counting KILLS rather than seconds: the hook layer fires it on
+   * the relic's own timer, so the count is polled off `run.stats.kills` the same
+   * way the ability layer's kill passives do. One source of truth, and it cannot
+   * double-count against the passive that is already reading the same number.
+   */
+  the_ninth_tail: {
+    onInterval(run, p, params, state) {
+      const k = run.stats.kills;
+      if (state.seen === undefined) { state.seen = k; state.owed = 0; return; }
+      const d = k - state.seen;
+      if (d <= 0) return;
+      state.seen = k;
+      healPlayer(run, (params.heal || 2) * d, true);
+      state.owed += d;
+      const every = params.interval || 5;
+      while (state.owed >= every) {
+        state.owed -= every;
+        const t = nearestTo(run, p.x, p.y, 900, null);
+        const a = t ? angleTo(p.x, p.y, t.x, t.y) : p.facing;
+        NINTH_WISP.damage = (params.damage || 120) * p.abilityDamageMultiplier();
+        NINTH_WISP.target = t;
+        spread(run, p, p.x, p.y, a, 1, 0, NINTH_WISP);
+        particles.ring(p.x, p.y, 8, '#ff7ad0', 160);
+      }
+    },
+  },
+
+  /** NIKA — every special leaves a crater under her. She is immune to it: the
+   *  area helpers only ever touch enemies, so this needs no guard. */
+  the_loose_cannon: {
+    onSpecial(run, p, params, state) {
+      areaDamage(run, p.x, p.y, (params.radius || 220) * p.stats.areaMult,
+                 (params.damage || 180) * p.abilityDamageMultiplier(),
+                 SRC.RELIC, LOOSE_HIT);
+      particles.ring(p.x, p.y, 16, '#ff5fa8', 380);
+      floaters.spawn(p.x, p.y - 46, 'BOOM', '#ff5fa8', 18, 0.9);
+      shake.medium();
+      audio.play('explode');
+    },
+  },
 
   /** Mochi — every 8th auto-attack spits a boulder (4x damage, knockback). */
   secret_technique_109: {

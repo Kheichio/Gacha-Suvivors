@@ -56,6 +56,10 @@ import './star5b.js';
 import './star6.js';
 import './star7.js';
 import './star8.js';
+// Three characters added as one cohort rather than one per rarity file. The
+// driver joins on ABILITY ID and never learns which file an implementation came
+// from, so the split is filing convenience and nothing else.
+import './star9.js';
 import './evolutionEffects.js';
 
 // ---------------------------------------------------------------------------

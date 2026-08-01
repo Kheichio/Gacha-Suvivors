@@ -664,11 +664,86 @@ const ABYSSAL_SETLIST = {
   codex: 'Track seven runs nine minutes and ends a civilisation. The crowd knows. The crowd waits.',
 };
 
+/**
+ * KARIN. The one relic on the roster that pays for WALKING.
+ *
+ * Her whole kit is a retrieval loop, so her signature has to reward the half of
+ * it a player is most likely to skip: going back for a blade that landed
+ * somewhere inconvenient. `onInterval` rather than a pickup hook because the
+ * hook layer has no "picked up your own prop" event and inventing one for a
+ * single relic is the wrong shape — a slow drip that is only ever worth
+ * anything if she is moving is the same incentive with none of the plumbing.
+ */
+const THE_LONG_WAY_ROUND = {
+  id: 'the_long_way_round',
+  name: 'The Long Way Round',
+  owner: 'karin',
+  stageOwner: null,
+  rarity: 'rare',
+  icon: '🔁',
+  desc: 'Every 6s, if you have moved at all, throw 2 extra blades at the nearest thing for 60% damage.',
+  resonanceDesc: 'RESONANCE: every 4s, and 3 blades instead of 2.',
+  hooks: ['onInterval'],
+  params: { interval: 6, count: 2, damageMult: 0.6 },
+  resonance: { interval: 4, count: 3, damageMult: 0.6 },
+  visual: { shape: 'shard', color: '#dfe8f5', accent: '#1b1f2a', size: 12 },
+  dropWeight: 200,
+  codex: 'She has never once thrown a knife she did not intend to go and get back.',
+};
+
+/**
+ * RIMA. A ★6 signature, so it is allowed to be a rule rather than a proc: the
+ * orb's return trip is the half of her auto that a careless player wastes, and
+ * this makes the return the part that pays.
+ */
+const THE_NINTH_TAIL = {
+  id: 'the_ninth_tail',
+  name: 'The Ninth Tail',
+  owner: 'rima',
+  stageOwner: null,
+  rarity: 'legendary',
+  icon: '🦊',
+  desc: 'Every 5th kill releases a homing wisp for 120 damage. Kills also heal you for 2 HP.',
+  resonanceDesc: 'RESONANCE: every 3rd kill, 200 damage, and 4 HP a kill.',
+  hooks: ['onInterval'],
+  params: { interval: 5, damage: 120, heal: 2 },
+  resonance: { interval: 3, damage: 200, heal: 4 },
+  visual: { shape: 'flower', color: '#ff7ad0', accent: '#2a1a3a', size: 13, glow: true },
+  dropWeight: 90,
+  codex: 'Eight of them are hers. Nobody has ever been rude enough to ask about the ninth.',
+};
+
+/**
+ * NIKA. Priced against her own cooldown: SWITCHEROO is twelve seconds, the
+ * shortest special on the roster, so a relic that fires on the swap fires more
+ * often on her than it would on anybody else — which is exactly what a signature
+ * relic is for.
+ */
+const THE_LOOSE_CANNON = {
+  id: 'the_loose_cannon',
+  name: 'The Loose Cannon',
+  owner: 'nika',
+  stageOwner: null,
+  rarity: 'rare',
+  icon: '🧨',
+  desc: 'Every special detonates a 220px blast for 180 damage where you are standing. You are immune to it.',
+  resonanceDesc: 'RESONANCE: 300px and 300 damage.',
+  hooks: ['onSpecial'],
+  params: { radius: 220, damage: 180 },
+  resonance: { radius: 300, damage: 300 },
+  visual: { shape: 'triangle', color: '#ff5fa8', accent: '#2a2233', size: 12, glow: true },
+  dropWeight: 190,
+  codex: 'The safety was the first thing to go, and it went for parts.',
+};
+
 // ---------------------------------------------------------------------------
 // EXPORTS
 // ---------------------------------------------------------------------------
 
 export const RELICS = [
+  THE_LONG_WAY_ROUND,
+  THE_NINTH_TAIL,
+  THE_LOOSE_CANNON,
   SECRET_TECHNIQUE_109,
   DUAL_BLADES,
   HOSHIYOMI_PENLIGHT,
@@ -703,6 +778,9 @@ export const RELICS = [
 
 // Written out rather than derived, per the "plain data, no logic" rule.
 export const RELICS_BY_ID = {
+  the_long_way_round: THE_LONG_WAY_ROUND,
+  the_ninth_tail: THE_NINTH_TAIL,
+  the_loose_cannon: THE_LOOSE_CANNON,
   secret_technique_109: SECRET_TECHNIQUE_109,
   dual_blades: DUAL_BLADES,
   hoshiyomi_penlight: HOSHIYOMI_PENLIGHT,
@@ -740,6 +818,9 @@ export const RELICS_BY_ID = {
 // rarity did, and this list is ordered by owner so that a reader can check the
 // one-to-one rule by counting rows against the roster.
 export const SIGNATURE_RELICS = [
+  'the_long_way_round',
+  'the_ninth_tail',
+  'the_loose_cannon',
   'secret_technique_109',
   'dual_blades',
   'hoshiyomi_penlight',

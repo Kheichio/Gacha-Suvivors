@@ -606,7 +606,7 @@ describe('weapons / a punch is a line, not a cone', () => {
 // THE FINALE COUNTDOWN.
 //
 // The predicate Run.nothingLeftToClaim() is a hand-written MIRROR of
-// rollUpgradeChoices â€” it has to be, because calling the real roll to ask the
+// rollUpgradeChoices — it has to be, because calling the real roll to ask the
 // question would advance runRng and desync every seeded replay in the project.
 // A mirror drifts. So the first test here does not assert the predicate on its
 // own: it asserts that the predicate and the actual roll AGREE, which is the only
@@ -658,7 +658,7 @@ describe('weapons / the finale countdown', () => {
     const choices = run.rollUpgradeChoices();
     assert.equal(choices.length, 1, 'a finished build was offered ' + choices.length + ' cards');
     assert.equal(choices[0].kind, 'gold',
-                 'the predicate and rollUpgradeChoices disagree â€” one of them grew a source');
+                 'the predicate and rollUpgradeChoices disagree — one of them grew a source');
     run.dispose();
   });
 

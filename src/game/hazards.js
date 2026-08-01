@@ -132,14 +132,14 @@ export class HazardSystem {
   }
 
   /**
-   * THE MORTAR SALVO GATE â€” one shell marked every `spacing` seconds, arena-wide.
+   * THE MORTAR SALVO GATE — one shell marked every `spacing` seconds, arena-wide.
    *
    * Play report: "the falling shots in map 3 ... there are 10 at a time on top of
    * the player." That is literal, and it was two facts multiplying.
    *
    * Stage 3's timeline places thirteen Siege Husks and the mob table keeps
    * rolling more from minute twelve, where at 420 effective HP under Titan's
-   * Shadow they outlive every piece of fodder around them â€” twenty mortars alive
+   * Shadow they outlive every piece of fodder around them — twenty mortars alive
    * at once is ordinary, not a spike. And every one of them computed the SAME
    * impact point, `p + v * lead`, from the same player, with no per-shell
    * variation at all: twenty marks in one hole. Cutting away does not save you,
@@ -212,7 +212,7 @@ export class HazardSystem {
     // `_hazT` and `_smokeT` are RUN state and nothing reset them. The headless
     // harness runs a hundred runs in one process, so every run after the first
     // inherited the previous stage's countdown and Stage 3's opening rubble
-    // volley landed at a different second every time â€” on the same seed.
+    // volley landed at a different second every time — on the same seed.
     this._hazT = 0;
     this._smokeT = 0;
 
@@ -397,7 +397,7 @@ export class HazardSystem {
       // 1. THE CLAMP. `clamp(p.x + cos(a) * d, ...)` drags the mark toward the
       //    player: at x = minX + 60 with a negative offset the impact lands on
       //    the player's exact x, and in a corner it lands on them in both axes.
-      //    Hugging the arena edge â€” the natural answer to a horde â€” quietly
+      //    Hugging the arena edge — the natural answer to a horde — quietly
       //    turned a dodgeable hazard into unavoidable damage. The OFFSET is
       //    reflected per axis now, which preserves |offset| = d exactly, so no
       //    mark is ever nearer than `minRange` however you stand. The clamp that
@@ -407,9 +407,9 @@ export class HazardSystem {
       //    stack in one hole. One zone per equal SECTOR now, jitter bounded to
       //    +-0.30 rad: two adjacent sectors are at worst 120 - 2*17.2 = 85.6deg
       //    apart, and at the 300px inner radius that is a chord of
-      //    2 * 300 * sin(42.8deg) = 408px â€” wider than the 340px two 170px discs
+      //    2 * 300 * sin(42.8deg) = 408px — wider than the 340px two 170px discs
       //    need to not touch. The spacing check below catches the leftovers.
-      // 3. THE TELEGRAPH. It was `feel.telegraphLethal` â€” a hardcoded 1.0s â€”
+      // 3. THE TELEGRAPH. It was `feel.telegraphLethal` — a hardcoded 1.0s —
       //    while `HAZARDS.collapsing_walls.telegraph` sat next to it in the data
       //    and NOTHING READ IT, which is exactly the failure this file's header
       //    documents. Arithmetic: `dropRubble` tests the bare radius, so a mark
@@ -419,7 +419,7 @@ export class HazardSystem {
       //    density curve is holding at 250-400 enemies: 1.33s required. It had
       //    1.0. The data now says 1.5 and the engine now reads it.
       //
-      // And the three no longer land together â€” `stagger` walks the volley out
+      // And the three no longer land together — `stagger` walks the volley out
       // so it reads as three impacts instead of one wall.
       case 'debris': {
         this._hazT = (this._hazT || 0) - dt;
@@ -562,7 +562,7 @@ export class HazardSystem {
     //
     // Unlike ObstacleField.scatter, which holds `clearance` around the player's
     // start and the altar, this rebuild answers to nothing but the player's
-    // CURRENT position â€” so a slab can land squarely on the altar, on a chest, on
+    // CURRENT position — so a slab can land squarely on the altar, on a chest, on
     // a relic, or on a gather mote. Everything that has to be walked to gets
     // pushed back out.
     run.pickups.evictFromObstacles();
@@ -706,7 +706,7 @@ function dropRubble(ctx) {
   // A WALL JUST ARRIVED ON TOP OF WHATEVER WAS LYING THERE. This is the one
   // direction ObstacleField.pushOut cannot cover from the drop side: the loot was
   // legally placed and the geometry moved in afterwards. Bury a chest under a
-  // slab of masonry and it is gone â€” the player is hard-blocked out of the
+  // slab of masonry and it is gone — the player is hard-blocked out of the
   // obstacle and chests are collected by touch.
   run.pickups.evictFromObstacles();
   particles.burst(x, y, 12, '#6b6f80', { speed: 200, life: 0.6, size: 0.8 });

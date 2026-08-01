@@ -599,7 +599,7 @@ describe('abilities / live execution at star 5 (S3 + S5 branches active)', () =>
     // was assigned and read by nothing at all, so Curse's advertised "+8% all
     // rewards" paid zero for the life of the project while this line stayed green.
     // A field being SET is not a feature. It is now asserted where a player would
-    // actually notice it â€” on the gold and the XP a fixed drop is worth.
+    // actually notice it — on the gold and the XP a fixed drop is worth.
     freshSave(1);
     save.data.shrine = {};
     const plain = makeRun('rin', 65);
