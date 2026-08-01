@@ -35,24 +35,42 @@
  *   hair       short spiky flame wild bowl bangs bob wave long twin twinLong
  *              drills lowTwin ponytail sidetail braid topknot buzz ahoge plume
  *              ducktail undercut hood none
- *   hair extra hairColor, hairTip (gradient to a second colour), hairTie,
+ *   hair extra hairColor, hairTip (gradient to a second colour), hairRoot (the
+ *              INVERSE of hairTip — dark roots into a bright length), hairTie,
  *              hairStreak (ONE dyed lock in the fringe — hairTip recolours the
- *              whole mass and is not the same request), sideBraid (a short
- *              braid at one temple, whatever the main style is)
+ *              whole mass and is not the same request), hairUnder (the INNER
+ *              face of the mass in a second colour, i.e. a two-layer cut),
+ *              sideBraid (a short braid at one temple, whatever the main style
+ *              is), ahoge (the single antenna strand — a FLAG on any style, not
+ *              a style of its own; takes its own colour)
  *   ears       fox cat rabbit elf ribbon fin horns greatHorns
- *              (+ earColor, earInner)
+ *              (+ earColor, earInner). earColor drives the horns too.
  *   headgear   crown, hat:'tricorn'|'topHat'|'beret' (+hatColor, hatTrim,
- *              hatPlume), headband (+headbandPlate), headdress
- *              (+headdressRibbon), halo, hairpin:'star'|'bell'
+ *              hatPlume), headband (+headbandPlate — sits on the HAIRLINE),
+ *              headdress (+headdressRibbon), halo,
+ *              hairpin:'star'|'bell'|'carrot' (+hairpinColor, hairpinLeaf),
+ *              hoodUp (an animal-head hood worn UP, LAYERED OVER the hair
+ *              style; +hoodTeeth. `hair:'hood'` REPLACES the style and blacks
+ *              the face out, and `hoodDown` is the same garment rolled behind
+ *              the neck — three different requests, never interchangeable)
  *   face       eyes, eyeGlow, eyeSigil, visor, mask, eyepatch:'left'|'right'
  *              (+eyepatchColor, eyepatchStrap), scar:'left'|'right', whiskers,
- *              blush:false
+ *              blush:false, eyeShadow (permanent dark under the eyes — blush
+ *              :false only REMOVES the cheek dots and cannot add this),
+ *              stubble (a TONE over the lower third of the face, not a shape)
+ *   trinkets   earrings (+earringsMotif), sparks
  *   garment    coat (+coatTrim, coatLapels, coatCuffs, coatButtons,
  *              coatPattern:'check'|'stripe', coatPattern2, coatRagged),
- *              pinafore (+pinaforeTrim), hoodDown, highCollar,
- *              skirt, shorts, hakama (the LONG pleated DIVIDED one; `skirt` is
- *              a four-row mini at the hip and this is not a length setting on
- *              it), sash (+sashBuckle), belt, scarf, tie, neckBow,
+ *              pinafore (+pinaforeTrim), hoodDown, highCollar, sailorCollar
+ *              (a flat flap ACROSS THE SHOULDERS — highCollar is a stand collar
+ *              reaching the jaw and is its structural opposite),
+ *              skirt, shorts (a real standalone garment with a mid-thigh hem;
+ *              under a skirt it stays the two-row band it always was), hakama
+ *              (the LONG pleated DIVIDED one; `skirt` is a four-row mini at the
+ *              hip and this is not a length setting on it),
+ *              sash (+sashBuckle), belt, scarf, tie, neckBow,
+ *              cravat (+cravatPin — CENTRED AND TIERED; the other three throat
+ *              garments are a bow, a wrap and a knot-with-a-blade),
  *              harness, pauldrons (colour) + pauldron:'left'|'right' (one side
  *              only), gauntlets, gloves, cuffs, armWraps, detachedSleeves,
  *              boots, bootHeight:'knee'|'thigh', barefoot, sleeve, legColor,
@@ -115,8 +133,17 @@ export const CHARACTER_SPRITES = {
   // portrait of a mascot is a white bald mascot head and not a peach-skinned
   // person with a haircut.
   mochi: {
-    body: 'blob', outfit: '#f4f1ea', accent: '#d64545', eyes: '#141420',
-    chest: '#d64545', ears: 'long', skin: '#f4f1ea', hair: 'none',
+    body: 'blob', outfit: '#f4f1ea', eyes: '#141420',
+    // The mouth and the ear TIPS come off this one slot, so it cannot be the
+    // gem's red: the ears are white to the tip and the only pink on the creature
+    // is skin — the mouth and the pads. A dusty rose gives a dark mouth line off
+    // the shaded end of the ramp and a soft tip instead of a red cap on each ear.
+    accent: '#d4838f',
+    // A CUT RUBY, and the only saturated pixel on an otherwise white body. The
+    // muted brick that was here read as a smudge on the brow rather than a stone,
+    // and that stone is the single mark that identifies the design.
+    chest: '#e0243c',
+    ears: 'long', skin: '#f4f1ea', hair: 'none',
     gridW: 22, gridH: 22,
   },
   // The solo duelist. Black on black on black, a curtain of fringe over the
@@ -127,29 +154,58 @@ export const CHARACTER_SPRITES = {
     body: 'humanoid', hair: 'bangs', hairColor: '#14141c', skin: '#f0c9a8',
     // Slate rather than the near-black the palette wants: on black hair behind a
     // black fringe, a #2a2a3a iris is not a dark eye, it is no eye.
-    outfit: '#2b3242', accent: '#3fd0ff', eyes: '#4d5a75',
-    coat: '#101018', coatTrim: '#3fd0ff', highCollar: '#101018',
-    gauntlets: '#3fd0ff', gloves: '#14141c', boots: '#14141c',
-    hologram: '#3fd0ff', weapon: 'dualRev', weaponColor: '#cfe6ff',
+    // The gear under the coat is BLACK, not the slate-navy that was here. The
+    // whole figure is one colour and the PIPING is what separates it — writing
+    // the shirt as a navy made him a man in a blue top under a black coat.
+    outfit: '#242733', accent: '#3fd0ff', eyes: '#4d5a75',
+    // THE TRIM IS PALE, NOT THE INTERFACE COLOUR. The coat is black leather with
+    // white-grey stripes down its front edges and sleeves; the light blue belongs
+    // to the floating panel and to nothing he wears. Spent on the panel's colour,
+    // the second half of a two-tone coat was simply absent and every light on him
+    // was the same one light.
+    coat: '#101018', coatTrim: '#e4eaf5', highCollar: '#101018',
+    // Dark strapped bracers. Not bright metal, and not the panel blue again.
+    gauntlets: '#5f6675', gloves: '#14141c', boots: '#14141c',
+    // He carries TWO different blades — one jet black with a silver edge, one a
+    // translucent aqua crystal — and one slot has to serve both, so it takes the
+    // aqua: a black blade over a black coat on a dark stage is not a weapon.
+    hologram: '#3fd0ff', weapon: 'dualRev', weaponColor: '#57d6c2',
   },
 
   // ★4 ----------------------------------------------------------------------
-  // Stage idol. Blue-black BOB (not drills — the brief is specific), a gold star
-  // pinned in it, a comet crest, a short cape, and one eye behind the fringe,
-  // which is the single most recognisable thing about the design.
+  // Stage idol, and the previous pass had her INVERTED — a near-black bob under
+  // a navy costume, when the whole design is a pale blue head over a GREY CHECK.
+  // Her hair is the lightest mass on the figure, not the darkest.
+  //
+  // Line by line: a blue SIDE-TAIL tied off with a dark ribbon; a pale star
+  // pinned in it; a soft checked cap worn tilted with a small gold coronet on
+  // top; a grey plaid jacket over white, a broad blue band knotted at the
+  // throat, a deep blue ruffled skirt; long dark socks under ankle boots.
+  //
+  // The eyepatch is gone. It was faking a fringe over one eye that this design
+  // does not have — both eyes show, and what they carry instead is a second
+  // glint standing in for the star-shaped highlight in the iris.
   hoshino_rei: {
-    body: 'humanoid', hair: 'bob', hairColor: '#1d2445', skin: '#f7d3b4',
-    outfit: '#1b2a5e', accent: '#6ad8ff', eyes: '#4aa8ff',
-    eyepatch: 'left', eyepatchColor: '#161d3a',   // the fringe, not a patch
-    hairpin: 'star', hairpinColor: '#ffe14a',
-    // The brief says the costume is NAVY AND WHITE and the previous pass was
-    // navy and cyan: every light on her was the accent, so the second half of a
-    // two-colour costume was simply missing. The white now shows where a stage
-    // outfit actually shows it — at the collar and on the gloves.
-    underLayer: '#f4f1ea', gloves: '#f4f1ea',
-    cape: '#121c44', skirt: '#2a3a78', sash: '#6ad8ff', chest: '#ffe14a',
-    boots: '#121c44', bootHeight: 'knee',
-    aura: '#ffe14a', weapon: 'mic', weaponColor: '#e8ecf5',
+    body: 'humanoid',
+    hair: 'sidetail', hairColor: '#7ba0e0', hairTie: '#2b3576', skin: '#f7d3b4',
+    hairpin: 'star', hairpinColor: '#eaf1ff',
+    outfit: '#e6e4ee', accent: '#3f6ad8', eyes: '#3f86e8',
+    eyeSigil: '#f4f1ea',
+    // `crown` runs BEFORE the hat branches, so its band is buried and only the
+    // points clear the cap. That is exactly the read wanted here: an ornament
+    // pinned on top, not a coronet worn round the skull.
+    hat: 'beret', hatColor: '#8d8a99', crown: '#ffd23f',
+    // The check is a PLAID, which is a texture, not a chessboard: two greys a
+    // step apart. At the contrast the first pass used it read as a checkerboard
+    // flag and it was the loudest thing in the frame.
+    coat: '#9a97a6', coatPattern: 'check', coatPattern2: '#82808f',
+    coatTrim: '#f4f1ea', sleeve: '#9a97a6',
+    underLayer: '#f4f1ea', scarf: '#3f6ad8', cuffs: '#f4f1ea', gloves: '#f4f1ea',
+    chest: '#e8eeff',
+    skirt: '#31459e', sash: '#2b3576',
+    legColor: '#2e3a68', boots: '#20263f',
+    // Comet white-blue rather than gold: the motes are a comet's tail.
+    aura: '#a8d0ff', weapon: 'mic', weaponColor: '#e8ecf5',
   },
   // The avenger, drawn at the age the whole kit is written for: a dark blue
   // STAND COLLAR, the round clan crest, WHITE ARM WRAPS, BLACK SHORTS, swept
@@ -168,11 +224,24 @@ export const CHARACTER_SPRITES = {
   //             silhouette, not his.
   yamikage: {
     body: 'humanoid', young: true,
-    hair: 'ducktail', hairColor: '#1a1d2e', skin: '#eec6a4',
-    outfit: '#243050', accent: '#e8e8f0', eyes: '#ff3a3a', eyeGlow: '#ff6f6f',
-    eyeSigil: '#14141c', highCollar: '#1c2740', chest: '#c81e3a',
-    armWraps: '#e8e8f0', shorts: '#14161f', sash: '#4a5578',
-    gloves: '#1c2740', boots: '#1c2740', bootHeight: 'knee', blush: false,
+    // Black with a strong BLUE cast, not a flat near-black: the swept tail is a
+    // silhouette feature and it has to hold an edge on a dark stage.
+    hair: 'ducktail', hairColor: '#252c4c', skin: '#f6d6bb',
+    // A clearly BLUE navy. #243050 read as dark slate-purple, and this is the
+    // single biggest colour block on him. He is also conspicuously pale — the
+    // old skin was a tan.
+    outfit: '#2c4a80', accent: '#eceef4', eyes: '#ff3a3a', eyeGlow: '#ff6f6f',
+    eyeSigil: '#14141c', highCollar: '#233c68', chest: '#c81e3a',
+    // The plated brow band, on BLUE cloth. It sits above the brow, so the fringe
+    // and the ring sigil in the eye both survive it.
+    headband: '#233c68', headbandPlate: '#c8d2e0',
+    // The arm warmers are WHITE and run over the back of the hand, so the hands
+    // are the same value as the forearms rather than a dark break between them.
+    armWraps: '#eceef4', gloves: '#d4d9e4',
+    // WHITE shorts, bare shins, low sandals. `sash` is gone: there is no obi at
+    // this age, which lets the plain belt draw instead, and `bootHeight:'knee'`
+    // is gone because a knee boot is a completely different lower silhouette.
+    shorts: '#e2e6ef', legColor: '#f6d6bb', boots: '#1e3158', blush: false,
     weapon: 'chakram', weaponColor: '#c8d2e6',
   },
   // His opposite number in every way: blond spikes instead of a dark sweep, a
@@ -187,24 +256,45 @@ export const CHARACTER_SPRITES = {
     // A shade deeper than the other orange gi on purpose: they are the only two
     // orange characters and they sit next to each other on the roster grid.
     body: 'humanoid', young: true,
-    hair: 'spiky', hairColor: '#f5d14a', skin: '#f5cba0',
-    outfit: '#ef7318', accent: '#1a1d2e', eyes: '#4aa8ff',
-    whiskers: true, headband: '#1a1d2e', headbandPlate: '#c8d2e0',
-    sleeve: '#1a1d2e', sash: '#1a1d2e', chest: '#e8e8f0',
+    hair: 'spiky', hairColor: '#f7d94e', skin: '#f5cba0',
+    // THE SUIT IS ORANGE AND BLUE, NOT ORANGE AND BLACK, and so is the brow
+    // band's cloth. At the age this figure is drawn every dark panel on the
+    // jumpsuit — shoulders, collar, waist, boots — is a deep blue; the near-black
+    // the previous pass used belongs to the older version of the design and it
+    // also made him read as the same two colours as the rival beside him.
+    outfit: '#ef7318', accent: '#263b6e', eyes: '#4aa8ff',
+    whiskers: true, headband: '#263b6e', headbandPlate: '#c8d2e0',
+    sleeve: '#263b6e', highCollar: '#263b6e', sash: '#263b6e',
+    chest: '#e8e8f0',
     tails: 1, tailColor: '#ff6a1a',
-    // No gauntlets: with the obi, the sleeves and the gloves all in the same
-    // near-black, one more black band at the waist joined them into a single
-    // bar across the whole figure.
-    gloves: '#1a1d2e', boots: '#1a1d2e', weapon: 'none',
+    // No gloves and no gauntlets: the hands are bare at this age, and the
+    // sleeves already carry the whole of the second colour.
+    boots: '#263b6e', weapon: 'none',
   },
-  // Short black UNDERCUT, a white cravat at the throat, an olive corps jacket
-  // with the wing crest, and a full aerial-manoeuvre harness with hip canisters.
-  // No blush and a flat mouth: the expression is the character.
+  // Short black UNDERCUT, a white cravat at the throat, and the aerial-manoeuvre
+  // harness. No blush and a flat mouth: the expression is the character.
+  //
+  // THE JACKET IS LIGHT TAN. It was a dark army olive, the same value as the
+  // cloak over it, so the two garments fused and the one item the whole uniform
+  // is named for was invisible. Everything else follows from putting it right:
+  // the trousers are cream and now have to be declared (`legColor`, or they
+  // inherit the jacket), the harness goes warm brown leather so it still reads
+  // against tan, and the boots go mid-brown. Bare hands — the white gloves
+  // belong to the cleaning gag, not to the combat silhouette. Pale steel-GREY
+  // eyes, lifted off the near-black slate that at this size is not a dark eye.
   captain_yuli: {
-    body: 'humanoid', hair: 'undercut', hairColor: '#15151f', skin: '#f0cba8',
-    outfit: '#4a4636', accent: '#d8d2c4', eyes: '#3a4050',
-    scarf: '#f4f1ea', cape: '#5c6a4a', harness: '#6a6250',
-    chest: '#8ab0d8', gloves: '#e8e4dc', boots: '#3a3628', bootHeight: 'knee',
+    body: 'humanoid', hair: 'undercut', hairColor: '#1d1e2a', skin: '#f4d7be',
+    outfit: '#a08d6a', accent: '#e8e2d2', eyes: '#7d8a99',
+    // The permanent shadows under the eyes. Together with the narrow lids they
+    // ARE the face — `blush: false` only takes the cheek dots away, and an
+    // expression that is the whole character cannot be spelled as an absence.
+    eyeShadow: '#3a2a38',
+    // A tiered white cravat, not a scarf. `scarf` is wrapped cloth with one long
+    // end whipping out to the side; this is centred, stacked and frilled.
+    cravat: '#f4f1ea', cravatPin: '#c8b88a',
+    cape: '#5c6a4a', harness: '#7a5c38',
+    chest: '#8ab0d8', legColor: '#e6e1d2',
+    boots: '#5c3f26', bootHeight: 'knee',
     blush: false, weapon: 'dual', weaponColor: '#cfd8e6',
   },
   // Shrine fox, rebuilt line by line against the brief.
@@ -232,9 +322,15 @@ export const CHARACTER_SPRITES = {
   // the fox half of her and the hair reads as the girl half.
   kagura: {
     body: 'humanoid', gridW: 40, gridH: 54,
-    hair: 'twinLong', hairColor: '#ff9ecb', hairTie: '#e8c34a', skin: '#fadbc4',
-    outfit: '#f7f4ec', accent: '#e8c34a', eyes: '#f0a83c',
-    ears: 'fox', earColor: '#f0c24a',
+    // The pink is WARM — a rose, not a cotton-candy magenta. The blue channel is
+    // what was wrong: at this hair volume a cool pink turns the whole figure
+    // lilac, and the hair is more than half of what is on screen.
+    hair: 'twinLong', hairColor: '#f08cab', hairTie: '#e8c34a', skin: '#fadbc4',
+    outfit: '#f7f4ec', accent: '#e8c34a', eyes: '#f4c23a',
+    // FUR blonde, not the metal gold of the bell and the buckle. Five rows tall
+    // and two pixels from the hairpin, ears sharing its colour stop being ears
+    // and become one more piece of jewellery.
+    ears: 'fox', earColor: '#e6c07c',
     detachedSleeves: '#fff0d8',
     hakama: '#d93a2b', sash: '#a3182f', sashBuckle: '#e8c34a',
     hairpin: 'bell', hairpinColor: '#f0c24a',
@@ -246,16 +342,29 @@ export const CHARACTER_SPRITES = {
     weapon: 'mirror', weaponColor: '#eef2f8',
   },
   // A stream overlay given a body: ribbon aerials shaped like headset ears, a
-  // white-and-pink HOODED dress, THIGH-HIGH boots, pink eyes, a status halo that
-  // is actually visible, and pixel motes shedding off her. The hood is worn
-  // down, which the vocabulary could not say at all until now — the previous
-  // pass wrote `coat` and quietly dropped the one word the brief leads with.
+  // white-and-pink HOODED dress, THIGH-HIGH socks, a status halo that is
+  // actually visible, and pixel motes shedding off her.
+  //
+  // The pink was doing every job on this entry — hair accent, eyes, boots,
+  // gloves, halo, crest — which is how a two-colour character becomes a
+  // one-colour one. Three corrections:
+  //   the EYES ARE GREEN, and they are the only thing on her that is neither
+  //     white nor pink. An eye in the accent colour is no eye at all;
+  //   the pink lives IN THE HAIR, brown at the root running vivid by the ends,
+  //     which is the detail she is described by more often than any garment;
+  //   the legs are white socks over a bare strip of thigh, not solid pink boots,
+  //     so the figure finally has a break in it below the waist.
+  // The top is also SLEEVELESS with separate arm coverings — `detachedSleeves`,
+  // not `gloves` — and the hands are bare.
   unit_09: {
-    body: 'humanoid', hair: 'ahoge', hairColor: '#8a6a4a', skin: '#fbdcc4',
-    outfit: '#f7f2f4', accent: '#ff7ab8', eyes: '#ff7ab8',
-    ears: 'ribbon', halo: '#ff7ab8', chest: '#ff7ab8', aura: '#ff7ab8',
-    coat: '#f2e6ec', coatTrim: '#ff7ab8', hoodDown: '#ff7ab8',
-    gloves: '#f7f2f4', boots: '#ff7ab8', bootHeight: 'thigh', weapon: 'none',
+    body: 'humanoid', hair: 'long', hairColor: '#ac7f52', hairTip: '#ff5c9e',
+    skin: '#fbdcc4',
+    outfit: '#f7f2f4', accent: '#ff5c9e', eyes: '#3ed2a0',
+    ears: 'ribbon', halo: '#ff7ab8', chest: '#ff5c9e', aura: '#ff7ab8',
+    coat: '#f4eef1', coatTrim: '#ff5c9e', hoodDown: '#ff5c9e',
+    detachedSleeves: '#f4eef1',
+    shorts: '#efe9ee', legColor: '#fbdcc4',
+    boots: '#eee8ee', bootHeight: 'thigh', weapon: 'none',
   },
 
   // ★5 ----------------------------------------------------------------------
@@ -264,12 +373,22 @@ export const CHARACTER_SPRITES = {
   // wooden BOX strapped to his back that the whole character is built around.
   // The blade runs pale blue because every run starts in the water form.
   rin: {
-    body: 'humanoid', hair: 'ponytail', hairColor: '#7a2f2a', skin: '#f4cda6',
-    outfit: '#1c2a20', accent: '#3f7a4a', eyes: '#c25a3a',
-    coat: '#2e7d64', coatPattern: 'check', coatPattern2: '#14201a',
-    coatTrim: '#1c2a20', sash: '#2a4a34', boots: '#14201a',
+    // Dark at the root, flame at the ends. The gradient is canon, not a flourish.
+    body: 'humanoid', hair: 'ponytail', hairColor: '#6e2a24', hairTip: '#c2472a',
+    skin: '#f4cda6',
+    // THE UNIFORM UNDER THE HAORI IS BLACK. It was a dark green, so the figure
+    // carried THREE greens — uniform, haori, check, sash — in one hue family and
+    // the checkered pattern, which is the whole read, barely existed. The haori
+    // also goes a true warm forest green: the old value was a teal, i.e. the
+    // check was blue-green squares on green-black squares.
+    outfit: '#22242a', accent: '#35844f', eyes: '#b0382c',
+    coat: '#2b7a46', coatPattern: 'check', coatPattern2: '#181b1e',
+    coatTrim: '#1a1d20', sash: '#2a2d34',
+    // Pale wraps and rope sandals — the only light note below the waist, and
+    // previously a near-black that merged with the trousers.
+    boots: '#ece5d6',
     scar: 'right', earrings: '#f4f1ea', earringsMotif: '#c8342a',
-    backpack: 'box', backpackColor: '#7a5330', strapColor: '#3a2a1c',
+    backpack: 'box', backpackColor: '#8a6039', strapColor: '#3a2a1c',
     weapon: 'katana', weaponColor: '#8ad8ff',
   },
   // The ronin. Sun-darkened, scarred, roughly tied hair, a TORN kimono, NO
@@ -278,11 +397,29 @@ export const CHARACTER_SPRITES = {
   // Heavy blacks with one red accent, per the ink-wash direction. The hem is
   // ragged: he is the only person on the roster wearing rags and a garment that
   // ends in a ruled line has been laundered.
+  //
+  // `topknot` was exactly backwards: the neat oiled bun on a shaved pate is a
+  // RETAINED samurai's hairstyle, which is the one thing this character is not.
+  // His is a long, roughly tied, unwashed mass — `ponytail`, with a cord.
+  //
+  // Three separated near-blacks rather than two identical ones. `outfit` and
+  // `coat` were 0x11 apart, so from the chest down he was a single flat slab
+  // with no garment in it, and the one red accent was spent TWICE — on the
+  // coat's trim and on the sash — when the brief is explicit that there is one.
+  // The trim is now the worn kimono's bone-coloured inner edge, and the red is
+  // at the waist only, which is exactly where both blades are thrust through.
   niten: {
-    body: 'humanoid', hair: 'topknot', hairColor: '#2a241e', skin: '#c9955f',
-    outfit: '#22201c', accent: '#8a1f1f', eyes: '#1a1a1a',
-    coat: '#332f28', coatTrim: '#8a1f1f', coatRagged: true,
-    sash: '#8a1f1f', belt: false,
+    body: 'humanoid', hair: 'ponytail', hairColor: '#241f1a', hairTie: '#6b5c46',
+    skin: '#c9955f',
+    outfit: '#2a2721', accent: '#8f1f1f', eyes: '#3a3028',
+    // Stubble and a short beard round the mouth. It is the only thing on the
+    // whole roster that says "adult, years on the road" rather than "young man",
+    // and at this size it is a TONE across the lower third of the face, not a
+    // drawn shape — a drawn beard here is a smudge.
+    stubble: '#3a3028',
+    coat: '#3b362d', coatTrim: '#8d8574', coatRagged: true,
+    hakama: '#22201b',
+    sash: '#8f1f1f', belt: false,
     barefoot: true, scar: 'left', blush: false,
     weapon: 'daisho', weaponColor: '#e0e6ee',
   },
@@ -290,78 +427,173 @@ export const CHARACTER_SPRITES = {
   // whole reason the humanoid plan learned about proportion. Dorsal fin on the
   // crown, pale twin-tails, a HOODIE over the suit with the hood down behind the
   // neck, a tail, and a gold trident.
+  //
+  // Half this palette is CYAN and the previous pass spent none of it on the
+  // face: the eyes were a muted grey-blue, and the eye is the only place on a
+  // head this size that a costume colour can land. The trident went gold, which
+  // is a colour that appears nowhere on the design — it is teal on a navy shaft.
+  // The socks and shoes were also inverted: dark shoes over pale legs, when it
+  // is dark socks under WHITE trainers.
   shiro_same: {
     body: 'humanoid', young: true,
-    hair: 'twin', hairColor: '#dff4ff', hairTie: '#5fd6ff', skin: '#fbe0cc',
-    outfit: '#5fd6ff', accent: '#0b3d5c', eyes: '#4a7f9c',
-    coat: '#2f8fc4', coatTrim: '#dff4ff', hoodDown: '#2f8fc4', ears: 'fin',
-    tails: 1, tailColor: '#4ab6e0', gloves: '#dff4ff', boots: '#0b3d5c',
-    weapon: 'trident', weaponColor: '#ffe9a3',
+    hair: 'twin', hairColor: '#dff4ff', hairTie: '#1f5fa8',
+    // Cobalt strands run through the white mass; one dyed lock in the fringe is
+    // as close as the vocabulary gets, and it is close enough at this size.
+    hairStreak: '#2f7fd6', skin: '#fbe0cc',
+    outfit: '#5fd6ff', accent: '#0b3d5c', eyes: '#3fd0f5',
+    // The top runs a deep cerulean fading to white at the cuffs and hem, so the
+    // sleeves take the pale end of that ramp and the hands stay bare skin — the
+    // greeting gesture is made with them. Grey shirt showing underneath, and the
+    // toothed mouth printed across the front as the chest graphic.
+    coat: '#2775c4', coatTrim: '#f0f8ff', sleeve: '#e6f3ff',
+    underLayer: '#9aa8b4', chest: '#f0f8ff',
+    // THE HOOD IS UP, and it is the single most recognisable thing about the
+    // design — an animal head worn over the skull with a row of teeth round the
+    // opening, a fin on the crown and side fins at the cheeks. It was written as
+    // `hoodDown` because an up-hood was unsayable without blacking the face out
+    // entirely, so the character was drawn wearing her signature behind her neck.
+    hoodUp: '#2775c4', hoodTeeth: '#f4f7ff',
+    ears: 'fin', earColor: '#2775c4',
+    tails: 1, tailColor: '#3d92c8',
+    legColor: '#24406e', boots: '#eef4fa',
+    weapon: 'trident', weaponColor: '#38dcc8', gripColor: '#0b3d5c',
   },
   // Electromaster. Short brown bob, cream winter uniform, the BROWN skirt with
   // SHORTS visible under it, a red collar RIBBON — a bow, which is a different
   // garment from the scarf that used to stand in for it — the flicked token as
   // her crest, and arcs coming off the bangs rather than a generic aura.
+  //
+  // THE VEST WAS MISSING. The uniform is a light-brown knit over a WHITE
+  // blouse, and that two-tone torso is the single most recognisable thing about
+  // it — without the knit she was a girl in a cream shirt. Everything else on
+  // the entry follows: the skirt has to go grey-taupe so it sits UNDER the knit
+  // instead of continuing it, the shorts under it go light (they are a running
+  // gag and a near-black band there reads as a shadow), and the knee boots go
+  // entirely — she wears loafers, and the bare leg between hem and shoe is most
+  // of the silhouette. Eyes are the same chestnut as the hair, per canon.
   reika: {
-    body: 'humanoid', hair: 'bob', hairColor: '#7a5a3a', skin: '#fbdcc0',
-    outfit: '#e8e4dc', accent: '#8a6a4a', eyes: '#c8a05a',
-    neckBow: '#c8503a', skirt: '#6a4a2e', shorts: '#2e2a26',
-    sparks: '#7ad9ff', chest: '#ffe14a', aura: '#7ad9ff',
-    boots: '#2e3648', bootHeight: 'knee', weapon: 'none',
+    body: 'humanoid', hair: 'bob', hairColor: '#a97a4c', skin: '#fbdcc0',
+    outfit: '#f4f1ea', accent: '#a8834c', eyes: '#8f5c2e',
+    coat: '#c9a273', coatTrim: '#a8834c', underLayer: '#f7f4ec',
+    neckBow: '#c8323c',
+    skirt: '#7a6f5e', shorts: '#e4e9f0',
+    sparks: '#8fe6ff', chest: '#e8c34a', aura: '#7ad9ff',
+    boots: '#5a4130', weapon: 'none',
   },
-  // Grave idol. Long pink hair, red eyes, a black-and-red coat with a HIGH
-  // COLLAR, a tiny TOP HAT pinned on at an angle, and a full-size scythe. The
-  // hat is what stops her reading as the other long-pink-haired character.
+  // Grave idol. Long pink hair, red eyes, and a full-size scythe.
+  //
+  // THE COSTUME IS BLACK AND GOLD. The previous pass spent the trim, the arm
+  // bands AND the belt on the same red, so an accent used four times stopped
+  // being an accent and became the base colour — and the gold, which is half of
+  // what she wears, was not on the figure anywhere. The red is now spent ONCE,
+  // on the diamond brooch at the throat, plus the deep red lining showing
+  // through the gown's slit.
+  //
+  // There is no top hat either. It is a small dark SPIKED CIRCLET worn on the
+  // skull, and the one shape that headpiece does not have is a brim — which is
+  // the only thing `hat` draws. `crown` is the closer word, nudged two steps off
+  // black so eleven pixels of it still read against a dark arena.
   nekromina: {
-    body: 'humanoid', hair: 'long', hairColor: '#e0679f', skin: '#f2d0bc',
-    outfit: '#1a1420', accent: '#c8203a', eyes: '#ff3a5e', eyeGlow: '#ff7a90',
-    hat: 'topHat', hatColor: '#12101a',
-    coat: '#241826', coatTrim: '#c8203a', highCollar: '#241826',
-    cape: '#3a0d1c', sash: '#c8203a', gauntlets: '#c8203a', gloves: '#1a1420',
-    boots: '#12101a', bootHeight: 'knee',
+    body: 'humanoid', hair: 'long', hairColor: '#f0a0c2', skin: '#f7dccb',
+    outfit: '#221a2c', accent: '#c8203a', eyes: '#ff3a5e', eyeGlow: '#ff7a90',
+    crown: '#2e2438',
+    coat: '#1a1424', coatTrim: '#c9a24e', highCollar: '#241c30',
+    underLayer: '#a01a30',
+    // The outer layer is BLACK and torn, not maroon, and it carries hard spiked
+    // shoulder pieces — one step lighter than the gown so the two layers do not
+    // fuse into a single dark slab.
+    cape: '#2a2136', pauldrons: '#3a2f48',
+    sash: '#8f8c98', chest: '#c8203a',
+    // Gold rings on the forearms, and BARE HANDS: no gloves anywhere on her.
+    gauntlets: '#c9a24e', gloves: '#f7dccb',
+    boots: '#2a2233', bootHeight: 'thigh',
     weapon: 'scythe', weaponColor: '#dfe8f5',
   },
-  // Phoenix. A feathered crest instead of hair with a gold crown over it,
-  // burning wings, FEATHER ACCENTS ON THE ARMS specifically, two tail plumes,
-  // and embers coming off her. Fire, and it should look like it.
+  // Phoenix. Burning wings, FEATHER ACCENTS ON THE ARMS specifically, two tail
+  // plumes, and embers coming off her.
+  //
+  // She was drawn monochrome orange and she is not: the design is orange, WHITE
+  // and dark blue, her hair fades TEAL-GREEN at the ends, and her eyes are a
+  // vivid MAGENTA — the deliberate complement to the hair, and the worst error
+  // in the old entry, because an amber iris under an orange fringe is not a dark
+  // eye, it is no eye. The crest of feathers is not her hair either; the hair is
+  // ordinary and long and merely feathery, so `wave` and not `plume`, and the
+  // crown it was wearing over it is regalia this costume does not have.
   hikari: {
-    body: 'humanoid', hair: 'plume', hairColor: '#ff7a2b', skin: '#fbdcc4',
-    outfit: '#ff9a3d', accent: '#ffd23f', eyes: '#ffb03d',
-    // The wings run DEEPER than the outfit, not lighter: at a near-match the
-    // whole figure fused into one orange mass with no silhouette at all.
-    crown: '#ffd23f', wings: 'feather', wingColor: '#d9541e',
+    body: 'humanoid', hair: 'wave', hairColor: '#ff7a2b', hairTip: '#2fb08c',
+    skin: '#fbdcc4',
+    outfit: '#ff9a3d', accent: '#ffd23f', eyes: '#e34bb8',
+    // Two clusters of luminous green-teal feathers just behind the ears. Every
+    // reader takes them for earrings, which is exactly what the slot draws, and
+    // at this size they are the second colour on the head.
+    earrings: '#3fd6b0', earringsMotif: '#8ff5e0',
+    neckBow: '#2fb08c', underLayer: '#f4f1ea', skirt: '#f4703a',
+    sash: '#2b3a66',
+    // The wings still run DEEPER than the outfit, not lighter: at a near-match
+    // the whole figure fused into one orange mass with no silhouette at all.
+    wings: 'feather', wingColor: '#d9541e',
     armWings: '#ffd23f', tails: 2, tailColor: '#ff6a1a',
-    aura: '#ffd23f', chest: '#ffd23f', boots: '#c8502a', weapon: 'none',
+    aura: '#ffd23f', chest: '#ffd23f',
+    // WHITE thigh-highs, which is what she wears and which also stops the legs
+    // being one more column of orange under an orange skirt.
+    boots: '#f2ece0', bootHeight: 'thigh', weapon: 'none',
   },
   // The administrator. Immaculate: neat brown hair, brown eyes, a school blazer
   // and a TIE, perfect posture, no expression, and a PLAIN BLACK notebook. He is
   // the only person on the roster whose weapon is stationery, and the design
   // note is that nothing about him should look like it fights.
+  //
+  // THE BLAZER IS TAN. A charcoal one is a business suit worn by a man with a
+  // job; this is a school uniform, it is light, and at portrait size the coat
+  // colour is most of what anybody sees of him. With the coat pale the white
+  // shirt now has to be declared or the two fuse, the lapels have to exist or
+  // there is no frame round the tie, and the trousers go olive rather than
+  // inheriting the shirt. The hair goes a light warm chestnut too — a dark
+  // brown at this size is simply black, and black is somebody else's hair.
   kira: {
-    body: 'humanoid', hair: 'short', hairColor: '#6a4a2e', skin: '#f7d8bc',
-    outfit: '#e8e4dc', accent: '#8a2020', eyes: '#7a4a2a',
-    coat: '#22252f', coatTrim: '#3a3f4e', tie: '#8a2020',
-    gloves: '#f7d8bc', boots: '#1a1a22', blush: false,
-    weapon: 'book', weaponColor: '#3a3a4a',
+    body: 'humanoid', hair: 'short', hairColor: '#a06b3d', skin: '#f7d8bc',
+    outfit: '#e8e4dc', accent: '#b0303a', eyes: '#8f5c30',
+    coat: '#c4ad80', coatTrim: '#9a8354', coatLapels: '#ab9464',
+    underLayer: '#f4f1ea',
+    // A step brighter than a maroon: six pixels of the only saturated colour on
+    // the figure, on a pale blazer, and a dark red there is a shadow in a shirt.
+    tie: '#b0303a', legColor: '#6e684a',
+    gloves: '#f7d8bc', boots: '#22222b', blush: false,
+    weapon: 'book', weaponColor: '#33333e',
   },
 
   // The white fox broadcaster. Deliberately the OPPOSITE read to the pink
   // nine-tailed shrine fox: a white SIDETAIL rather than long loose hair, white
   // fox ears, exactly ONE tail, a modern collared jacket with a tie instead of a
   // shrine robe, and a fan of contracts in her hand instead of a mirror.
+  //
+  // Corrections, all of them the same mistake in different places: the one
+  // saturated colour on this design lives at the THROAT and nowhere else, and
+  // the previous pass had smeared it through the hair tie, a dyed streak, the
+  // ear lining and the coat trim while the eyes — the only face colour she has
+  // — were painted yellow-green. They are AQUA. The hair is uniformly white,
+  // tied LOW at the nape with a BLACK ribbon; the ear tufts are dark; there is
+  // no jacket at all, just a pale blouse over a black inner layer; and the
+  // neckwear is a sailor BOW, not a necktie with a blade down the shirt.
   yukine: {
-    body: 'humanoid', hair: 'sidetail', hairColor: '#f2f6ff', hairTie: '#3fb6c8',
-    skin: '#fbe0cc', outfit: '#eaf4ff', accent: '#3fb6c8', eyes: '#9ad84a',
-    // Two things the brief names outright and the previous pass could not draw:
-    // ONE blue-green streak in otherwise white hair, and PALE BLUE inner fur in
-    // the ears. The ear lining used to be a hard-coded pink, which is right for
-    // the other fox on the roster and wrong for this one.
-    hairStreak: '#3fb6c8', earInner: '#bfe4f5',
-    ears: 'fox', earColor: '#f2f6ff',
-    coat: '#dbe9f7', coatTrim: '#3fb6c8', highCollar: '#dbe9f7',
-    tie: '#2a6fa8', skirt: '#2a3550', shorts: '#1c2438',
-    tails: 1, tailColor: '#cfe6f5',
-    gloves: '#f2f6ff', boots: '#2a3550', bootHeight: 'thigh',
+    body: 'humanoid', hair: 'ponytail', hairColor: '#f2f6ff', hairTie: '#1e1e28',
+    skin: '#fbe0cc', outfit: '#f2f6fb', accent: '#2fc8e0', eyes: '#5fd9e6',
+    // The one small braid at the temple, a shade under the main white so it
+    // reads as a separate strand rather than as a fold in the same mass.
+    sideBraid: '#e2e9f5',
+    // A prominent antenna strand standing out of otherwise tied hair. `ahoge`
+    // used to be a whole hairstyle, so it was mutually exclusive with the
+    // ponytail and the strand simply lost.
+    ahoge: true,
+    ears: 'fox', earColor: '#f2f6ff', earInner: '#2a2732',
+    // A flat SAILOR collar across the shoulders, which is what the top has —
+    // `highCollar` is a stand collar reaching the jaw and is its opposite.
+    sailorCollar: '#1c1c26',
+    underLayer: '#1c1c26', neckBow: '#2fc8e0',
+    detachedSleeves: '#eef3fb',
+    skirt: '#1e2130',
+    tails: 1, tailColor: '#eef4fb',
+    boots: '#22222e', bootHeight: 'knee',
     aura: '#8fe6ff', weapon: 'cards', weaponColor: '#f4f1ea',
   },
   // The apprentice. A blunt lilac cut with ONE SMALL BRAID at the side, violet
@@ -372,14 +604,28 @@ export const CHARACTER_SPRITES = {
   // pass gave her was standing in for the capelet's broad collar, which is a
   // stand collar and not a scarf, and it came with a trailing end she does not
   // have; the braid was simply missing.
+  //
+  // THE LAYERS WERE INVERTED and the haircut was invented. Her hair is LONG —
+  // waist-length and worn loose, not a bowl cut, and there is no braid on her
+  // anywhere. The outer garment is a near-black robe worn OPEN over a pale
+  // ankle-length dress; the previous pass had a white cape over a grey-brown
+  // travelling dress, which is that arrangement turned inside out. She is also
+  // not a child: she is the TALLER of the two mages, so `young` — which buys a
+  // bigger head on a narrower frame — is the one proportion she must not have.
+  // And she is never bare-handed: it is a plain wooden staff, ribbon-wrapped.
   wren: {
-    body: 'humanoid', young: true,
-    hair: 'bowl', hairColor: '#b08fd6', skin: '#f7d8bc',
-    outfit: '#6a6252', accent: '#f4f1ea', eyes: '#8f6ad6',
-    sideBraid: '#9a78c4', hairTie: '#e8e4dc',
-    cape: '#f4f1ea', highCollar: '#f4f1ea', skirt: '#5a5244',
-    gloves: '#e8e4dc', boots: '#3a3428',
-    sparks: '#c3a8ff', blush: false, weapon: 'orb', weaponColor: '#c3a8ff',
+    body: 'humanoid',
+    hair: 'long', hairColor: '#8d78ab', skin: '#f7d8bc',
+    outfit: '#f2efe6', accent: '#7a5fa8', eyes: '#8f6ad6',
+    coat: '#302c3c', coatTrim: '#4a4458', highCollar: '#f2efe6',
+    // The dress falls to the ankle, so the legs take the GARMENT's colour rather
+    // than skin. `skirt` is a four-row mini at the hip and `hakama` is pleated
+    // and divided; neither is a long plain hem, and this is the only thing in
+    // the vocabulary that can say one.
+    legColor: '#e7e2d6',
+    boots: '#2a2732',
+    sparks: '#c3a8ff', blush: false,
+    weapon: 'staff', weaponColor: '#8a6a4a', gripColor: '#7a5fa8',
   },
   // The warrior. Shaggy RED hair, blue eyes, a heavy blue-grey fur-collared coat
   // over MAIL (showing at the neck), wrapped forearms, one shoulder plate each
@@ -387,15 +633,31 @@ export const CHARACTER_SPRITES = {
   // the brief and in his relic, and the hammer the previous pass gave him is a
   // different weapon with a different silhouette. The biggest read in the cast
   // and the only red head.
+  //
+  // HE WEARS NO ARMOUR. The mail at the neck, the shoulder plates and the steel
+  // gauntlets were all invented — under the coat is a plain black collared
+  // shirt and baggy black trousers, and the coat itself is BRICK RED with broad
+  // CREAM lapels and cream turned-back cuffs, not a blue-grey one with a fur
+  // collar. His eyes are ORANGE, not blue. And the large forehead SCAR is his
+  // one permanent facial feature and was simply absent.
   brant: {
-    body: 'humanoid', hair: 'wild', hairColor: '#c8452c', skin: '#f0c9a8',
-    outfit: '#3f4a5c', accent: '#c8452c', eyes: '#5fb6e0',
-    coat: '#2e3a4c', coatTrim: '#8a7a52', scarf: '#8a7a52',
-    underLayer: '#9aa4b2',
-    pauldrons: '#8a9aa8', harness: '#5a4a38', armWraps: '#c8c2ba',
-    gauntlets: '#8a9aa8', boots: '#2a2218', bootHeight: 'knee',
-    // Brighter than the shoulder plates on purpose: the axe head passes right
-    // over one, and at a near-match the two greys share an outline and fuse.
+    body: 'humanoid', hair: 'wild', hairColor: '#e0562c', skin: '#f0c9a8',
+    // Bright red growing out of visibly DARK roots — the inverse of `hairTip`,
+    // which gradients the ends, and previously unsayable, so the head had to be
+    // one flat colour.
+    hairRoot: '#7a2a1c',
+    outfit: '#20202a', accent: '#e8ddc4', eyes: '#e8842e',
+    scar: 'left',
+    // A deeper brick than the head on purpose: hair and coat are both red, and
+    // at a near-match the two fuse into one mass with no shoulders in it. The
+    // cream shawl collar and the cream cuffs are the break between them.
+    coat: '#a3332c', coatLapels: '#e8ddc4',
+    sleeve: '#a3332c', coatCuffs: '#e8ddc4',
+    highCollar: '#24242e', sash: '#e8e2d4',
+    gloves: '#1e1e28', harness: '#5a4a38',
+    legColor: '#22222c', boots: '#1c1c24', bootHeight: 'knee',
+    // Brighter than the coat on purpose: the axe head passes right over the
+    // shoulder, and at a near-match the two share an outline and fuse.
     blush: false, weapon: 'axe', weaponColor: '#d2dced',
   },
 
@@ -404,25 +666,51 @@ export const CHARACTER_SPRITES = {
   // great horns under a crown, one long SCALED TAIL rather than a pair of
   // brushes, WING ORNAMENTS AT THE HIPS rather than wings on the back, orange
   // eyes, and a gold mote field. Every one of those is the brief, verbatim.
+  //
+  // SHE WAS DRAWN ORANGE ON ORANGE and the costume's two dominant colours are
+  // BLACK and RED. Corrections, top to bottom: the hair is a solid warm orange
+  // mass with ONE bright yellow lock and a thin braid, not a blonde running to
+  // red at the tips; the horns are a dark red-VIOLET and are the strongest
+  // contrast on the head, so they need their own colour or they inherit the
+  // gold; the eyes are hot pink grading to violet; the tail is that same violet
+  // and is her true colour, which is why horns and tail agree; there is no
+  // crown (a plain brown brow band) and there are no wings at all in this form.
+  // The garment is a uniform JACKET — black body, gold piping, purple folded
+  // collar and turned-back cuffs — over a white frilled shirt, with a red
+  // pleated skirt and a gold waist clasp, and low brown loafers over black hose.
   sovereign_alicia: {
-    body: 'humanoid', hair: 'long', hairColor: '#ffd76a', hairTip: '#e0452c',
-    skin: '#fbdcc4', outfit: '#ff8a3d', accent: '#ffb03d',
-    eyes: '#ff8a3d', eyeGlow: '#ffd76a',
-    ears: 'greatHorns', crown: '#ffd76a',
-    tail: 'scaled', tailColor: '#e0452c', hipWings: '#ffd76a',
-    cape: '#8a2a18', pauldrons: '#e0452c', gauntlets: '#e0452c',
-    sash: '#ffd76a', chest: '#e0452c', aura: '#ffd76a',
-    boots: '#8a2a18', bootHeight: 'knee', weapon: 'none',
+    body: 'humanoid', hair: 'long', hairColor: '#f2913a',
+    hairStreak: '#ffd94f', sideBraid: '#f7bb45', skin: '#fbdcc4',
+    outfit: '#1b1924', accent: '#e8c34a',
+    eyes: '#e8477e', eyeGlow: '#c07ae8',
+    ears: 'greatHorns', earColor: '#6b4a82', headband: '#7a5230',
+    tail: 'scaled', tailColor: '#7d52a8',
+    coat: '#282430', coatTrim: '#e8c34a',
+    coatLapels: '#6b4a92', coatCuffs: '#6b4a92',
+    underLayer: '#f7f4ec', chest: '#c8203a',
+    skirt: '#c42232', sash: '#8f1428', sashBuckle: '#e8c34a',
+    legColor: '#201e28', boots: '#6a4a30',
+    aura: '#ffd76a', weapon: 'none',
   },
   // Orange gi with the BLUE UNDERSHIRT showing at the collar, a blue belt, blue
   // wristbands and boots, and hair that goes straight up. Unarmed, silver-eyed,
   // standing in a column of white ki motes.
   sora: {
     body: 'humanoid', hair: 'flame', hairColor: '#15151f', skin: '#f5cba0',
-    outfit: '#ff8a2b', accent: '#3f6ad8', eyes: '#2a2a3a', eyeGlow: '#dfe8f5',
-    underLayer: '#3f6ad8', sash: '#3f6ad8', sleeve: '#ff7a1a',
-    gauntlets: '#3f6ad8', chest: '#e8e8f0',
-    boots: '#3f6ad8', bootHeight: 'knee', aura: '#f2f6ff', weapon: 'none',
+    // A deeper, greener cobalt than the bright royal blue it had. The belt, the
+    // undershirt, the wristbands and the boots are all ONE colour on him, so
+    // that colour is doing four jobs and has to be the right one. The eyes come
+    // off near-black for the same reason every other dark iris here does.
+    outfit: '#ff8a2b', accent: '#2f56b4', eyes: '#4a4e63', eyeGlow: '#e8eef8',
+    underLayer: '#2f56b4', sash: '#2f56b4', sleeve: '#ff7a1a',
+    gauntlets: '#2f56b4',
+    // Black ink on orange, which is what the school patch actually is. A white
+    // patch put the one thing on his chest in a colour he does not wear.
+    chest: '#2a2230',
+    boots: '#2f56b4', bootHeight: 'knee',
+    // White-GOLD, not white: the charge flare and the silver-eyed state must not
+    // be the same colour or the transformation has nothing left to announce.
+    aura: '#fff2cf', weapon: 'none',
   },
   // His counterweight, pinned to the tournament design the brief names: spiky
   // black hair, a PURPLE gi over a blue undershirt, ONE shoulder pad on the left
@@ -431,11 +719,23 @@ export const CHARACTER_SPRITES = {
   han: {
     body: 'humanoid', young: true,
     hair: 'spiky', hairColor: '#15151f', skin: '#f5cba0',
-    outfit: '#8a5fd6', accent: '#ffd84a', eyes: '#2a2a3a',
-    underLayer: '#3f6ad8', pauldron: 'left', pauldrons: '#e8e4dc',
-    cape: '#e8e4dc', sash: '#ffd84a', chest: '#ffd84a',
-    gauntlets: '#3f6ad8', boots: '#3f6ad8', bootHeight: 'knee',
-    aura: '#ffd84a', weapon: 'none',
+    // A DARK violet, with LIGHT SKY BLUE as the second colour — deliberately
+    // paler than the navy on the other unarmed fighter, because that gap is
+    // most of what tells the two of them apart at portrait size. There is no
+    // gold on this costume: the gi is plain, with no crest of any kind, and the
+    // obi, the undershirt and the wristbands are all the same light blue.
+    outfit: '#6e4f9e', accent: '#7ab6e8',
+    eyes: '#4a4e63', eyeGlow: '#5fe0c8',
+    underLayer: '#6fb0e0', sash: '#6fb0e0', gauntlets: '#5aa0d8',
+    // The borrowed weighted mantle: a white cape hung off a SYMMETRIC PAIR of
+    // white shoulder plates. They come as a set with the cape; one side only was
+    // a different garment entirely.
+    pauldrons: '#eae7de', cape: '#eae7de',
+    // Low pointed shoes, so the gi trousers run most of the leg.
+    boots: '#2e3552',
+    // Gold aura with LIGHTNING crawling over it, which is the loudest thing
+    // about him and which the vocabulary already had a word for.
+    aura: '#ffd84a', sparks: '#ffe98a', weapon: 'none',
   },
   // THE MAID, and every line of her brief is a garment.
   //
@@ -451,13 +751,31 @@ export const CHARACTER_SPRITES = {
   // The disc is thrown, not held: she is never posed, she is mid-accident, and a
   // ring at head height with a motion arc behind it is the closest this
   // vocabulary gets to a tray already out of her hands.
+  //
+  // EVERY RIBBON ON HER IS BLUE. The drill ties, the band on the cap and the bow
+  // at the throat are one navy, and the previous pass had white ties and a RED
+  // bow — a colour that appears nowhere on this design. The hair was wrong too:
+  // a blue-violet periwinkle, when it is a RED-leaning orchid purple with a dyed
+  // light-blue lock through the fringe, and the eyes are a vivid purple-magenta
+  // rather than one more shade of the same periwinkle. The sleeves are ATTACHED
+  // and puffy — `detachedSleeves` is the wide hanging shrine sleeve and belongs
+  // to another entry — and under the skirt are pale stockings with short shoes,
+  // which knee boots were swallowing whole.
   aoi: {
-    body: 'humanoid', hair: 'drills', hairColor: '#6b6ad6', hairTie: '#f4f1ea',
-    skin: '#fbe0cc', outfit: '#1e2440', accent: '#f4f1ea', eyes: '#9b7cf0',
-    headdress: '#f4f1ea', headdressRibbon: '#f4f1ea', neckBow: '#c8203a',
+    body: 'humanoid', hair: 'drills', hairColor: '#a274c8', hairTie: '#2f4c9e',
+    // The dyed light-blue lock in the fringe, the same blue standing up as an
+    // antenna strand above the drills, and the INNER face of each drill in that
+    // blue as well — the two-tone the whole design is built on, and none of the
+    // three were sayable before: `ahoge` was a hairstyle rather than a flag, and
+    // `hairTip` recolours the entire mass rather than its underside.
+    hairStreak: '#6fd4ec', ahoge: '#6fd4ec', hairUnder: '#6fd4ec',
+    skin: '#fbe0cc', outfit: '#1e2440', accent: '#f4f1ea', eyes: '#c25ce0',
+    headdress: '#f4f1ea', headdressRibbon: '#2f4c9e', neckBow: '#3a5cb8',
     pinafore: '#f4f1ea', pinaforeTrim: '#c9cfe4',
-    detachedSleeves: '#f4f1ea', cuffs: '#f4f1ea',
-    skirt: '#1e2440', gloves: '#f4f1ea', boots: '#2a3050', bootHeight: 'knee',
+    sleeve: '#f7f4ec', cuffs: '#f4f1ea',
+    chest: '#2f4c9e',
+    skirt: '#1e2440',
+    legColor: '#f2eee6', boots: '#232a4a',
     aura: '#8fb6ff', weapon: 'chakram', weaponColor: '#e8ecf5',
   },
   // The elf. Small frame, long POINTED EARS, waist-length white-silver hair worn
@@ -470,10 +788,25 @@ export const CHARACTER_SPRITES = {
   mirel: {
     body: 'humanoid', young: true,
     hair: 'lowTwin', hairColor: '#f2f6ff', hairTie: '#c8a24a', skin: '#fbe0cc',
-    outfit: '#f7f4ec', accent: '#c8a24a', eyes: '#6ad89a',
+    outfit: '#efe8da', accent: '#c8a24a', eyes: '#6ad89a',
     ears: 'elf', earColor: '#fbe0cc',
-    cape: '#2a2436', coat: '#f2ece0', coatTrim: '#c8a24a', highCollar: '#f2ece0',
-    sash: '#c8a24a', boots: '#5a4a38', bootHeight: 'knee',
+    // A SHORT WHITE MANTLE, not a full-length dark one. `cape` hangs to the boot
+    // and this stops above the waist, which is the opposite silhouette. It is
+    // also the top layer, so it takes the brightest white and the jacket under
+    // it goes a shade warmer — a mantle within a shade of the garment it covers
+    // is not a mantle, it is a fold.
+    shoulderCape: '#faf7f0', highCollar: '#faf7f0',
+    coat: '#ebe4d6', coatTrim: '#c8a24a',
+    // The black-and-white striped shirt showing at the collar, averaged: two
+    // alternating values inside one pixel is a mid grey, so a mid grey it is.
+    underLayer: '#5a5866',
+    // The one warm colour anywhere on her: the gem that closes the collar.
+    chest: '#c8342a',
+    earrings: '#c8a24a', earringsMotif: '#c8342a',
+    // A BLACK belt with a gold clasp. Gold at the waist was the fourth gold on a
+    // white figure and read as one more piece of trim rather than as a break.
+    skirt: '#e9e1d3', sash: '#2e2a38', sashBuckle: '#c8a24a',
+    legColor: '#2a2634', boots: '#5a4a38', bootHeight: 'knee',
     blush: false, aura: '#dff4e8', weapon: 'staff', weaponColor: '#8a6a4a',
   },
   // EVERYTHING IS RED, and she is the most detailed figure in the cast, because
@@ -495,29 +828,41 @@ export const CHARACTER_SPRITES = {
   // double row of gold buttons; a huge red tricorn with a white plume; gold
   // trim on every edge of it; an eyepatch, with the strap the previous pass
   // drew under the fringe where nobody could see it; and a CURVED cutlass.
+  //
+  // HER HAIR IS RED, and the near-black it had was the single biggest error in
+  // this whole table: long crimson twin-tails are the first thing anybody names
+  // her by. Everything else on the entry is downstream of putting that right.
+  // The hat goes BLACK with gold along the brim — on a red-haired figure in a
+  // red coat it is the only thing that gives the head an edge, and a red hat
+  // over red hair has none. The eyepatch and its strap go black for the same
+  // reason the old note gave for making them dark red, now inverted: that note
+  // said a black strap on black hair shows nothing, which was true and is moot.
+  // The coat's turnbacks show its BLACK lining, the waist is a black bodice, and
+  // the gloves — white, and a named part of the costume — were simply missing.
   akane: {
     body: 'humanoid', gridW: 38, gridH: 54,
-    // A hair colour two shades off black rather than at it. `twinLong` puts a
-    // near-white thread down each fall, but the rest of the ramp is derived,
-    // and derived off #1a1420 every tone in it is the same tone: the tails came
-    // out as two flat slabs the width of an arm.
-    hair: 'twinLong', hairColor: '#241a2c', hairTie: '#c8203a',
-    skin: '#fbdcc4', outfit: '#f4f1ea', accent: '#ffd23f', eyes: '#e0405f',
-    hat: 'tricorn', hatColor: '#c8203a', hatTrim: '#ffd23f', hatPlume: '#f4f1ea',
-    // The strap takes the PATCH's colour and not a black of its own: it crosses
-    // black hair for most of its run, and a black strap on black hair is a
-    // feature that costs eleven pixels and shows none of them.
-    eyepatch: 'right', eyepatchColor: '#8f1428', eyepatchStrap: '#8f1428',
-    coat: '#c8203a', coatTrim: '#ffd23f', coatLapels: '#8f1428',
-    sleeve: '#c8203a', coatCuffs: '#8f1428', coatButtons: '#ffd23f',
-    pauldrons: '#ffd23f', chest: '#c8203a',
-    // A deep-red sash with a gold plate on the knot rather than the flat gold
-    // band she used to wear. Gold on gold is one shape: the buckle, the buttons
-    // and the coat piping were all the same colour and all within six rows of
-    // each other, so the "gold fittings" the brief asks for read as one smear
-    // of yellow across the waist instead of as three separate pieces of metal.
-    sash: '#8f1428', sashBuckle: '#ffd23f', skirt: '#a3182f',
-    boots: '#3a1218', bootHeight: 'thigh',
+    // A shade lighter and pinker than the coat, so hair and garment do not fuse
+    // into one red slab. The black hat sitting between them does the rest.
+    hair: 'twinLong', hairColor: '#e04a52', hairTie: '#8f1428',
+    skin: '#fbdcc4', outfit: '#f4f1ea', accent: '#ffd23f', eyes: '#f0455c',
+    // A white FRILLED CRAVAT with the brooch pinned through it. The three throat
+    // garments the vocabulary had are a bow (two loops), a scarf (one trailing
+    // end) and a tie (a blade down the shirt); a centred tiered ruffle is none
+    // of them, and it sits directly under the face where six pixels matter.
+    cravat: '#f7f4ec', cravatPin: '#c8203a',
+    hat: 'tricorn', hatColor: '#221d2c', hatTrim: '#ffd23f', hatPlume: '#f4f1ea',
+    eyepatch: 'right', eyepatchColor: '#241f2e', eyepatchStrap: '#241f2e',
+    coat: '#c2233c', coatTrim: '#ffd23f', coatLapels: '#2a2436',
+    sleeve: '#c2233c', coatCuffs: '#2a2436', coatButtons: '#ffd23f',
+    pauldrons: '#ffd23f', chest: '#a3182f',
+    // Gold on gold is one shape: the buckle, the buttons and the coat piping are
+    // the same colour within six rows of each other, so the black bodice under
+    // them is what keeps three pieces of metal from reading as one smear — and
+    // it is also the only thing holding the red coat and the red skirt apart.
+    sash: '#241f30', sashBuckle: '#ffd23f', skirt: '#a3182f',
+    gloves: '#f4f1ea',
+    // Sheer dark tights under short BROWN boots, not near-black thigh boots.
+    legColor: '#2a2434', boots: '#7a4a2e',
     // STEEL, not the pale gold the previous pass gave the blade. Against a red
     // coat, a gold hilt and a white plume, a gold sword is one more gold thing
     // in a picture that already has four — and the one part of a cutlass that
@@ -543,22 +888,38 @@ export const CHARACTER_SPRITES = {
   // 40x54, for the same reason as the captain and then one more: at 30x42 the
   // ears, the twin-tails and the weapon column all want the same four columns,
   // and two of the three have to lose.
+  //
+  // THE DRESS IS WHITE AND THE BLUE IS AN EDGE. It was written the other way
+  // round — a royal-blue body with white trim — and written that way she stops
+  // being a pale figure with cold accents and becomes a blue box, against which
+  // the two white ears have nothing to sit. Piping, pockets, buttons: that is
+  // where the blue goes, all of it. Her hair is a cold SKY BLUE with no green in
+  // it, in plaits that hang past the hip; there is no beret and no mantle, and
+  // nothing at all on the crown, because the ears root there and anything worn
+  // between them is one more shape competing for four rows of air. What sits at
+  // her throat is a fur muffler, and the gloves are BLACK with a white cuff.
   pekora: {
     body: 'humanoid', young: true, gridW: 40, gridH: 54,
-    hair: 'twin', hairColor: '#6fd0c4', hairTie: '#f4f1ea',
-    skin: '#fbe0cc', outfit: '#eaf2ff', accent: '#e8c34a', eyes: '#ff3a5e',
+    hair: 'twinLong', hairColor: '#7fc8ee', hairStreak: '#f4f9fd',
+    hairTie: '#f4f1ea',
+    // ONE CARROT STUCK POINT-DOWN IN EACH PLAIT. It is the most-quoted detail of
+    // her head after the ears, and the count is the joke, so this is the one
+    // hairpin that mirrors instead of taking the shared single-pin position.
+    hairpin: 'carrot', hairpinColor: '#ff8f2e', hairpinLeaf: '#4fae4a',
+    skin: '#fbe0cc', outfit: '#eaf2ff', accent: '#3d7fd6', eyes: '#f23b46',
     ears: 'rabbit', earColor: '#f7f4f0', earInner: '#ff9ecb',
-    hat: 'beret', hatColor: '#f4f1ea',
-    coat: '#3a63c8', coatTrim: '#f4f1ea', coatButtons: '#e8c34a',
-    // The sleeves go in the COAT's blue rather than defaulting to the white
-    // top: with white arms, white gloves and two white ears she came out as
-    // four pale poles round a blue box, and the arms were the only three of
-    // them that were not supposed to be read as a feature.
-    sleeve: '#3a63c8', highCollar: '#2f52ad',
-    // Two shades under the coat, not one. A mantle within a shade of the
-    // garment it is worn over is not a mantle, it is a fold.
-    shoulderCape: '#233a7a',
-    gloves: '#f4f1ea', boots: '#7a5330', bootHeight: 'knee',
+    coat: '#f2f5fb', coatTrim: '#5aa5e0', coatButtons: '#4d92d4',
+    // The dark strapless piece under the dress. It is the only large dark mass
+    // on the figure, so it is what stops six white shapes from merging.
+    underLayer: '#2b2934',
+    // Puffy short sleeves worn off the shoulder, a fur band at the wrist, and
+    // then a dark glove. The band is what keeps the pale sleeve and the dark
+    // glove from reading as one two-tone arm.
+    detachedSleeves: '#f2f5fb', cuffs: '#f7f4ee', gloves: '#33313d',
+    scarf: '#fbf8f2',
+    // Dark hose, pale ankle shoes: the legs read as a dark column with a light
+    // foot, which is the one place this palette inverts.
+    legColor: '#2e2c39', boots: '#f2f5fb',
     // The fronds go in `gripColor` rather than in a slot of their own: on a
     // carrot the green end IS the handle, so the vocabulary already had a word
     // for it and did not need a second one.

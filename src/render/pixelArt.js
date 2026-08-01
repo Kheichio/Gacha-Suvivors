@@ -58,7 +58,7 @@
 //     AND the +1 bob frame both have somewhere to go. Without that margin the
 //     boots' underside outline was silently clipped on every character.
 
-import { shade, mixHex, clamp, lift, sink } from '../core/math.js';
+import { shade, mixHex, clamp, lift, sink, hexToInt } from '../core/math.js';
 
 // ---------------------------------------------------------------------------
 // A tiny pixel buffer. Everything is plotted here first, then flushed to a
@@ -355,6 +355,39 @@ function ramp(base) {
 }
 
 const SKIN_DEFAULT = '#f2c9a8';
+
+/**
+ * SKIN GETS ITS OWN RAMP, AND IT IS THE ONE MATERIAL THAT DOES.
+ *
+ * `sink()` in core/math.js drives a shadow DARKER, MORE SATURATED and cooler,
+ * which is measured off the reference sheet and correct for cloth, metal, hair
+ * and every other surface in the game. It is wrong for skin, and the comment
+ * block above `sink` says so in as many words — the reference's own skin row is
+ * `L 82 -> 30  S 87 -> 67`, saturation going DOWN — but the code has no way to
+ * express it: saturation is `s * (1 + amt * 1.35) + amt * 0.07` for everything.
+ *
+ * On a peach at 75% saturation that clips straight through 1.0, so `skin.dark`
+ * came out as `#ff6d20`. Pure neon orange. Every jaw, every ear, every nose,
+ * every neck and every hand in the game had a fluorescent traffic-cone edge on
+ * it, and it is the reason the faces read as sunburnt no matter what else was
+ * fixed. It only became LOUD when the head rewrite started using skin.dark for
+ * the cheek terminator and the jaw, but it was always there.
+ *
+ * A skin shadow is the black-mix — which desaturates, exactly as measured —
+ * carrying just enough of the cool saturated one to keep some life in it. Thirty
+ * percent, blended rather than switched, so it stays hue-correct for a grey or
+ * green-skinned enemy as well as for a peach.
+ */
+function skinRamp(base) {
+  const lite = lift(base, 0.30);
+  return {
+    spec: mixHex(lite, '#ffffff', 0.40),
+    lite,
+    base,
+    dark: mixHex(shade(base, -0.26), sink(base, 0.30), 0.30),
+    deep: mixHex(shade(base, -0.46), sink(base, 0.52), 0.30),
+  };
+}
 const EYE_WHITE = '#f4f7ff';
 const WHITE = '#ffffff';
 
@@ -472,15 +505,82 @@ function humanMetrics(W, H, d) {
   // and two columns short of the edge so its own outline is never clipped.
   const wx = Math.min(cx + armOut + armW, W - 3);      // right-hand weapon column
   const lx = W - 1 - wx;                               // its exact mirror
+  // -------------------------------------------------------------------------
+  // THE FACE LANDMARKS, and every one of them is a fraction of headR.
+  //
+  // They used to be literals — the fringe stopped at `headY - 3` and was two
+  // rows thick, the eye was `headR * 0.55` square — which is tuned for exactly
+  // one head size and silently wrong at every other. The HUD bust runs this same
+  // plan at headR 12-13 instead of 8, so two rows of fringe left FIVE ROWS OF
+  // BARE SCALP between the hair mass and the eyes on all 25 characters: the
+  // "everybody is balding" read. Deriving them fixes both sizes at once.
+  //
+  //   hairY    the HAIRLINE — the top of the forehead. Hair above, skin below.
+  //   fringeY  the lowest row the fringe reaches. The gap hairY..fringeY is what
+  //            a hair style gets to shape; above hairY it is solid cranium.
+  //   browY    the eyebrow row, and it exists only when there is room for it:
+  //            below headR 8 a brow and the lash line land on the same pixel and
+  //            the face gains a unibrow rather than an expression.
+  //   eyeY     the LASH row — the top of the eye box, not the top of the iris.
+  //
+  // eyeH > eyeW on purpose. The old pass made them equal, and a square eye with
+  // a square iris in it reads as a pair of goggles no matter how it is shaded;
+  // the tall oval is most of what separates this face from a robot's.
+  const eyeH = Math.max(3, Math.round(headR * 0.58));
+  const eyeW = Math.max(2, Math.round(headR * 0.46));
+  const eyeY = headY - Math.max(1, Math.round(headR * 0.20));
+  const eyeGap = Math.max(1, Math.round(headR * 0.19));
+  const browY = eyeY - 2;
+  // Four rows of clearance rather than three once the head is big enough to
+  // carry an eyebrow, because the fringe casts a shadow on the row under it and
+  // a brow drawn INTO that shadow is a smudge. Three rows puts the brow, the
+  // shadow and the fringe's own ragged lower edge on the same two pixels.
+  const fringeY = eyeY - (headR >= 10 ? 4 : headR >= 7 ? 3 : 2);
+  const hairY = Math.min(fringeY, headY - Math.round(headR * 0.52));
   return { W, H, cx, headR, headY, chinY, shoulderY, hipY, kneeY, bootY, bottom,
-           halfTop, halfBot, armW, armOut, elbowY, wx, lx, young };
+           halfTop, halfBot, armW, armOut, elbowY, wx, lx, young,
+           eyeH, eyeW, eyeY, eyeGap, browY, fringeY, hairY };
+}
+
+/**
+ * THE SKULL, AS A PROFILE RATHER THAN AS A CIRCLE.
+ *
+ * Half-width of the head at eleven evenly spaced heights, crown to chin, as a
+ * fraction of headR. A circle with two hlines stapled under it — which is what
+ * this replaces — has no cheekbone and no chin: it is widest at the ears and
+ * then stops, so every character got the same flat-bottomed slab of a face and
+ * the jaw hlines, being a FIXED headR-2 wide, hung a clean two pixels outside
+ * the circle they were supposed to be tapering.
+ *
+ * The numbers are the anime front-view head: a narrow crown, the widest point up
+ * at the temples rather than at the ears, a long straight cheek, and then a fast
+ * taper over the last quarter to a chin barely a quarter of the width. That last
+ * quarter is the whole silhouette — it is what says "face" at eleven pixels
+ * across, and it is what the old drawing had none of.
+ */
+const HEAD_PROFILE = [0.36, 0.70, 0.88, 0.96, 1.00, 1.00, 0.99, 0.94, 0.85, 0.70, 0.48];
+
+function headHalf(t) {
+  const u = clamp(t, 0, 1) * (HEAD_PROFILE.length - 1);
+  const i = Math.min(HEAD_PROFILE.length - 2, u | 0);
+  return HEAD_PROFILE[i] + (HEAD_PROFILE[i + 1] - HEAD_PROFILE[i]) * (u - i);
+}
+
+/**
+ * Half-width of the skull at row `y`, in pixels — the one function every layer
+ * that touches the head asks, so hair, ears, blush and jaw can never disagree
+ * about where the edge of the face is.
+ */
+function headHalfAt(m, y) {
+  const top = m.headY - m.headR, rows = m.headR * 2;
+  return Math.max(1, Math.round((m.headR - 1) * headHalf((clamp(y, top, top + rows - 1) - top) / (rows - 1))));
 }
 
 function humanPalette(d) {
   const outfit = d.outfit || '#5f7fd6';
   const accent = d.accent || shade(outfit, -0.45);
   return {
-    skin: ramp(d.skin || SKIN_DEFAULT),
+    skin: skinRamp(d.skin || SKIN_DEFAULT),
     cloth: ramp(outfit),
     trim: ramp(accent),
     hair: ramp(d.hairColor || '#2b2b3a'),
@@ -536,9 +636,20 @@ function drawHumanoid(b, d, pose) {
   if (d.shoulderCape) drawShoulderCape(b, m, P, d);
   if (d.harness) drawHarness(b, m, P, d);
   if (d.pauldrons || d.pauldron) drawPauldrons(b, m, P, d);
-  drawHairCap(b, m, P, d);
   drawHead(b, m, P, d);
   drawNeckwear(b, m, P, d);
+  // THE CRANIUM GOES ON AFTER THE HEAD, and this one line is the single biggest
+  // thing wrong with every face in the game before this change.
+  //
+  // It used to run first, on the theory that it was a rim of hair for the face
+  // to sit inside. It was one pixel wider and one row higher than the skull, so
+  // drawHead's own ellipse then painted over ALL of it but that rim — and the
+  // fringe, being two flat rows however big the head was, covered only the last
+  // two rows above the eyes. Everything between was bare scalp: three rows on
+  // the world sprite, five on the bust, full head width, in SKIN, on every
+  // character including the ones with black hair. Drawn after, the cranium is
+  // what it says it is: the top of the head, in hair, at every size.
+  drawHairCap(b, m, P, d);
   drawFace(b, m, P, d);
   drawHairFront(b, m, P, d);
   // AFTER the fringe and BEFORE the hat, which is the only slot where a strap
@@ -548,6 +659,10 @@ function drawHumanoid(b, d, pose) {
   // under the headgear — a band crossing a hat brim is not a strap, it is a
   // mistake.
   if (d.eyepatchStrap) drawEyepatchStrap(b, m, P, d);
+  // AFTER the named hair style and BEFORE the headgear, which is the only slot a
+  // hood worn UP can occupy: the style has to be down first so its bunches still
+  // hang out past the hood at the sides, and a hat has to be able to go on over.
+  if (d.hoodUp) drawHoodUp(b, m, P, d);
   drawHeadgear(b, m, P, d);
   drawTrinkets(b, m, P, d);
   drawWeapon(b, m, P, d);
@@ -769,7 +884,17 @@ function drawLegs(b, m, P, d) {
   const legW = Math.max(2, halfBot - 1);
   const legTop = hipY + 1;
   const legH = Math.max(2, bootY - legTop);
-  const lc = typeof d.legColor === 'string' ? ramp(d.legColor) : P.cloth;
+  // A BARE LEG IS SKIN, AND SKIN HAS ITS OWN RAMP.
+  //
+  // `legColor` is how the vocabulary says "the leg is not the garment" — tights
+  // on one character, cream trousers on another, and on three of them bare legs,
+  // written as the character's own skin hex. Run through `ramp()` that last case
+  // goes through `sink()`, which drives saturation up by 1.35x and clips a peach
+  // straight to fluorescent orange: two characters had traffic-cone legs. Skin
+  // written as skin gets the skin ramp, which is the whole point of having one.
+  const lc = typeof d.legColor === 'string'
+    ? (d.legColor === (d.skin || SKIN_DEFAULT) ? P.skin : ramp(d.legColor))
+    : P.cloth;
   for (const s of [-1, 1]) {
     // THE STRIDE. `sw` swings the foot one column outboard (forward) or inboard
     // (trailing); `up` lifts it clear of the ground on the passing beat and
@@ -910,10 +1035,33 @@ function drawTorso(b, m, P, d) {
     b.castShadow(cx - halfBot - 3, hipY + 4, halfBot * 2 + 7, 0.32);   // onto the legs
     // Pleats: three dark ticks, which is the whole reason a skirt is not a cone.
     for (let i = -halfBot; i <= halfBot; i += 3) b.vline(cx + i, hipY + 1, 3, sk.dark);
-    if (d.shorts) {
-      const sh = slotRamp(d.shorts, shade(typeof d.skirt === 'string' ? d.skirt : '#3a3a4a', -0.4));
+  }
+  if (d.shorts) {
+    // SHORTS, AND THEY DRAW WHETHER OR NOT THERE IS A SKIRT OVER THEM.
+    //
+    // This block used to live inside `if (d.skirt)`, so `shorts` was not a
+    // garment at all — it was a two-row detail on the underside of a skirt. Two
+    // characters on the roster declare shorts as their ONLY lower garment and
+    // rendered with bare legs and no warning of any kind: the descriptor read
+    // correctly, the sprite simply did not have the thing in it.
+    //
+    // Under a skirt it is still the same two rows (so the one entry that pairs
+    // them is unchanged to the pixel). On its own it is a real garment with a
+    // mid-thigh hem, a shadow cast onto the shin, and an inseam notch — which is
+    // the pixel that makes it two legs of a garment rather than a band.
+    const sh = slotRamp(d.shorts, shade(typeof d.skirt === 'string' ? d.skirt : '#3a3a4a', -0.4));
+    if (d.skirt) {
       b.rect(cx - halfBot, hipY + 4, halfBot * 2 + 1, 2, sh.base);
       b.set(cx, hipY + 4, sh.lite);
+    } else {
+      const hemH = Math.max(2, Math.round((kneeY - hipY) * 0.6));
+      b.rect(cx - halfBot - 1, hipY, halfBot * 2 + 3, hemH, sh.base);
+      b.hline(cx - halfBot - 1, hipY, halfBot * 2 + 3, sh.lite);
+      b.vline(cx - halfBot - 1, hipY, hemH, sh.base);
+      b.vline(cx + halfBot + 1, hipY, hemH, sh.deep);
+      b.hline(cx - halfBot - 1, hipY + hemH - 1, halfBot * 2 + 3, sh.dark);
+      b.set(cx, hipY + hemH - 1, sh.deep);                     // the inseam notch
+      b.castShadow(cx - halfBot - 1, hipY + hemH, halfBot * 2 + 3, 0.30);
     }
   }
   if (d.sash) {
@@ -1379,6 +1527,51 @@ function drawPauldrons(b, m, P, d) {
 /** Collars, scarves, cravats. Drawn AFTER the head, so the neck cannot cut it. */
 function drawNeckwear(b, m, P, d) {
   const { cx, chinY, shoulderY, headR, armOut, hipY } = m;
+  if (d.sailorCollar) {
+    // A SAILOR COLLAR — a wide flat flap lying ACROSS THE SHOULDERS.
+    //
+    // `highCollar` is the structural opposite and is the only collar the
+    // vocabulary had: a stand collar six rows tall at head width, reaching the
+    // jaw. This is two rows deep at SHOULDER width, and the read is entirely
+    // that it is wider than the head and that the arms interrupt it at each end.
+    // Neither may ever be written for the other; a school top drawn with a stand
+    // collar is a uniform tunic, which is a different garment on a different
+    // person. Mutually exclusive with highCollar for the same reason.
+    const c = slotRamp(d.sailorCollar, d.accent || '#2a3550');
+    const w = (armOut - 1) * 2 + 1;
+    b.rect(cx - armOut + 1, shoulderY, w, 2, c.base);
+    b.hline(cx - armOut + 1, shoulderY, w, c.lite);
+    b.hline(cx - armOut + 2, shoulderY + 2, w - 2, c.dark);
+    // The braid, inset one column from each outer edge — at a small head that
+    // drops to a single lit pixel at each shoulder point and still reads.
+    if (headR >= 7) b.hline(cx - armOut + 2, shoulderY + 1, w - 2, c.lite);
+    else { b.set(cx - armOut + 2, shoulderY + 1, c.lite); b.set(cx + armOut - 2, shoulderY + 1, c.lite); }
+    // and the front V punched back through to the shirt, or it is a yoke
+    b.rect(cx - 1, shoulderY, 3, 2, P.cloth.base);
+    b.set(cx, shoulderY + 2, P.cloth.base);
+  }
+  if (d.cravat) {
+    // A FRILLED CRAVAT — a fourth throat garment, and it has to be, because the
+    // three that exist are each defined by a shape this one does not have:
+    // `neckBow` is two loops with a gap between them, `scarf` is wrapped cloth
+    // with one trailing end, `tie` is a knot with a blade down the shirt. This
+    // is CENTRED AND TIERED, and the tiering is the whole difference — three
+    // stacked rows of decreasing width, each scalloped, with the brooch pinned
+    // through the middle of them.
+    const c = slotRamp(d.cravat, '#f4f1ea');
+    const a = slotRamp(d.cravatPin, d.accent || '#c8342a');
+    const widths = headR >= 9 ? [7, 5, 3] : [5, 3, 3];
+    for (let k = 0; k < widths.length; k++) {
+      const w = widths[k], y = chinY + 1 + k;
+      const x = cx - (w >> 1);
+      b.hline(x, y, w, c.base);
+      for (let i = 0; i < w; i += 2) b.set(x + i, y, c.lite);   // the scallop
+      b.set(cx, y, c.deep);                                     // and its depth
+    }
+    b.rect(cx - 1, chinY + 2, 2, 2, a.base);                    // the brooch
+    b.set(cx - 1, chinY + 2, mixHex(a.lite, WHITE, 0.5));
+    b.set(cx, chinY + 3, a.dark);
+  }
   if (d.highCollar) {
     // A stand collar reaching the jaw. It is most of the read on a character
     // whose whole design note is "concealed", and it costs six rows.
@@ -1433,116 +1626,288 @@ function drawNeckwear(b, m, P, d) {
   for (let j = 0; j < len; j++) b.set(tx - ((j / 3) | 0), shoulderY + 1 + j, j & 1 ? c.dark : c.base);
 }
 
+/**
+ * THE HEAD — one hline per row off HEAD_PROFILE, and nothing painted outside it.
+ *
+ * What was here was an ellipse plus five hard-coded hlines, and the hlines were
+ * the problem: `jw = headR - 2` for the jaw and `headR * 2 - 5` for the brow
+ * light are CONSTANTS, so as the head grew they stopped following its curve and
+ * became bars laid across it. At the bust's headR of 12 the "brow light" was an
+ * eleven-pixel stripe of pale skin sitting four rows ABOVE the hairline, on top
+ * of the hair, in the middle of the skull — a bald patch, drawn deliberately,
+ * once per character. Deriving every row from the same profile means no layer
+ * can put skin outside the face again.
+ */
 function drawHead(b, m, P, d) {
-  const { cx, headY, headR, chinY, shoulderY } = m;
-  const nw = headR >= 7 ? 5 : 3;
-  b.rect(cx - (nw >> 1), chinY, nw, Math.max(1, shoulderY - chinY + 1), P.skin.dark);
-  b.hline(cx - (nw >> 1), chinY, nw, P.skin.base);
-  b.ellipse(cx, headY, headR - 1, headR - 1, P.skin.base);
-  // A tapered jaw drawn explicitly rather than left to the ellipse: a circle
-  // with eyes on it is a smiley, and three hlines is the whole difference.
-  const jw = Math.max(2, headR - 2);
-  b.hline(cx - jw, chinY - 2, jw * 2 + 1, P.skin.base);
-  b.hline(cx - jw + 1, chinY - 1, jw * 2 - 1, P.skin.base);
-  b.hline(cx - 1, chinY, 3, P.skin.base);
-  b.hline(cx - headR + 3, headY - headR + 2, headR * 2 - 5, P.skin.lite);   // brow light
-  // The shadow the jaw casts down the neck. Without it the head and the neck are
-  // one continuous column of the same skin tone and the chin has no underside.
+  const { cx, headY, headR, chinY, shoulderY, eyeY, eyeH, hairY } = m;
+  const top = headY - headR, rows = headR * 2;
+
+  // THE NECK, drawn first so the jaw's shadow lands on top of it. Narrower than
+  // the jaw and never wider than a third of the head, or the character reads as
+  // having no neck at all — which is what a flat 5px column did on the bust.
+  const nw = Math.max(3, Math.round(headR * 0.55)) | 1;
+  b.rect(cx - (nw >> 1), chinY, nw, Math.max(2, shoulderY - chinY + 2), P.skin.dark);
+  b.vline(cx + (nw >> 1), chinY, Math.max(2, shoulderY - chinY + 2), P.skin.deep);
+  b.vline(cx - (nw >> 1), chinY, Math.max(2, shoulderY - chinY + 2), P.skin.base);
+
+  // THE SKULL.
+  for (let j = 0; j < rows; j++) {
+    const hw = Math.max(1, Math.round((headR - 1) * headHalf(j / (rows - 1))));
+    b.hline(cx - hw, top + j, hw * 2 + 1, P.skin.base);
+  }
+
+  // VOLUME, from the same upper-left key shadeEdges uses: a lit column just
+  // inboard of the left silhouette and a terminator just inboard of the right.
+  // Only over the FACE — above the hairline this would be painting highlights
+  // onto skin that is about to be covered by hair.
+  for (let y = hairY; y <= chinY; y++) {
+    const hw = headHalfAt(m, y);
+    if (hw < 2) continue;
+    b.set(cx - hw + 1, y, P.skin.lite);
+    b.set(cx + hw - 1, y, P.skin.dark);
+  }
+  // The jaw's own underside, and the shadow it throws down the neck. Without the
+  // second one the head and neck are one unbroken column of the same tone.
+  b.hline(cx - 1, chinY, 3, P.skin.dark);
   b.castShadow(cx - (nw >> 1), chinY + 1, nw, 0.30);
-  b.set(cx - headR + 2, chinY - 1, P.skin.dark);               // jaw corners
-  b.set(cx + headR - 2, chinY - 1, P.skin.dark);
-  // Ear nubs. Small, but earrings have to hang off something.
+
+  // EARS, at the height ears are actually at — between the eye and the nose,
+  // not level with the eyebrows where two pixels pinned to the widest row of a
+  // circle used to put them.
+  //
+  // They are drawn ENTIRELY INSIDE the silhouette, which is a correction and not
+  // a compromise. A pixel of `skin.dark` one column proud of the skull has
+  // nothing to its left, so shadeEdges rim-lights it — and `lift` rotates hue
+  // toward 45 degrees, so the ear came back as a five-row stripe of pure orange
+  // running down the temple of every character in the game. Inside the outline
+  // the ear is what it should be at this size anyway: a notch of shading at the
+  // side of the face, not a shape.
+  const earTop = eyeY + 1;
+  const earH = Math.max(2, Math.round(eyeH * 0.7));
   for (const s of [-1, 1]) {
-    const x = s < 0 ? cx - headR + 1 : cx + headR - 2;
-    b.vline(x, headY, 2, P.skin.base);
-    b.set(x, headY + 1, P.skin.dark);
+    for (let j = 0; j < earH; j++) {
+      const y = earTop + j;
+      if (y >= chinY) break;
+      const x = cx + s * headHalfAt(m, y);
+      b.set(x, y, j === 0 ? P.skin.lite : j >= earH - 1 ? P.skin.deep : P.skin.dark);
+      if (headR >= 9 && j > 0 && j < earH - 1) b.set(x - s, y, P.skin.base);
+    }
   }
 }
 
+/**
+ * THE FACE. Eyes first, because at this size the eyes ARE the face.
+ *
+ * The old eye was a `headR * 0.55` SQUARE of pure white with a vertical bar of
+ * iris down one side of it. Three things were wrong with that and all three are
+ * structural rather than a matter of taste:
+ *
+ *   1. it was as wide as it was tall, and a square eye is a goggle. An anime eye
+ *      is a TALL oval — roughly 3 wide to 4 high — and that ratio does more for
+ *      the read than any amount of shading inside it.
+ *   2. the iris took a fixed two thirds of the width and sat flush against one
+ *      edge, so the eye had a white half and a coloured half. A real one is iris
+ *      almost edge to edge with the sclera showing as SLIVERS at the corners.
+ *   3. there were no eyebrows anywhere in the file. A brow is two or three
+ *      pixels and it is the entire difference between a face with an expression
+ *      and a doll's.
+ *
+ * Everything below is a fraction of headR, so the same construction serves the
+ * 8-pixel head on the world sprite and the 13-pixel head on the bust.
+ */
 function drawFace(b, m, P, d) {
-  const { cx, headY, headR, chinY } = m;
-  const big = headR >= 5;
-  // THE FACE IS A FRACTION OF THE HEAD, NOT A FIXED NUMBER OF PIXELS.
+  const { cx, headY, headR, chinY, eyeY, eyeH, eyeW, eyeGap, browY } = m;
+  // A FLOOR UNDER THE IRIS.
   //
-  // These were hardcoded 3s, which is correct at the 30x42 the roster is drawn
-  // on and wrong everywhere else — and "everywhere else" now includes the HUD
-  // icon, which is this same plan run at a ~90-row grid and cropped. A 3px eye
-  // in a 34px head is not a small eye, it is a freckle, and the whole figure
-  // read as a blank slab of skin.
-  //
-  // The ratios are chosen so that AT headR 6 — the roster's own head — every
-  // number below rounds to exactly what was hardcoded before, so no existing
-  // sprite moves by a pixel. Above it they grow, which is what lets one drawing
-  // serve both the 30px figure and the 40px bust.
-  const eyeW = Math.max(big ? 3 : 2, Math.round(headR * 0.55));
-  const eyeH = Math.max(big ? 3 : 2, Math.round(headR * 0.55));
-  const eyeY = headY - 1;
-  const inset = Math.max(1, Math.round(headR * 0.18));
-  const irisW = Math.max(2, Math.round(eyeW * 0.66));
-  const dot = Math.max(1, Math.round(eyeW * 0.34));
-  const iris = ramp(P.eyes);
+  // The eye is built as base / darker pupil / lighter lower rim, so an iris that
+  // starts near black has nowhere to go: all three tones land on top of each
+  // other and the eye comes out as a solid dark block — a socket, not an eye.
+  // Six of the roster have eyes written as near-black and one descriptor
+  // already carries a hand-written note explaining that its author had to fake a
+  // slate blue to work around exactly this. Lifting the RAMP rather than the
+  // descriptor keeps the character's stated colour and makes the workaround
+  // unnecessary everywhere at once.
+  const ec = hexToInt(P.eyes);
+  const lum = (((ec >> 16) & 255) * 0.30 + ((ec >> 8) & 255) * 0.59 + (ec & 255) * 0.11) / 255;
+  const iris = ramp(lum < 0.34 ? lift(P.eyes, (0.34 - lum) * 1.7) : P.eyes);
+  const lash = P.hair.deep === P.skin.base ? '#241a1a' : P.hair.deep;
   const covered = d.eyepatch ? (d.eyepatch === 'right' ? 1 : -1) : 0;
+  const lidH = headR >= 10 ? 2 : 1;                  // the lash line's thickness
+  // A THIRD of the eye's width, not a half. At a half the catch-light is a white
+  // square filling the top corner of the iris and the eye reads as a die pip;
+  // what makes it look wet is that the highlight is SMALL and hard against a
+  // large mass of colour.
+  const dot = Math.max(1, Math.round(eyeW * 0.34));
+  // ONE COLUMN OF SCLERA AT EVERY SIZE. This was `headR >= 9 ? 1 : 0`, so on the
+  // world sprite — which is the one the player looks at for twenty minutes —
+  // the iris filled the eye edge to edge and there was no white in the face at
+  // all. On the dark-eyed half of the roster that is not an eye, it is a hole.
+  const inner = 1;
   for (const s of [-1, 1]) {
-    const x = s < 0 ? cx - inset - eyeW : cx + inset + 1;
-    // THE SCLERA HAS TO SURVIVE. The first version painted the iris across the
-    // whole eye and then lit its bottom row, which left no white anywhere: two
-    // dark blocks in a skin-coloured oval, invisible on nine of the roster. The
-    // iris now takes the OUTER two columns and the white stays, so every eye
-    // reads at a glance and the eye colour is still legible inside it.
-    b.hline(x, eyeY - 1, eyeW, P.hair.deep);                   // lash line
-    b.set(s < 0 ? x - 1 : x + eyeW, eyeY - 1, P.hair.deep);    // the outer corner
-    b.rect(x, eyeY, eyeW, eyeH, EYE_WHITE);
-    const ix = s < 0 ? x : x + eyeW - irisW;
-    b.rect(ix, eyeY, irisW, eyeH, iris.base);
-    const px = s < 0 ? ix : ix + irisW - dot;
-    b.rect(px, eyeY + 1, dot, Math.max(1, eyeH - 1), iris.deep);   // pupil
-    b.rect(px, eyeY, dot, dot, WHITE);                             // catch-light
-    b.rect(s < 0 ? ix + irisW - dot : ix, eyeY + eyeH - 1, dot, 1, iris.lite);
+    const x = s < 0 ? cx - eyeGap - eyeW : cx + eyeGap + 1;
+    const iy = eyeY + lidH;                          // first row below the lash
+    const ih = Math.max(1, eyeH - lidH);
+    // THE LASH LINE, and it is drawn PAST the eye on the outer side and kicked
+    // one row up there. That flick is the only bit of drawing in the whole face
+    // that is not symmetrical about its own eye, and it is what stops two ovals
+    // reading as two buttons.
+    b.rect(x, eyeY, eyeW, lidH, lash);
+    b.set(s < 0 ? x - 1 : x + eyeW, eyeY, lash);
+    b.set(s < 0 ? x - 1 : x + eyeW, eyeY - 1, lash);
+    // The white, then the iris nearly filling it. `inner` leaves one column of
+    // sclera on the nose side at the sizes that can spare it — the eye then has
+    // a visible corner, which is what makes it look wet.
+    b.rect(x, iy, eyeW, ih, EYE_WHITE);
+    // THE IRIS RUNS THE FULL HEIGHT OF THE EYE, and the white survives as
+    // SLIVERS — one column on the nose side, one pixel in each bottom corner.
+    // Stopping the iris a row short of the bottom instead leaves a white band
+    // under it, which is a very specific expression (the eye rolled up) and it
+    // was on all twenty-five faces at once.
+    const ix = s < 0 ? x : x + inner;
+    const iw = Math.max(1, eyeW - inner);
+    b.rect(ix, iy, iw, ih, iris.base);
+    b.rect(ix, iy, iw, 1, iris.dark);                          // shaded under the lid
+    // The pupil, centred rather than shoved to one side, and the light bounced
+    // back up into the bottom of the iris under it.
+    const pw = Math.max(1, iw - 2 * (headR >= 9 ? 1 : 0));
+    b.rect(ix + ((iw - pw) >> 1), iy + 1, pw, Math.max(1, ih - 2), iris.deep);
+    b.rect(ix, iy + ih - 1, iw, 1, iris.lite);
+    b.set(s < 0 ? ix + iw - 1 : ix, iy + ih - 1, EYE_WHITE);   // the wet corner
+    // Two lights: the hard catch-light in the upper OUTER corner, and a small
+    // cool one low and inboard. One alone reads as a sticker; the pair reads as
+    // a curved wet surface with a key and a fill.
+    b.rect(s < 0 ? ix : ix + iw - dot, iy, dot, dot, WHITE);
+    b.set(s < 0 ? ix + iw - 1 : ix, iy + ih - 2, mixHex(iris.lite, WHITE, 0.5));
     if (d.eyeSigil) {
       // A mark orbiting the pupil. At three pixels across, one contrasting dot
       // off-centre is the only "this eye is doing something" that survives.
       const sg = typeof d.eyeSigil === 'string' ? d.eyeSigil : '#14141c';
-      b.set(ix + (s < 0 ? 1 : 0), eyeY, sg);
+      b.set(ix + (s < 0 ? 1 : iw - 2), iy + 1, sg);
     }
     if (P.glow) b.set(s < 0 ? x + eyeW - 1 : x, eyeY + eyeH, P.glow);
+    // The lower lid — the OUTER half only, and barely darker than the cheek. A
+    // full-width hard line under both eyes is not a lid, it is a pair of bags.
+    b.hline(s < 0 ? x : x + (eyeW >> 1), eyeY + eyeH, eyeW - (eyeW >> 1),
+            mixHex(P.skin.dark, P.skin.base, 0.45));
+    // THE EYEBROW. Set outboard of the eye's centre and one pixel higher at its
+    // outer end, so the pair reads as arched rather than as two dashes.
+    // `fringeY + 1` and not `fringeY`, because the fringe throws a shadow onto
+    // the row directly below itself. A brow drawn into that row is not a brow,
+    // it is a second shadow, and at the world sprite's head size that is the
+    // only row there is — so brows are a bust feature and the figure keeps a
+    // clean forehead, which is the correct call at an 8-pixel head anyway.
+    if (browY > m.fringeY + 1) {
+      // Halfway to the skin, not a quarter. A brow in the hair's full shadow
+      // tone is a heavy black bar over each eye — on the pale-haired half of the
+      // roster it was the loudest thing on the face and it read as a scowl.
+      const bc = mixHex(P.hair.dark, P.skin.dark, 0.5);
+      const bw2 = Math.max(2, eyeW - 2);
+      const bx = s < 0 ? x : x + eyeW - bw2;
+      b.hline(bx, browY, bw2, bc);
+      // The arch: the outer end lifts a row, and the inner end drops one, so the
+      // pair slants. Two level dashes read as an angry face at every size.
+      b.set(s < 0 ? bx : bx + bw2 - 1, browY - 1, bc);
+      b.set(s < 0 ? bx + bw2 - 1 : bx, browY, mixHex(bc, P.skin.base, 0.4));
+    }
   }
   // Nose and mouth. Narrow on purpose — a wide mouth plus a blush on each cheek
-  // joins up into one line straight across the face. Both scale off the head for
-  // the same reason the eyes do, and both round to the original single pixel at
-  // the roster's own headR of 6.
-  const fw = Math.max(1, Math.round(headR * 0.18));
-  b.rect(cx, chinY - 3, fw, 1, P.skin.dark);                         // nose
-  b.rect(cx - fw, chinY - 1, fw, 1, mixHex(P.skin.deep, '#c05a5a', 0.5));
-  b.rect(cx, chinY - 1, fw, 1, P.skin.deep);                         // mouth
+  // joins up into one line straight across the face. The nose is a shadow and
+  // not a line: at this size a drawn nose is a smudge, and what the eye actually
+  // reads is the little wedge of shade beside the bridge.
+  //
+  // BOTH ARE SMALLER THAN THEY LOOK LIKE THEY SHOULD BE ON PAPER. A mouth four
+  // pixels wide with a lit lower lip under it is, at this size, a wound; the
+  // face reads as gasping. What the eye actually wants below a pair of large
+  // anime eyes is almost nothing — a one-pixel notch of shadow for the nose and
+  // a two-pixel line for the mouth — and every pixel spent past that is spent
+  // pulling attention away from the eyes.
+  const noseY = chinY - Math.max(2, Math.round(headR * 0.36));
+  const mouthY = chinY - Math.max(1, Math.round(headR * 0.20));
+  const mw = headR >= 11 ? 2 : 1;
+  b.rect(cx, noseY, 1, 1, P.skin.dark);
+  b.rect(cx - mw + 1, mouthY, mw * 2 - 1, 1, mixHex(P.skin.deep, '#b0554e', 0.45));
+  if (headR >= 11) b.set(cx, mouthY + 1, mixHex(P.skin.lite, '#ffb8b0', 0.3));
   if (d.blush !== false) {
-    const bl = mixHex(P.skin.base, '#ff8a9a', 0.4);
-    const bw = Math.max(1, Math.round(headR * 0.30));
-    b.rect(cx - headR + 2, chinY - 2, bw, Math.max(1, fw), bl);
-    b.rect(cx + headR - 1 - bw, chinY - 2, bw, Math.max(1, fw), bl);
+    // ON THE CHEEKBONE, which is directly under the eye, and INSET TWO COLUMNS
+    // from the silhouette. Both of those are the fix rather than the drawing.
+    // Pinned to `headR - 2` it landed out past the tapering jaw; and any warm
+    // pixel sitting ON the silhouette gets `lift`ed by shadeEdges, which rotates
+    // hue toward 45 degrees — so a soft pink blush on the edge of the face came
+    // out as a stripe of pure orange, twice, on every character in the game.
+    const bl = mixHex(P.skin.base, '#ff8a9a', 0.32);
+    const by = eyeY + eyeH + 1;
+    const bw = Math.max(2, Math.round(headR * 0.26));
+    const hw = headHalfAt(m, by);
+    for (const s of [-1, 1]) {
+      const x = s < 0 ? cx - hw + 2 : cx + hw - 1 - bw;
+      b.rect(x, by, bw, headR >= 11 ? 2 : 1, bl);
+    }
   }
   if (d.whiskers) {
     // Three marks per cheek. Two is a smudge and four is a grille; three is the
     // thing being referenced and it has to be countable.
     const wc = typeof d.whiskers === 'string' ? d.whiskers : mixHex(P.skin.dark, '#7a4a2a', 0.6);
     for (const s of [-1, 1]) {
-      // Inset by one more than looks right on paper: at row chinY-1 the jaw has
-      // already tapered, and a whisker one column wider hangs off the face.
-      const x = s < 0 ? cx - headR + 3 : cx + headR - 4;
-      for (let k = 0; k < 3; k++) b.hline(x, eyeY + eyeH + k, 2, wc);
+      for (let k = 0; k < 3; k++) {
+        // Follow the jaw. Pinned to a fixed column they walked off the taper on
+        // the lowest of the three and outline() wrapped the overhang.
+        const y = eyeY + eyeH + k;
+        const hw = headHalfAt(m, y);
+        b.hline(s < 0 ? cx - hw + 1 : cx + hw - 2, y, 2, wc);
+      }
     }
+  }
+  if (d.eyeShadow) {
+    // PERMANENT DARK UNDER THE EYES. `blush: false` only takes the cheek dots
+    // away — it cannot add anything, and the shadowed under-eye is a different
+    // pixel region from the blush anyway. Two rows of cool shade with the lower
+    // lid darkened to meet them, so the eye sits in a socket rather than on a
+    // cheek: four pixels at the world sprite's head size and it still lands,
+    // because it is the only dark thing between the lash and the jaw.
+    const sc = typeof d.eyeShadow === 'string' ? d.eyeShadow : '#3a2a38';
+    for (const s of [-1, 1]) {
+      const x = s < 0 ? cx - eyeGap - eyeW : cx + eyeGap + 1;
+      b.hline(x, eyeY + eyeH, eyeW, mixHex(P.skin.dark, sc, 0.4));
+      b.hline(x + 1, eyeY + eyeH + 1, eyeW - 1, mixHex(P.skin.dark, sc, 0.22));
+    }
+  }
+  if (d.stubble) {
+    // STUBBLE, AND IT IS A TONE RATHER THAN A SHAPE. A drawn beard at an
+    // eight-pixel head is a smudge; what actually reads is that the whole lower
+    // third of the face is a step darker and its upper edge is ragged.
+    //
+    // Every row follows the jaw's own half-width, for the same reason `whiskers`
+    // documents: pinned to a fixed column the lowest row walks off the taper and
+    // outline() wraps the overhang. The topmost row is stippled — every other
+    // pixel — because a ruled line across the cheeks is a chinstrap.
+    const st = typeof d.stubble === 'string' ? d.stubble : '#3a3028';
+    const tone = mixHex(P.skin.dark, st, 0.55);
+    for (let y = mouthY - 1; y <= chinY; y++) {
+      const hw = headHalfAt(m, y);
+      if (y === mouthY - 1) {
+        for (let i = -hw + 1; i <= hw - 1; i += 2) b.set(cx + i, y, tone);
+      } else {
+        b.hline(cx - hw + 1, y, hw * 2 - 1, tone);
+      }
+    }
+    // The moustache, and the mouth punched back through it — a beard drawn over
+    // the mouth is a muzzle.
+    b.set(cx - 1, mouthY - 1, mixHex(P.skin.deep, st, 0.6));
+    b.set(cx + 1, mouthY - 1, mixHex(P.skin.deep, st, 0.6));
+    b.rect(cx - mw + 1, mouthY, mw * 2 - 1, 1, mixHex(P.skin.deep, '#b0554e', 0.45));
   }
   if (covered) {
     // The patch covers one eye entirely, and the strap runs back to the temple
     // on that side only — a strap across both eyes is a blindfold.
     const c = slotRamp(d.eyepatchColor, '#14141c');
     const s = covered;
-    const x = s < 0 ? cx - inset - eyeW - 1 : cx + inset;
-    b.rect(x, eyeY - 2, eyeW + 2, eyeH + 2, c.base);
+    const x = s < 0 ? cx - eyeGap - eyeW - 1 : cx + eyeGap;
+    b.rect(x, eyeY - 2, eyeW + 2, eyeH + 3, c.base);
     b.hline(x, eyeY - 2, eyeW + 2, c.lite);
-    b.hline(x, eyeY + eyeH - 1, eyeW + 2, c.deep);
+    b.hline(x, eyeY + eyeH, eyeW + 2, c.deep);
     b.set(x + 1, eyeY, mixHex(c.lite, WHITE, 0.35));
-    b.hline(s < 0 ? cx - headR + 1 : cx + inset + eyeW + 1, eyeY - 2,
-            headR - inset - eyeW + 1, c.dark);
+    b.hline(s < 0 ? cx - headR + 1 : cx + eyeGap + eyeW + 1, eyeY - 2,
+            Math.max(1, headR - eyeGap - eyeW + 1), c.dark);
   }
   if (d.mask) {
     // A lower-face wrap. Covers the mouth, leaves the eyes doing all the work.
@@ -1828,30 +2193,112 @@ function drawHairBack(b, m, P, d) {
 }
 
 /**
- * The crown of hair, drawn UNDER the face. It is one pixel wider and one row
- * higher than the face ellipse, so a hair rim survives around the temples no
- * matter which style sits on top of it.
+ * How far past the chin the two locks that FRAME THE FACE hang, as a fraction of
+ * headR. 0 is a cut with nothing in front of the ears.
+ *
+ * Framing locks are the second half of the bald-head fix and the half that is
+ * about drawing rather than about a bug. A head whose hair stops dead at the
+ * silhouette is a face-plate bolted to a helmet — the hair reads as a hat. What
+ * makes a pixel face read as a person is two strands coming down PAST the jaw
+ * on either side of it, because that is the only cue at this size that the hair
+ * is in front of the head rather than behind it. Every style gets a length here
+ * and the length is a character note: a shaved cut gets none, a bob gets a
+ * blunt one to the jaw, and the two styles the briefs describe as curtained get
+ * locks longer than the head is tall.
+ */
+const SIDELOCK = {
+  buzz: 0, undercut: 0, topknot: 0.2, flame: 0.2, spiky: 0.25, plume: 0.25,
+  wild: 0.35, ducktail: 0.4, short: 0.4, braid: 0.5, bowl: 0.55, ahoge: 0.55,
+  ponytail: 0.7, sidetail: 0.7, bob: 0.8, twin: 0.85, drills: 0.85,
+  wave: 1.0, twinLong: 1.0, lowTwin: 1.0, long: 1.25, bangs: 1.5,
+};
+
+/**
+ * THE CRANIUM — the top of the head, in hair, drawn over the skull.
+ *
+ * This used to be a rim: an ellipse one pixel wider than the face, painted
+ * BEFORE the face and therefore almost entirely painted over by it. The fringe
+ * was then expected to cover the forehead on its own and it was two rows thick
+ * at every head size, so the taller the head the more bare scalp showed between
+ * them. Now the hair covers everything from above the crown down to `fringeY`
+ * unconditionally, at whatever width the skull is at that row plus one, and the
+ * style drawn on top of it in drawHairFront only has to shape the LOWER EDGE.
+ * That is a strictly smaller job and it is the job those eighteen cases were
+ * always written for.
  */
 function drawHairCap(b, m, P, d) {
   const style = d.hair || 'short';
   if (style === 'none' || style === 'hood') return;
   const hc = P.hair;
-  const { cx, headY, headR } = m;
-  b.ellipse(cx, headY - 1, headR, headR - 1, hc.base);
-  // THE SHINE IS AN ELLIPSE, NEVER AN HLINE. A horizontal band across the top
-  // of a dome extends past the dome's own silhouette, and outline() then wraps
-  // the overhang: every dark-haired character came out wearing a flat grey bar
-  // above the skull. An offset ellipse also reads correctly — an anime hair
-  // highlight is an arc catching one light, not a stripe painted all the way
-  // round the head.
-  const r1 = Math.max(1, headR - 3), r2 = Math.max(1, headR - 5);
-  b.ellipse(cx - 1, headY - 3, r1, Math.max(1, headR - 4), hc.lite);
-  b.ellipse(cx - 1, headY - 4, r2, r2, mixHex(hc.lite, WHITE, 0.25));
-  b.ellipse(cx + headR - 3, headY - 1, r2, Math.max(1, headR - 3), hc.dark);
-  b.hline(cx - headR, headY - 1, 2, hc.dark);                  // temple shadow
-  b.hline(cx + headR - 1, headY - 1, 2, hc.dark);
-  b.set(cx - headR, headY, hc.deep);
-  b.set(cx + headR - 1, headY, hc.deep);
+  const { cx, headY, headR, chinY, hairY, fringeY, eyeY, bottom } = m;
+  const top = headY - headR;
+
+  // 1. THE MASS. One row above the crown, because hair has thickness and a cap
+  //    flush with the skull is a swimming cap.
+  for (let y = top - 1; y <= fringeY; y++) {
+    const hw = headHalfAt(m, Math.max(top, y)) + 1;
+    b.hline(cx - hw, y, hw * 2 + 1, hc.base);
+  }
+
+  // 2. THE SHINE, AND IT IS TWO DASHES WITH A GAP, NOT A BAND.
+  //
+  //    One unbroken run of light across the dome is a stripe painted on a
+  //    helmet, and on the four characters whose hair is near-black it came out
+  //    as a grey bar with a head under it. What an anime hair highlight actually
+  //    is, is a long dash and a short one separated by a gap of base colour,
+  //    sitting off-centre toward the key. The gap is the whole effect: it is
+  //    what says the surface is round and that the light is a reflection on it.
+  //    Built row by row off the same width the mass uses, so it can never poke
+  //    outside the silhouette the way an hline or a stray ellipse does.
+  const shineY = top + Math.max(2, Math.round(headR * 0.52));
+  const shineH = Math.max(1, Math.round(headR * 0.26));
+  for (let j = 0; j < shineH; j++) {
+    const y = shineY + j;
+    if (y > fringeY) break;
+    const hw = headHalfAt(m, Math.max(top, y)) + 1;
+    const c = j === 0 && shineH > 1 ? hc.spec : hc.lite;
+    const w1 = Math.max(2, Math.round(hw * 0.80) - j);
+    b.hline(cx - hw + 2 + j, y, w1, c);
+    const w2 = Math.max(1, Math.round(hw * 0.34) - j);
+    b.hline(cx + Math.round(hw * 0.34) + j, y, w2, c);
+  }
+
+  // 3. THE FORM SHADOW, down the right of the dome and across the parting.
+  for (let y = top; y <= fringeY; y++) {
+    const hw = headHalfAt(m, y) + 1;
+    b.set(cx + hw - 1, y, hc.dark);
+    b.set(cx + hw, y, hc.deep);
+    b.set(cx - hw, y, hc.dark);
+  }
+
+  // 4. THE FRAMING LOCKS. They hang from the widest row of the head straight
+  //    down — NOT following the jaw in, which is where a lock stops being hair
+  //    and becomes a sideburn painted on the cheek.
+  const reach = SIDELOCK[style] === undefined ? 0.4 : SIDELOCK[style];
+  if (reach <= 0) return;
+  const end = Math.min(bottom - 1, chinY + Math.round(headR * reach));
+  const outer = headR;                   // one proud of the skull's widest row
+  const lw = headR >= 9 ? 3 : 2;
+  for (let y = fringeY + 1; y <= end; y++) {
+    // Thins toward the tip, so the lock ends in a point rather than a stump.
+    const t = (y - fringeY) / Math.max(1, end - fringeY);
+    const w = Math.max(1, lw - Math.round(t * (lw - 1)));
+    b.pair(cx, outer - w + 1, y, w, 1, hc.base);
+    b.pair(cx, outer, y, 1, 1, hc.dark);                       // the outer seam
+    if (w > 1 && (y - fringeY) % 3 !== 2) {
+      b.pair(cx, outer - w + 1, y, 1, 1, mixHex(hc.lite, WHITE, 0.18));
+    }
+  }
+  b.pair(cx, outer - 1, Math.min(bottom, end + 1), 1, 1, hc.deep);
+  // Where a lock passes in front of the cheek it throws a shadow onto it. One
+  // column each side, read off whatever is already there, so it works on skin
+  // and on a collar alike — and it is what puts the lock IN FRONT of the face
+  // rather than merely beside it.
+  for (let y = Math.max(fringeY + 1, eyeY - 1); y <= Math.min(chinY, end); y++) {
+    if (headHalfAt(m, y) <= outer - lw) continue;
+    b.castShadow(cx - outer + lw, y, 1, 0.22);
+    b.castShadow(cx + outer - lw, y, 1, 0.22);
+  }
 }
 
 function drawHairFront(b, m, P, d) {
@@ -1860,7 +2307,12 @@ function drawHairFront(b, m, P, d) {
   const hc = P.hair;
   const { cx, headY, headR } = m;
   const top = headY - headR;
-  const brow = headY - 3;          // the fringe stops here, clear of the eyes
+  // `headY - 3` before, which is a LITERAL, and the reason the bust had a bald
+  // patch: on a head twice as tall the fringe still stopped three rows above the
+  // centre and left the whole upper forehead bare. `fringeY` is derived from the
+  // eye, so the fringe lands just clear of the lashes at any head size, and the
+  // cranium behind it now guarantees there is hair all the way up regardless.
+  const brow = m.fringeY;
 
   if (style === 'hood') {
     // Under a hood there is no face — just two lit points. Its own read.
@@ -1998,6 +2450,64 @@ function drawHairFront(b, m, P, d) {
       break;
   }
 
+  // THE SHADOW THE FRINGE THROWS ON THE FOREHEAD. One row, read off whatever is
+  // underneath, so it darkens skin, a headband or a visor alike. Hair meeting a
+  // forehead with no shadow between them is two flat shapes touching; this is
+  // the row that makes the hair sit IN FRONT of the head, and it costs one call.
+  b.castShadow(cx - headR + 2, brow + 1, headR * 2 - 3, 0.26);
+
+  if (d.ahoge) {
+    // THE ANTENNA STRAND, AS A FLAG ON ANY STYLE.
+    //
+    // `ahoge` was a whole `hair` VALUE, which made it mutually exclusive with
+    // every other cut — so the two characters who wear one over a ponytail and
+    // over a pair of drills could have the strand or the hairstyle and not both,
+    // and both of them lost the strand. It is an add-on like `sideBraid` and
+    // `hairStreak`, and it always was; being a style was a filing error.
+    //
+    // It takes a colour when given one, because on one of them the strand is a
+    // different colour from the mass it grows out of, which is the entire joke.
+    const ac = typeof d.ahoge === 'string' ? ramp(d.ahoge) : hc;
+    const h = Math.max(4, Math.round(headR * 0.62));
+    const root = top + 1;
+    b.vline(cx + 1, Math.max(0, root - h), h, ac.base);
+    b.vline(cx + 1, Math.max(0, root - h), Math.max(1, h >> 1), ac.lite);
+    b.set(cx + 2, Math.max(0, root - h), ac.lite);             // the hook
+    b.set(cx + 3, Math.max(0, root - h + 1), ac.base);
+    b.set(cx, root - 1, ac.dark);
+  }
+  if (d.hairRoot) {
+    // DARK ROOTS GROWING INTO A BRIGHT LENGTH — the exact inverse of `hairTip`,
+    // which gradients the ENDS. One of the cast has bright red hair out of
+    // visibly dark roots and there was no way to say it, so the head had to be
+    // drawn as one flat colour.
+    //
+    // It stops one row ABOVE the cap's shine or the two dashes of highlight land
+    // inside the dark band and the head reads bright-dark-bright, i.e. a stripe.
+    const rc = slotRamp(d.hairRoot, shade(d.hairColor || '#2b2b3a', -0.45));
+    const rows = Math.min(Math.max(2, Math.round(headR * 0.45)),
+                          Math.max(1, Math.round(headR * 0.52) - 1));
+    b.retint(cx - headR - 2, top - 1, (headR + 2) * 2 + 1, rows, hc, rc);
+  }
+  if (d.hairUnder) {
+    // THE UNDER-FACE OF THE HAIR MASS in a second colour — outer surface one
+    // colour, the inside of the fall another. `hairTip` gradients the whole mass
+    // below the chin and `hairStreak` does one lock in the fringe; neither can
+    // say "orange outside, green inside", which is a two-layer cut and is how
+    // two of the cast are drawn.
+    //
+    // Keyed on the INBOARD edge of each side mass, because that is the face the
+    // viewer sees the underside of, and capped at the chin so it reads as the
+    // lining of the fall rather than as a second head of hair.
+    const uc = slotRamp(d.hairUnder, d.accent || '#3fb6c8');
+    const w = Math.max(2, Math.round(headR * 0.3));
+    for (const s of [-1, 1]) {
+      const x = s < 0 ? cx - headR - w : cx + headR;
+      b.retint(x, m.chinY - 1, w + 1, m.bottom - m.chinY, hc, uc);
+      b.set(s < 0 ? x + w : x, m.chinY, mixHex(uc.lite, WHITE, 0.3));
+    }
+  }
+
   if (d.hairStreak) {
     // ONE dyed lock in the fringe. `hairTip` is the other half of this problem —
     // it gradients the WHOLE mass to a second colour — and a brief that asks for
@@ -2030,8 +2540,13 @@ function drawHairFront(b, m, P, d) {
   if (d.scar) {
     // The fringe parts around it. A scar drawn on top of hair is a smudge; a
     // scar in a window of bare forehead is a scar.
+    //
+    // `top + 2` before, which is two rows under the crown — up on the dome of
+    // the skull, where a forehead scar is not. It now cuts the bottom of the
+    // fringe and runs down onto the brow, which is both where it belongs and
+    // the only place on the head with bare skin to open a window in.
     const x = cx + (d.scar === 'left' ? -4 : 2);
-    const y = top + 2;
+    const y = Math.max(top + 1, m.fringeY - 1);
     b.rect(x, y, 3, 3, P.skin.base);
     b.hline(x, y, 3, P.skin.lite);
     const sc = mixHex(P.skin.dark, '#b8452c', 0.7);
@@ -2039,6 +2554,62 @@ function drawHairFront(b, m, P, d) {
     b.set(x + 1, y + 1, sc);
     b.set(x + 1, y + 2, sc);
     b.set(x, y + 2, mixHex(sc, P.skin.base, 0.4));
+  }
+}
+
+/**
+ * A HOOD WORN UP, LAYERED OVER A HAIRSTYLE — the animal-head hood.
+ *
+ * `hair: 'hood'` is the only up-hood the vocabulary had and it is a different
+ * request: it REPLACES the hairstyle and blacks the face out entirely, which is
+ * the right read for a faceless assassin and the wrong one for a character whose
+ * face and twin bunches are both the point. `hoodDown` is the same garment rolled
+ * behind the neck. So this is a third thing, and what makes it work is that it is
+ * drawn as a CROWN BAND PLUS TWO CHEEK PANELS rather than as one slab: that
+ * leaves a face window with the real face still under it, and the hair drawn
+ * before it still hanging out at the sides.
+ *
+ * `hoodTeeth` is the row of teeth round the opening, and it is the read. It has
+ * to ZIGZAG — every other column dropped a row — because a ruled white line
+ * along the hood's edge is a sweatband.
+ */
+function drawHoodUp(b, m, P, d) {
+  const c = slotRamp(d.hoodUp, d.coat || d.outfit || '#2775c4');
+  const { cx, headY, headR, chinY, fringeY } = m;
+  const top = headY - headR;
+  const hTop = Math.max(0, top - 2);
+  // THE CROWN FOLLOWS THE SKULL'S OWN CURVE. A full-width taper here is a
+  // rectangle with a face cut out of it — the hood came out as a blue box the
+  // size of the frame — whereas two columns proud of `headHalfAt` at every row
+  // is a soft shell sitting ON a head, which is what a hood is.
+  for (let y = hTop; y <= fringeY; y++) {
+    const hw = headHalfAt(m, Math.max(top, y)) + 2;
+    b.hline(cx - hw, y, hw * 2 + 1, c.base);
+    b.set(cx - hw + 1, y, c.lite);
+    b.set(cx + hw - 1, y, c.dark);
+    b.set(cx + hw, y, c.deep);
+  }
+  b.hline(cx - headR + 1, hTop, headR * 2 - 1, c.lite);
+  b.hline(cx - headR - 2, fringeY, headR * 2 + 5, c.dark);
+  // The cheek panels, running down OUTSIDE the face to the jaw.
+  const pw = Math.max(2, Math.round(headR * 0.35));
+  for (const s of [-1, 1]) {
+    const x = s < 0 ? cx - headR - 2 : cx + headR + 3 - pw;
+    b.rect(x, fringeY, pw, chinY - fringeY, c.base);
+    b.vline(s < 0 ? x : x + pw - 1, fringeY, chinY - fringeY, c.dark);
+    b.vline(s < 0 ? x + pw - 1 : x, fringeY, chinY - fringeY, c.lite);
+    // A side fin at the cheek, which is what says this is an animal's head and
+    // not a raincoat. Dropped below headR 7 — three pixels there is a smudge.
+    if (headR >= 7) b.spike(x + (s < 0 ? -1 : pw - 2), headY, 3, 4, 1, c.dark);
+  }
+  // The dorsal fin standing on the crown.
+  b.spike(cx - 2, hTop - Math.max(3, headR - 4), 5, Math.max(3, headR - 4), 1, c.base);
+  b.line(cx + 2, hTop, cx, hTop - Math.max(2, headR - 5), c.lite);
+  if (d.hoodTeeth) {
+    const t = slotRamp(d.hoodTeeth, '#f4f7ff');
+    for (let i = -headR - 1; i <= headR + 1; i++) {
+      b.set(cx + i, fringeY + ((i & 1) ? 1 : 0), (i & 1) ? t.base : t.lite);
+    }
   }
 }
 
@@ -2054,6 +2625,13 @@ function drawHeadgear(b, m, P, d) {
   // one of the two foxes on the roster. The other one's brief names the colour —
   // pale blue — and there was no way to say it without repainting both.
   const ei = d.earInner ? slotRamp(d.earInner, ec.lite).base : mixHex(ec.lite, '#ffc4e0', 0.5);
+  // HORN colour, and it falls back to the TRIM rather than to the hair — a horn
+  // is keratin, not fur, and every horned entry that predates `earColor` was
+  // drawn in the trim. The two horn cases were the only pair in the switch that
+  // read the trim and NOTHING else, so on the one character whose horns are the
+  // strongest colour on her head a stated dark violet was silently overridden by
+  // the gold of her coat piping and there was no way to say otherwise at all.
+  const hn = d.earColor ? slotRamp(d.earColor, t.base) : t;
   const top = headY - headR;
   switch (d.ears) {
     case 'fox':
@@ -2097,12 +2675,19 @@ function drawHeadgear(b, m, P, d) {
       b.set(cx - 1, top - 2, mixHex(t.lite, WHITE, 0.4));
       for (const s of [-1, 1]) b.spike(cx + s * (headR + 1) - 1, headY, 3, 4, 1, t.dark);
       break;
+    // HORNS TAKE `earColor` LIKE EVERY OTHER PAIR IN THIS SWITCH.
+    //
+    // These two cases were the only ones reading `t` — the trim, i.e. the
+    // descriptor's `accent` — rather than `ec`. On the one character in the cast
+    // whose horns are the strongest colour contrast on her head, that silently
+    // overrode a stated dark violet with the gold of her coat piping, and there
+    // was no way to say otherwise: setting earColor did nothing at all.
     case 'horns':
       for (const s of [-1, 1]) {
-        b.set(cx + s * (headR - 1), top - 1, t.lite);
-        b.set(cx + s * headR, top - 2, t.lite);
-        b.set(cx + s * headR, top - 3, t.base);
-        b.set(cx + s * (headR + 1), top - 4, t.base);
+        b.set(cx + s * (headR - 1), top - 1, hn.lite);
+        b.set(cx + s * headR, top - 2, hn.lite);
+        b.set(cx + s * headR, top - 3, hn.base);
+        b.set(cx + s * (headR + 1), top - 4, hn.base);
       }
       break;
     case 'greatHorns':
@@ -2110,9 +2695,9 @@ function drawHeadgear(b, m, P, d) {
       // and TWO pixels thick, because a 1px diagonal aliases into a dotted line
       // and the whole read collapses into a pair of antennae.
       for (const s of [-1, 1]) {
-        b.blade(cx + s * (headR - 1), top + 1, cx + s * (headR + 4), top - 4, t.lite, t.base);
-        b.line(cx + s * (headR - 1), top + 2, cx + s * (headR + 4), top - 3, t.dark);
-        b.set(cx + s * (headR + 5), top - 5, mixHex(t.lite, WHITE, 0.4));
+        b.blade(cx + s * (headR - 1), top + 1, cx + s * (headR + 4), top - 4, hn.lite, hn.base);
+        b.line(cx + s * (headR - 1), top + 2, cx + s * (headR + 4), top - 3, hn.dark);
+        b.set(cx + s * (headR + 5), top - 5, mixHex(hn.lite, WHITE, 0.4));
       }
       break;
     default:
@@ -2121,16 +2706,26 @@ function drawHeadgear(b, m, P, d) {
   if (d.headband) {
     // A band across the brow with a metal plate on it. The plate is the point —
     // a plain band is a sweatband.
+    //
+    // It sits ON THE HAIRLINE, which is where a brow protector is actually worn,
+    // and not at `top + 2`, which is a fixed two rows below the crown: on the
+    // bust that put it up on the dome of the skull like a tiara, with four rows
+    // of hair still showing underneath it. Everything about the band's height is
+    // now derived, so it lands on the brow at every head size — and the plate,
+    // which is the whole read, scales with the head instead of staying seven
+    // pixels wide on a head that has doubled.
     const c = slotRamp(d.headband, d.accent || '#1a1d2e');
     const pl = slotRamp(d.headbandPlate, '#b9c4de');
-    const y = headY - headR + 2;
+    const y = Math.max(headY - headR + 1, m.hairY - 1);
+    const pw = Math.max(5, Math.round(headR * 0.85)) | 1;
+    const px = cx - (pw >> 1);
     b.hline(cx - headR, y, headR * 2 + 1, c.base);
     b.hline(cx - headR, y + 1, headR * 2 + 1, c.dark);
-    b.rect(cx - 3, y - 1, 7, 3, pl.base);
-    b.hline(cx - 3, y - 1, 7, pl.lite);
-    b.hline(cx - 3, y + 1, 7, pl.dark);
-    b.set(cx, y, pl.deep);                                     // the engraving
-    b.vline(cx - headR, y + 2, 4, c.dark);                     // the trailing tail
+    b.rect(px, y - 1, pw, 3, pl.base);
+    b.hline(px, y - 1, pw, pl.lite);
+    b.hline(px, y + 1, pw, pl.dark);
+    b.hline(cx - 1, y, 3, pl.deep);                            // the engraving
+    b.vline(cx - headR, y + 2, 4, c.dark);                      // the trailing tail
   }
   if (d.headdress) {
     // A FRILLED HEADDRESS — the little servant's cap. It is not a headband and
@@ -2405,7 +3000,26 @@ function drawTrinkets(b, m, P, d) {
   if (d.hairpin) {
     const c = slotRamp(d.hairpinColor, d.accent || '#ffe14a');
     const x = cx - headR + 1, y = headY - headR + 2;
-    if (d.hairpin === 'star') {
+    if (d.hairpin === 'carrot') {
+      // TWO of them, one stuck point-down in each bunch, and the COUNT is the
+      // joke — so this is the one hairpin that ignores the shared single-pin
+      // position at the left temple and mirrors instead. The shape already
+      // existed in this file as `weapon: 'carrot'`; only the key could not
+      // say it, which is the cheapest kind of gap there is.
+      const g = slotRamp(d.hairpinLeaf, '#4fae4a');
+      const h = Math.max(3, Math.round(headR * 0.5));
+      for (const s of [-1, 1]) {
+        const px = cx + s * (headR - 1) - 1;
+        for (let j = 0; j < h; j++) {
+          const w = Math.max(1, 3 - ((j * 3 / h) | 0));
+          b.hline(px + ((3 - w) >> 1), y + j, w, j & 1 ? c.base : c.dark);
+        }
+        b.set(px, y, c.lite);
+        b.set(px, y - 1, g.base);                              // the fronds
+        b.set(px + 1, y - 2, g.lite);
+        b.set(px + 2, y - 1, g.base);
+      }
+    } else if (d.hairpin === 'star') {
       b.set(x + 1, y - 1, c.lite);
       b.hline(x, y, 3, c.base);
       b.set(x + 1, y + 1, c.base);
