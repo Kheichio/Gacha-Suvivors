@@ -478,7 +478,14 @@ export class ObstacleField {
       const edge = box.edge || '#0b0d16';
       if (this.isBox[i]) {
         const hw = this.hw[i], hh = this.hh[i];
-        r.drawRect(x - hw, y - hh, hw * 2, hh * 2, box.color, a);
+        // A kind may set `box.color` to null to declare itself PAINTED BY THE
+        // FLOOR. Akihabara's city blocks are 1000px square and the backdrop
+        // already draws everything on them — shop units, signage, lit windows,
+        // alley seams — so filling them here would replace a city block with a
+        // flat slab. Those pieces contribute collision and an outline, and the
+        // outline is not decoration: it is the only thing telling the player
+        // where the building's footprint actually ends.
+        if (box.color) r.drawRect(x - hw, y - hh, hw * 2, hh * 2, box.color, a);
         r.strokeRect(x - hw, y - hh, hw * 2, hh * 2, edge, 3, a);
         const detail = k.detail || 'none';
         if (detail !== 'none') this._detail(r, x, y, hw, hh, a, detail, edge);

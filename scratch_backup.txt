@@ -1,0 +1,5 @@
+  for (const k in stages.OBSTACLE_SETS) {
+    const set = stages.OBSTACLE_SETS[k];
+    push(set.visual);
+    for (const kind of set.kinds || []) push(kind.visual);
+  }

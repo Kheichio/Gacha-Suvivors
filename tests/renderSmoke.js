@@ -56,7 +56,20 @@ class RecordingCtx {
      * error and no failing assertion anywhere.
      */
     this.nanDraws = 0;
+    /**
+     * Every string that reached fillText this frame.
+     *
+     * Draw-call COUNTS cannot tell two screens apart. RUN_STATE.CHEST is three
+     * different screens behind one state, and a branch that falls through to
+     * the wrong one still draws a title, a panel and a button — comfortably
+     * over any "did it render" floor, while showing the player the wrong
+     * screen. Asserting on the words is the only way to say WHICH one drew.
+     */
+    this.texts = [];
   }
+
+  /** Did anything drawn this frame contain `s`? */
+  saidText(s) { return this.texts.some((t) => String(t).indexOf(s) >= 0); }
 
   _record(rec) {
     this.drawn.push(rec);
@@ -100,7 +113,11 @@ class RecordingCtx {
 
   // Text position is checked for NaN as well as geometry: a label drawn at a
   // NaN x simply does not appear, and nothing anywhere reports it.
-  fillText(s, x, y) { this.calls.fillText++; if (!isFinite(x) || !isFinite(y)) this.nanDraws++; }
+  fillText(s, x, y) {
+    this.calls.fillText++;
+    this.texts.push(s);
+    if (!isFinite(x) || !isFinite(y)) this.nanDraws++;
+  }
   strokeText(s, x, y) { this.calls.strokeText++; if (!isFinite(x) || !isFinite(y)) this.nanDraws++; }
   strokeRect(x, y, w, h) {
     this.calls.stroke++;
@@ -422,6 +439,49 @@ describe('render / the screen is not black', () => {
       const total = ctx.calls.drawImage + ctx.calls.fillRect + ctx.calls.fill;
       assert.atLeast(total, 20, `state ${state} rendered almost nothing`);
     }
+    run.state = RUN_STATE.PLAYING;
+  });
+
+  it('every CHEST screen variant renders — chest, altar and the pachinko payout', () => {
+    // RUN_STATE.CHEST is THREE screens behind one state, chosen by
+    // `chestResult.kind`, and the loop above only ever exercised whichever one
+    // the sim happened to produce. A branch nothing drives is a branch that
+    // ships broken: the pachinko payout in particular is a once-a-run event on
+    // stage 2, so a NaN width or a missing field on it would survive every
+    // playtest of stage 1 anybody ever ran.
+    // Each variant declares the words that PROVE it was the branch that drew.
+    // A count alone cannot: with the pachinko branch deleted the screen falls
+    // through to the ordinary chest, which draws a title, a plate and a button
+    // and sails past any "did it render" floor while showing the wrong thing.
+    const variants = [
+      ['chest', { kind: 'chest', granted: [{ name: 'Grit', icon: '◆', tier: 'rare', perLevel: 1 }], gold: false },
+       ['CHEST', 'CONTINUE']],
+      ['altar', { kind: 'altar' }, ['THE ALTAR', 'WALK AWAY']],
+      ['pachinko', { kind: 'pachinko', gold: 450, fragments: 60,
+                     prizeName: 'Test Blade', prizeSub: 'NEW WEAPON', prizeIcon: '🗡' },
+       ['PACHINKO', 'CASH OUT', 'Test Blade', '450']],
+      // The roll came back empty — every slot full, every weapon maxed. The
+      // prize button has to render as a disabled explanation rather than
+      // printing "undefined".
+      ['pachinko (no prize)', { kind: 'pachinko', gold: 450, fragments: 60,
+                                prizeName: '', prizeSub: '', prizeIcon: '' },
+       ['PACHINKO', 'CASH OUT', 'NO PRIZE LEFT']],
+    ];
+    for (const [label, res, words] of variants) {
+      ctx.reset();
+      run.state = RUN_STATE.CHEST;
+      run.chestResult = res;
+      runScene.render(renderer, 0.5);
+      const total = ctx.calls.drawImage + ctx.calls.fillRect + ctx.calls.fill;
+      assert.atLeast(total, 20, `the ${label} screen rendered almost nothing`);
+      assert.equal(ctx.nanDraws, 0, `the ${label} screen drew at a NaN coordinate`);
+      for (const wd of words) {
+        assert.ok(ctx.saidText(wd), `the ${label} screen never printed "${wd}"`);
+      }
+      assert.ok(!ctx.saidText('undefined') && !ctx.saidText('NaN'),
+                `the ${label} screen printed a placeholder value`);
+    }
+    run.chestResult = null;
     run.state = RUN_STATE.PLAYING;
   });
 

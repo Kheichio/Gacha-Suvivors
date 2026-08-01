@@ -9,7 +9,7 @@ import { Scheduler, Cooldown } from '../core/timer.js';
 import { events, EV } from '../core/events.js';
 import { feel } from '../core/feel.js';
 import { audio } from '../core/audio.js';
-import { save, rosterEntry, stageEntry } from '../core/save.js';
+import { save, rosterEntry, stageEntry, addCurrency } from '../core/save.js';
 import { input, ACT } from '../core/input.js';
 import { camera } from '../render/camera.js';
 import { particles } from '../render/particles.js';
@@ -52,6 +52,9 @@ export const RUN_STATE = {
  * identically whether it was earned or waited for.
  */
 const EARLY_BOSS_LEAD = 10;
+
+/** Frozen stand-in for a missing `reward` block. Never written to. */
+const EMPTY_REWARD = {};
 
 /**
  * THE GRIND MINUTE.
@@ -268,6 +271,13 @@ export class Run {
     this.banishesLeft = 0;
     this.banished = [];
     this.chestResult = null;
+    /**
+     * The weapon the pachinko parlour rolled, held between the screen opening
+     * and the button being pressed. Kept OFF `chestResult` on purpose: that
+     * object is what the UI reads, and a live weapon def on it is an invitation
+     * for the screen to start granting things itself.
+     */
+    this.pachinkoPrize = null;
     this.relicOffer = null;
 
     // --- overlays the boss controller pushes each frame ----------------------
@@ -1650,7 +1660,85 @@ export class Run {
 
   closeChest() {
     this.chestResult = null;
+    this.pachinkoPrize = null;
     this.state = RUN_STATE.PLAYING;
+  }
+
+  /**
+   * THE PACHINKO PARLOUR PAYS OUT, AND THE PLAYER CHOOSES IN WHAT.
+   *
+   * Reached from the stage event of the same name (game/stageEvents.js), which
+   * is rare, once per run, and placed against a building. Everything about it
+   * that is a NUMBER lives on the STAGE_EVENTS entry; everything about it that
+   * is a DECISION lives here, because a decision needs RUN_STATE and Run owns
+   * that.
+   *
+   * THE PRIZE IS ROLLED NOW, NOT WHEN THE BUTTON IS PRESSED, and that is the
+   * whole reason this method exists instead of the screen calling grantWeapon
+   * directly. The player is choosing between two things and has to be able to
+   * SEE both of them: "a free weapon" is not an offer, "MOONLIT FANG, new
+   * weapon" is. It also means the roll cannot silently come back empty after
+   * the choice has been made.
+   *
+   * `_rollWeaponDrop` is reused rather than re-implemented, and it already
+   * encodes the two rules this needs: an unowned weapon is only eligible while
+   * a slot is free (the parlour is a reward, not a way around the five-slot
+   * cap), and an owned one only while it still has a level left in it.
+   */
+  openPachinko(def) {
+    const R = (def && def.reward) || EMPTY_REWARD;
+    const prize = this._rollWeaponDrop();
+    this.pachinkoPrize = prize;
+
+    let prizeName = '', prizeSub = '', prizeIcon = '🎁';
+    if (prize) {
+      const owned = this.weapons.get(prize.id);
+      prizeIcon = prize.icon || '🎁';
+      prizeName = prize.name;
+      prizeSub = owned
+        ? 'Lv ' + (owned.level + 1) + ' / ' + this.weapons.maxLevel(owned)
+        : 'NEW WEAPON';
+    }
+
+    this.chestResult = {
+      kind: 'pachinko',
+      // Run gold, banked at the results screen like every other coin in a run,
+      // plus the meta currency — which quests and achievements already grant
+      // mid-run, so this is not a new path into the wallet.
+      gold: R.gold || 0,
+      fragments: R.starFragments || 0,
+      prizeName, prizeSub, prizeIcon,
+    };
+    this.state = RUN_STATE.CHEST;
+    audio.play('relic');
+  }
+
+  /**
+   * Cash or prize. `option` is 'cash' or 'prize'.
+   *
+   * A prize button with nothing behind it is disabled on the screen, but the
+   * check is repeated here for the same reason evolveWeapon re-checks its entry
+   * fee: "the only caller is the UI" is a fact about this month's code, and a
+   * silent no-op that eats a once-per-run reward is the worst possible way to
+   * find out it stopped being true.
+   */
+  usePachinko(option) {
+    const res = this.chestResult;
+    if (!res || res.kind !== 'pachinko') return;
+    if (option === 'prize' && this.pachinkoPrize) {
+      // takeWeaponDrop pays a consolation in gold if the run moved underneath
+      // the roll — a slot filled, a weapon maxed — so this cannot come out empty.
+      this.takeWeaponDrop(this.pachinkoPrize);
+    } else {
+      if (res.gold) this.grantGold(res.gold);
+      if (res.fragments) {
+        addCurrency('starFragments', res.fragments);
+        floaters.spawn(this.player.x, this.player.y - 78,
+                       '+' + res.fragments + ' ✦', '#8ad8ff', 24, 2.0);
+      }
+    }
+    audio.play('uiConfirm');
+    this.closeChest();
   }
 
   /**

@@ -170,14 +170,15 @@ export const STAGES = [
     // Zombies queueing for capsules carry cash.
     hpMult: 1.0, xpMult: 1.0, goldMult: 1.1,
     obstacles: 'street_furniture',
-    backdrop: 'wet_street',
-    events: ['crowd_control', 'capsule_burst'],
+    backdrop: 'neon_akiba_street',
+    events: ['crowd_control', 'capsule_burst', 'pachinko_parlour'],
     music: 'audio/stage2.ogg',
     codex: 'Six storeys of signage, all of it screaming, none of it in agreement. ' +
       'The rain never washes the street so much as it doubles the light. Every ' +
       'third door is a claw machine you will lose money to, every fourth is a maid ' +
-      'cafe, and underneath all of it the trucks keep to the timetable of a city ' +
-      'that never asked your permission. Bring coins. Bring reflexes.',
+      'cafe, and underneath all of it the traffic keeps to the timetable of a city ' +
+      'that never asked your permission. Somewhere down a side street a parlour ' +
+      'door is open and a machine is still paying out. Bring coins. Bring reflexes.',
   },
 
   {
@@ -489,11 +490,19 @@ export const HAZARDS = {
   traffic_lanes: {
     name: 'Traffic Lanes',
     kind: 'lanes',
-    desc: 'Trucks barrel down 3 horizontal lanes. Heavy damage to you AND to enemies.',
+    desc: 'A car comes down one of the 3 through roads. Heavy damage to you AND to enemies.',
     telegraph: 1.5,
     params: {
       lanes: 3, interval: 11, speed: 900, damage: 45, width: 140,
       damagesEnemies: true,
+      // THE ROADS ARE REAL NOW, so the lanes cannot be evenly spaced any more.
+      // These are fractions of the arena height and they are the centre lines
+      // of the backdrop's three east-west carriageways: the north ring road
+      // (cells 0..2, centre 0.075), the east-west avenue (cells 8..11, centre
+      // 0.50) and the south ring road (cells 17..19, centre 0.925). Move a road
+      // in render/stageBackdrop.js and these move with it, or the car drives
+      // through the middle of a building.
+      laneY: [0.075, 0.5, 0.925],
     },
   },
 
@@ -631,6 +640,32 @@ export const BACKDROPS = {
     tile: '#43213f', seam: '#5a2e52',
     detail: '#ff9ec4', glow: '#ff7f50',
     density: 1.0,
+  },
+
+  /**
+   * STAGE 2 — AKIHABARA, and it is a street PLAN for the same reason the
+   * courtyard is a floor plan: a city is the other place in this game that has
+   * a shape, and noise cannot say "this is a road and that is a building".
+   *
+   * The roles are pointed at city materials:
+   *   tile      tarmac            seam      the alley seam between shop units
+   *   mid       standing water    midEdge   the pavement
+   *   far       a shop unit       farLit    a shop unit with its lights on
+   *   farEdge   cyan signage      glow      the pink neon everything is lit by
+   *   detail    ROAD PAINT, and it is its own role on purpose — the lane
+   *             dashes, the zebra and the kerb lip are the only white things
+   *             on this stage, and painting them in `farLit` made them the
+   *             same colour as a lit shopfront.
+   */
+  neon_akiba_street: {
+    kind: 'akiba',
+    desc: 'A ring road round four city blocks, two avenues crossing in the ' +
+          'middle, pavements, lane paint and six storeys of signage.',
+    far: '#241542', farEdge: '#6ad8ff', farLit: '#3a2166',
+    mid: '#2f2060', midEdge: '#4a4258',
+    tile: '#171029', seam: '#0d0820',
+    detail: '#d8d0f0', glow: '#ff2d95',
+    density: 1.1,
   },
 
   wet_street: {
@@ -891,22 +926,139 @@ export const OBSTACLE_SETS = {
     ],
   },
 
+  /**
+   * AKIHABARA, AND IT IS A CITY BLOCK PLAN.
+   *
+   * This set used to be 21 rejection-sampled boxes called "vending machines,
+   * crash barriers and the claw machine you will lose money to". That is a
+   * perfectly good description of street furniture and a completely useless
+   * description of a STREET: scattered pieces cannot say where the road is,
+   * and the traffic hazard on this stage is a car, which has to be ON one.
+   *
+   * So the four buildings are authored, and everything else is authored
+   * AGAINST them. The numbers are the same 20x20 cell grid the backdrop
+   * paints (one cell is 0.05 of the arena), so a lamp post can never end up
+   * standing in the middle of a carriageway:
+   *
+   *   blocks     cells 3..7 and 12..16 on both axes
+   *              -> 0.15..0.40 and 0.60..0.85, centres 0.275 / 0.725
+   *   ring road  cells 0..2 and 17..19    avenues  cells 8..11
+   *
+   * `count: 0` — nothing is scattered on top. Rejection sampling has no idea
+   * a building is solid; its `spacing` test is centre-to-centre, so a piece
+   * 600px from a 1000px block's centre passes the check and spawns INSIDE the
+   * building. Every piece on this stage is placed.
+   */
   street_furniture: {
-    name: 'Street Furniture',
-    count: 21, spacing: 230, clearance: 430,
+    name: 'Akihabara Blocks',
+    count: 0, spacing: 230, clearance: 430, forms: [],
+    // Kind 0 — the set's own look, and the fallback for anything unnamed.
     detail: 'lattice',
-    visual: { shape: 'circle', color: '#3a2a6a', accent: '#0a0616', size: 32, flash: false },
+    visual: { shape: 'lamppost', color: '#8e97b5', accent: '#0a0616', size: 32, flash: false },
     box: { color: '#2f1f5c', edge: '#0a0616' },
-    // Vending machines, crash barriers, and the claw machine you will lose
-    // money to. Denser than the rooftop because a city is denser than a roof —
-    // but the BARRIERS are short. A headless sweep that walks a bot straight at
-    // its objective got pinned against a 260px-long one for a whole event timer,
-    // and while a player would sidestep, the arena that produces that is the
-    // arena where the traffic lanes get to pin you against a wall as well.
-    forms: [
-      { form: 'box', weight: 6, w: [30, 54], h: [40, 72] },
-      { form: 'box', weight: 3, w: [55, 95], h: [18, 24] },
-      { form: 'circle', weight: 1, r: [26, 36] },
+    kinds: [
+      {
+        // THE BUILDINGS. `color: null` means "the floor already drew me" —
+        // see ObstacleField.draw. All this piece contributes is 1000px of
+        // collision and the hard edge that tells you where it is.
+        id: 'building', detail: 'none',
+        visual: { shape: 'lamppost', color: '#8e97b5', accent: '#0a0616', size: 32, flash: false },
+        box: { color: null, edge: '#ff2d95' },
+      },
+      {
+        // PALE, and the `edge` is pale too. ObstacleField.draw rims every
+        // circular piece in `box.edge` so a blocker's edge is findable — at
+        // near-black on a near-black street that rim swallowed the sprite and a
+        // lamp post read as a manhole cover. The rim still has to be there; it
+        // just has to be a rim rather than a disc.
+        id: 'lamppost', detail: 'none',
+        visual: { shape: 'lamppost', color: '#c3cbe0', accent: '#171029', size: 32, flash: false },
+        box: { color: '#3a3550', edge: '#6f7793' },
+      },
+      {
+        id: 'bin', detail: 'none',
+        visual: { shape: 'bin', color: '#5f9384', accent: '#0d1a16', size: 32, flash: false },
+        box: { color: '#2f4a42', edge: '#4c7d6e' },
+      },
+      {
+        // Vending machines are BOXES: they are deeper than they are wide and
+        // they stand flat against a shopfront, which a circle cannot express.
+        // `slats` is the front panel's rows of cans.
+        id: 'vending', detail: 'slats',
+        visual: { shape: 'bin', color: '#4d7a6a', accent: '#0d1a16', size: 32, flash: false },
+        box: { color: '#3b2270', edge: '#6ad8ff' },
+      },
+    ],
+    /**
+     * Pavement pieces sit 24px (0.006) off the block edge, which is where the
+     * backdrop's 30px kerb strip is. Change one and change the other or the
+     * bins start floating in the road.
+     */
+    layout: [
+      // --- the four city blocks --------------------------------------------
+      { kind: 'building', x: 0.275, y: 0.275, w: 0.25, h: 0.25 },
+      { kind: 'building', x: 0.725, y: 0.275, w: 0.25, h: 0.25 },
+      { kind: 'building', x: 0.275, y: 0.725, w: 0.25, h: 0.25 },
+      { kind: 'building', x: 0.725, y: 0.725, w: 0.25, h: 0.25 },
+
+      // --- lamp posts, two to a face, all sixteen faces ---------------------
+      // north-west block
+      { kind: 'lamppost', x: 0.144, y: 0.215, r: 0.0055 },
+      { kind: 'lamppost', x: 0.144, y: 0.335, r: 0.0055 },
+      { kind: 'lamppost', x: 0.406, y: 0.215, r: 0.0055 },
+      { kind: 'lamppost', x: 0.406, y: 0.335, r: 0.0055 },
+      { kind: 'lamppost', x: 0.215, y: 0.144, r: 0.0055 },
+      { kind: 'lamppost', x: 0.335, y: 0.144, r: 0.0055 },
+      { kind: 'lamppost', x: 0.215, y: 0.406, r: 0.0055 },
+      { kind: 'lamppost', x: 0.335, y: 0.406, r: 0.0055 },
+      // north-east block
+      { kind: 'lamppost', x: 0.594, y: 0.215, r: 0.0055 },
+      { kind: 'lamppost', x: 0.594, y: 0.335, r: 0.0055 },
+      { kind: 'lamppost', x: 0.856, y: 0.215, r: 0.0055 },
+      { kind: 'lamppost', x: 0.856, y: 0.335, r: 0.0055 },
+      { kind: 'lamppost', x: 0.665, y: 0.144, r: 0.0055 },
+      { kind: 'lamppost', x: 0.785, y: 0.144, r: 0.0055 },
+      { kind: 'lamppost', x: 0.665, y: 0.406, r: 0.0055 },
+      { kind: 'lamppost', x: 0.785, y: 0.406, r: 0.0055 },
+      // south-west block
+      { kind: 'lamppost', x: 0.144, y: 0.665, r: 0.0055 },
+      { kind: 'lamppost', x: 0.144, y: 0.785, r: 0.0055 },
+      { kind: 'lamppost', x: 0.406, y: 0.665, r: 0.0055 },
+      { kind: 'lamppost', x: 0.406, y: 0.785, r: 0.0055 },
+      { kind: 'lamppost', x: 0.215, y: 0.594, r: 0.0055 },
+      { kind: 'lamppost', x: 0.335, y: 0.594, r: 0.0055 },
+      { kind: 'lamppost', x: 0.215, y: 0.856, r: 0.0055 },
+      { kind: 'lamppost', x: 0.335, y: 0.856, r: 0.0055 },
+      // south-east block
+      { kind: 'lamppost', x: 0.594, y: 0.665, r: 0.0055 },
+      { kind: 'lamppost', x: 0.594, y: 0.785, r: 0.0055 },
+      { kind: 'lamppost', x: 0.856, y: 0.665, r: 0.0055 },
+      { kind: 'lamppost', x: 0.856, y: 0.785, r: 0.0055 },
+      { kind: 'lamppost', x: 0.665, y: 0.594, r: 0.0055 },
+      { kind: 'lamppost', x: 0.785, y: 0.594, r: 0.0055 },
+      { kind: 'lamppost', x: 0.665, y: 0.856, r: 0.0055 },
+      { kind: 'lamppost', x: 0.785, y: 0.856, r: 0.0055 },
+
+      // --- bins, one on each of the eight AVENUE-facing pavements -----------
+      { kind: 'bin', x: 0.406, y: 0.275, r: 0.005 },
+      { kind: 'bin', x: 0.594, y: 0.275, r: 0.005 },
+      { kind: 'bin', x: 0.406, y: 0.725, r: 0.005 },
+      { kind: 'bin', x: 0.594, y: 0.725, r: 0.005 },
+      { kind: 'bin', x: 0.275, y: 0.406, r: 0.005 },
+      { kind: 'bin', x: 0.725, y: 0.406, r: 0.005 },
+      { kind: 'bin', x: 0.275, y: 0.594, r: 0.005 },
+      { kind: 'bin', x: 0.725, y: 0.594, r: 0.005 },
+
+      // --- vending machines on the eight RING-facing pavements, long axis
+      //     along the frontage they are standing against ---------------------
+      { kind: 'vending', x: 0.144, y: 0.275, w: 0.012, h: 0.020 },
+      { kind: 'vending', x: 0.856, y: 0.275, w: 0.012, h: 0.020 },
+      { kind: 'vending', x: 0.144, y: 0.725, w: 0.012, h: 0.020 },
+      { kind: 'vending', x: 0.856, y: 0.725, w: 0.012, h: 0.020 },
+      { kind: 'vending', x: 0.275, y: 0.144, w: 0.020, h: 0.012 },
+      { kind: 'vending', x: 0.725, y: 0.144, w: 0.020, h: 0.012 },
+      { kind: 'vending', x: 0.275, y: 0.856, w: 0.020, h: 0.012 },
+      { kind: 'vending', x: 0.725, y: 0.856, w: 0.020, h: 0.012 },
     ],
   },
 
@@ -1056,6 +1208,56 @@ export const STAGE_EVENTS = {
     params: { range: [560, 940], radius: 400, need: 10, limit: 42 },
     reward: { xpLevels: 0.25, gold: 60, chest: true },
   },
+  /**
+   * THE PACHINKO PARLOUR — the rare one, and the only event in the table whose
+   * reward is a choice rather than a transfer.
+   *
+   * THREE FIELDS MAKE IT RARE, and they are three because "rare" is three
+   * different claims and any one of them alone is a lie:
+   *
+   *   weight 0.045  how often it may be rolled AT ALL. Akihabara has three
+   *                 events; a uniform pick would make this a third of six or
+   *                 seven rolls a run, which is a fixture, not a find.
+   *   once          and never twice. Without it, a per-roll chance is an
+   *                 average that quietly includes runs with three of them.
+   *   anchor        it appears against a BUILDING's frontage. A parlour is a
+   *                 door on a street, and half of what makes finding one feel
+   *                 like finding something is that it is somewhere plausible.
+   *
+   * 0.045 IS A MEASURED NUMBER, NOT A GUESSED ONE, and the first guess was out
+   * by a factor of three. `weight` is not the per-run rate: _pick zeroes the
+   * PREVIOUS event's weight to stop an objective repeating back to back, which
+   * roughly doubles this one's share on every roll after the first, and a stage
+   * rolls six to eight of them. At the 0.22 that "about one roll in ten"
+   * reasoning produced, the parlour turned up in 72% of runs — a fixture with a
+   * small weight on it. Simulating the real _pick over 20,000 runs:
+   *
+   *     0.22 -> 72%     0.10 -> 46%     0.06 -> 32%     0.045 -> 25%
+   *
+   * One run in four is the target: often enough that a player who likes it can
+   * go looking for it, rare enough that finding one is an event.
+   *
+   * `limit` is 50 rather than the table's usual 40: the marker can land the
+   * far side of a city block, and the blocks are 1000px of solid wall you have
+   * to go around rather than through.
+   *
+   * `reward.choice` tells the briefing card not to print the contents — see
+   * rewardLine() in game/stageEvents.js. `gold` is the CASH half and
+   * `starFragments` rides with it; the prize half is a weapon Run rolls when
+   * the screen opens, so it is not written down here at all.
+   */
+  pachinko_parlour: {
+    name: 'Pachinko Parlour',
+    kind: 'pachinko',
+    color: '#ffd166',
+    objective: 'Play the machine',
+    desc: 'A parlour door is open, the tray is full, and nobody is watching it.',
+    weight: 0.045,
+    once: true,
+    anchor: 'building',
+    params: { range: [520, 1300], radius: 130, need: 2.0, limit: 50 },
+    reward: { choice: true, gold: 450, starFragments: 60 },
+  },
 
   // --- Stage 3: Ruins of Wall Amaris --------------------------------------
   hold_the_breach: {
@@ -1158,8 +1360,14 @@ export const STAGE_EVENTS = {
   },
 };
 
-/** The four handlers game/stageEvents.js implements. Used by data/index.js. */
-export const STAGE_EVENT_KINDS = ['reach', 'cull', 'hold', 'gather'];
+/**
+ * The handlers game/stageEvents.js implements. Used by data/index.js, which may
+ * not import from src/game — so this is a copy, and a copy of a switch statement
+ * is exactly the dead-data trap that let five of six hazard kinds ship without a
+ * handler. The tie-break is in tests/suites.js: game/stageEvents.js exports the
+ * REAL handled set as EVENT_KINDS and the suite asserts these two agree.
+ */
+export const STAGE_EVENT_KINDS = ['reach', 'cull', 'hold', 'gather', 'pachinko'];
 
 // -----------------------------------------------------------------------------
 // MODIFIERS — one rule twist per stage. Every `params` key is consumed by the

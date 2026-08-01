@@ -12,10 +12,19 @@
 // SHAPE
 // -----
 // One system, owned and ticked by Run, exactly like HazardSystem: constructor,
-// update, two draw hooks and clear(). FOUR HANDLERS — reach, cull, hold, gather
-// — selected by the `kind` on a STAGE_EVENTS entry, so a new event on an
-// existing kind is a data-only addition and touches no code here at all. Which
-// events a stage may roll is `stage.events`, themed alongside its hazard.
+// update, two draw hooks and clear(). FIVE HANDLERS — reach, cull, hold, gather
+// and pachinko — selected by the `kind` on a STAGE_EVENTS entry, so a new event
+// on an existing kind is a data-only addition and touches no code here at all.
+// Which events a stage may roll is `stage.events`, themed alongside its hazard.
+//
+// `pachinko` is the odd one and it is worth saying why it exists rather than
+// being a `reach` with a fat reward on it. Its OBJECTIVE is a reach — walk to
+// the machine, stand there — but its PAYOUT is a choice the player makes, which
+// means a screen, which means RUN_STATE, which this system does not own. So the
+// handler is shared with `reach` and the payout hands off to Run. Three entries
+// on this table also make it rare rather than routine: `weight` (how often it
+// may be rolled at all), `once` (never twice in a run) and `anchor` (it appears
+// against a building's frontage, not in the middle of the road).
 //
 // EXACTLY ONE AT A TIME, and never on top of something else that is already
 // asking for the player's attention:
@@ -71,6 +80,7 @@
 import { runRng } from '../core/rng.js';
 import { events, EV } from '../core/events.js';
 import { audio } from '../core/audio.js';
+import { atlas } from '../render/spriteAtlas.js';
 import { particles } from '../render/particles.js';
 import { floaters } from '../render/damageNumbers.js';
 import { flash } from '../render/screenShake.js';
@@ -83,6 +93,18 @@ import { ui, PALETTE, ellipsize } from '../ui/widgets.js';
 import { clamp, dist2, lerp, easeOutCubic, TAU } from '../core/math.js';
 
 export const EVENT_PHASE = { IDLE: 0, ACTIVE: 1 };
+
+/**
+ * THE KINDS `_tick` ACTUALLY HANDLES, exported because a switch cannot be
+ * inspected.
+ *
+ * data/stages.js keeps its own STAGE_EVENT_KINDS — the data layer may not
+ * import from src/game — and the suite asserts the two agree. That indirection
+ * exists because the alternative shipped once already: five of six hazard kinds
+ * were declared in data under one set of names and switched on in game under
+ * another, so they never fired while the stage select screen advertised them.
+ */
+export const EVENT_KINDS = ['reach', 'cull', 'hold', 'gather', 'pachinko'];
 
 /**
  * CADENCE. Engine tuning, not content, so it lives here rather than on the
@@ -108,6 +130,34 @@ const MAX_MOTES = 12;
 const MOTE_REACH = 52;
 /** Scratch for the mote push-out. Never read across calls. */
 const FREE = { x: 0, y: 0 };
+
+/**
+ * THE PACHINKO PARLOUR'S MACHINE, and why the marker gets a sprite at all.
+ *
+ * Every other event on the table is an abstraction — a place, a body count, a
+ * timer — and a coloured circle is an honest drawing of an abstraction. This one
+ * is a physical object you walk up to and play, and a circle on the tarmac
+ * cannot say that. Registered at module scope so it rasterises at import, which
+ * is before the boot prewarm and therefore before tests/renderSmoke.js starts
+ * failing the build over mid-run rasterisation.
+ */
+const V_PACHINKO = { shape: 'pachinko', color: '#ffd166', accent: '#3a1030', size: 30, flash: false };
+const PACHINKO_SPRITE = atlas.register(V_PACHINKO);
+
+/**
+ * How far off a building's face the parlour door is placed. The machine is
+ * drawn at ~60px and the player is hard-resolved out of static geometry, so
+ * anything under about 70 puts the marker's centre inside the wall it is
+ * supposed to be standing against.
+ */
+const ANCHOR_GAP = 96;
+
+/** Scratch for the building-face candidate walk. Never read across calls. */
+const ANCHOR_X = [];
+const ANCHOR_Y = [];
+
+/** Scratch for the weighted event roll. Never read across calls. */
+const WEIGHTS = [];
 
 // THE POP-UP'S CLOCK.
 //
@@ -240,15 +290,17 @@ export class StageEventSystem {
     const b = run.bounds;
     const p = run.player;
 
-    // Never the same event twice running, when there is another to pick. With
-    // two events per stage that would otherwise be a coin flip that lands on the
-    // same face 25% of the time, and the same objective twice reads as a bug.
-    let def = runRng.pick(this.pool);
-    if (this.pool.length > 1 && def === this._lastDef) {
-      const i = this.pool.indexOf(def);
-      def = this.pool[(i + 1 + runRng.int(0, this.pool.length - 2)) % this.pool.length];
-    }
+    const def = this._pick();
+    if (!def) return;
     this._lastDef = def;
+    // ONE APPEARANCE PER RUN, for the entries that ask for it. Taken off the
+    // pool at START, not at resolve: a rare find that comes back forty seconds
+    // after you failed it is not rare, it is a retry, and the whole reason the
+    // parlour is worth crossing an arena for is that it is the only one.
+    if (def.once) {
+      const i = this.pool.indexOf(def);
+      if (i >= 0) this.pool.splice(i, 1);
+    }
 
     const P = def.params;
     const a = runRng.angle();
@@ -257,6 +309,9 @@ export class StageEventSystem {
     // objective, and the `hold` ring shrinks toward its own centre.
     this.x = clamp(p.x + Math.cos(a) * d, b.minX + 260, b.maxX - 260);
     this.y = clamp(p.y + Math.sin(a) * d, b.minY + 260, b.maxY - 260);
+    // ...unless the entry wants to be somewhere in particular. A pachinko
+    // parlour in the middle of a six-lane avenue is not a parlour.
+    if (def.anchor === 'building') this._anchorToBuilding(P);
 
     this.def = def;
     this.kind = def.kind;
@@ -291,6 +346,101 @@ export class StageEventSystem {
     floaters.spawn(p.x, p.y - 112, def.name.toUpperCase(), this.color, 28, 2.4);
     particles.ring(this.x, this.y, 22, this.color, 420);
     audio.play('telegraph');
+  }
+
+  /**
+   * WHICH EVENT, AND HOW OFTEN.
+   *
+   * Uniform `runRng.pick` was fine while every entry on a stage was an ordinary
+   * detour. It stops being fine the moment one of them is meant to be a FIND:
+   * with three events on Akihabara, a uniform pick makes the pachinko parlour a
+   * third of every roll and six or seven rolls a run, which is not a rare
+   * appearance, it is a fixture.
+   *
+   * So an entry may carry a `weight` (default 1), and the parlour carries 0.22 —
+   * about one roll in ten, which across a stage's worth of events is a bit under
+   * one appearance a run. It is also `once`, so "a bit under one" is the whole
+   * story and not an average hiding a run with three of them in it.
+   *
+   * The anti-repeat rule survives: never the same event twice running when there
+   * is another to pick. It is applied by zeroing the last one's weight rather
+   * than by re-rolling, so it cannot re-introduce the flat distribution it is
+   * layered on top of.
+   */
+  _pick() {
+    const n = this.pool.length;
+    if (n === 0) return null;
+    if (n === 1) return this.pool[0];
+    WEIGHTS.length = 0;
+    let total = 0;
+    for (let i = 0; i < n; i++) {
+      const def = this.pool[i];
+      const w = def === this._lastDef ? 0 : (def.weight === undefined ? 1 : def.weight);
+      WEIGHTS.push(w);
+      total += w;
+    }
+    // Every candidate was the last one — only possible with a one-entry pool,
+    // which is already handled, or a table of zero weights. Fall back rather
+    // than return null: an event that never fires is worse than a repeat.
+    if (total <= 0) return runRng.pick(this.pool);
+    const i = runRng.weightedIndex(WEIGHTS);
+    return i >= 0 ? this.pool[i] : this.pool[0];
+  }
+
+  /**
+   * MOVE THE MARKER TO A BUILDING'S FRONTAGE.
+   *
+   * Reads the obstacle field rather than the stage data, which is the only way
+   * this can be a generic placement rule instead of a hard-coded Akihabara
+   * address: anything big and solid is a building as far as this is concerned,
+   * so a stage that grows city blocks later gets the behaviour for free.
+   *
+   * A "building" is a BOX at least MIN_FACE across on both axes — big enough
+   * that it has a frontage at all. A bench and a vending machine are boxes too.
+   *
+   * The candidate points are the four faces of every such box, held ANCHOR_GAP
+   * clear of the wall and inside the arena. The pick is uniform across all of
+   * them and does NOT prefer the nearest: the marker already carries an edge
+   * arrow and a distance, and a find that is always at the building you happen
+   * to be standing next to is not a detour.
+   *
+   * Silently does nothing when the stage has no buildings — the generic ring
+   * placement is already in `this.x/this.y` and is a perfectly good fallback.
+   */
+  _anchorToBuilding(P) {
+    const o = this.run.obstacles;
+    if (!o || o.count === 0) return;
+    const b = this.run.bounds;
+    const gap = ANCHOR_GAP + P.radius * 0.35;
+    const MIN_FACE = 180;
+    ANCHOR_X.length = 0;
+    ANCHOR_Y.length = 0;
+    for (let i = 0; i < o.count; i++) {
+      if (!o.isBox[i]) continue;
+      const hw = o.hw[i], hh = o.hh[i];
+      if (hw < MIN_FACE || hh < MIN_FACE) continue;
+      const x = o.x[i], y = o.y[i];
+      // Along-face jitter, so the parlour is not always dead centre of a
+      // thousand-pixel wall. Drawn from runRng, so a seed reproduces it.
+      const jx = runRng.range(-hw * 0.55, hw * 0.55);
+      const jy = runRng.range(-hh * 0.55, hh * 0.55);
+      ANCHOR_X.push(x - hw - gap); ANCHOR_Y.push(y + jy);
+      ANCHOR_X.push(x + hw + gap); ANCHOR_Y.push(y + jy);
+      ANCHOR_X.push(x + jx);       ANCHOR_Y.push(y - hh - gap);
+      ANCHOR_X.push(x + jx);       ANCHOR_Y.push(y + hh + gap);
+    }
+    if (ANCHOR_X.length === 0) return;
+    const k = runRng.int(0, ANCHOR_X.length - 1);
+    let px = clamp(ANCHOR_X[k], b.minX + 140, b.maxX - 140);
+    let py = clamp(ANCHOR_Y[k], b.minY + 140, b.maxY - 140);
+    // The clamp above can shove a face point back INTO the building it was
+    // measured from — a block flush against the arena edge has no outside on
+    // that side. pushOut is the same routine the mote scatter uses and it is
+    // the difference between a parlour you can reach and a marker sealed in a
+    // wall with a `reach` objective on it.
+    if (o.pushOut(px, py, 60, FREE)) { px = FREE.x; py = FREE.y; }
+    this.x = px;
+    this.y = py;
   }
 
   /** Put a card on screen. One at a time; a new one always replaces the old. */
@@ -357,6 +507,11 @@ export class StageEventSystem {
     this.t += dt;
 
     switch (this.kind) {
+      // `pachinko` is `reach` with a different payout screen, and it shares the
+      // handler on purpose: the objective genuinely is "walk up to the machine",
+      // and giving it its own copy of six lines of drain logic would be two
+      // places to fix the day the drain rate changes.
+      case 'pachinko':
       case 'reach': {
         // Stand in it. Progress bleeds back out at twice the rate it goes in, so
         // clipping the edge while running past does not claim it.
@@ -473,6 +628,10 @@ export class StageEventSystem {
     const run = this.run;
     const p = run.player;
     const R = def.reward;
+    // THE ONE PAYOUT THAT IS A DECISION RATHER THAN A TRANSFER. Everything else
+    // in this table hands you a number; the parlour hands you a screen with two
+    // buttons on it, and Run owns that because Run owns RUN_STATE.
+    if (this.kind === 'pachinko') { run.openPachinko(def); return; }
     if (R.xpLevels) run.grantXp(run.xpNeeded(p.level) * R.xpLevels);
     if (R.gold) run.grantGold(R.gold);
     if (R.healPct) run.heal(p.maxHp * R.healPct);
@@ -576,6 +735,16 @@ export class StageEventSystem {
       const bob = 0.6 + 0.4 * Math.sin(t * 4 + i * 1.7);
       r.drawCircle(this.moteX[i], this.moteY[i], 9 + bob * 3, this.color, 0.30);
       r.drawCircle(this.moteX[i], this.moteY[i], 5, '#ffffff', 0.6 + bob * 0.3);
+    }
+
+    // THE MACHINE ITSELF. The parlour is the one event on the table that is an
+    // OBJECT, and the sprite is what makes "go and play it" read as a thing to
+    // do rather than as another circle to stand in. The bob is the cabinet's
+    // attract mode: a machine nobody is playing is still lit and still noisy.
+    if (this.kind === 'pachinko') {
+      const bob = Math.sin(t * 2.4);
+      r.drawCircle(this.x, this.y + 34, 34, '#000000', 0.28);
+      r.drawSprite(PACHINKO_SPRITE, this.x, this.y - 6 + bob * 3, 0, 2.0, 1, false, 0);
     }
 
     // THE LABEL SITS ON THE CENTRE, NOT ON THE RIM. `radius` runs from 110 to
@@ -708,8 +877,8 @@ export class StageEventSystem {
     // system ever did — the player reads it as the objective being broken.
     let st = KIND_STATUS[this.kind] || '';
     let sc = PALETTE.textFaint, sa = 1;
-    if (this.kind === 'reach' || this.kind === 'hold') {
-      if (this.inside) { st = '◆ HOLDING'; sc = '#7bf59a'; }
+    if (this.kind === 'reach' || this.kind === 'hold' || this.kind === 'pachinko') {
+      if (this.inside) { st = this.kind === 'pachinko' ? '◆ PLAYING' : '◆ HOLDING'; sc = '#7bf59a'; }
       else { st = '⚠ GET IN THE CIRCLE'; sc = '#ffd94a'; sa = 0.55 + beat * 0.45; }
     }
     label(st, x + W - 12 * s, y + 68 * s, 10, sc, 800, 'right', sa, false);
@@ -813,10 +982,11 @@ export class StageEventSystem {
  */
 function instructionFor(kind, need) {
   switch (kind) {
-    case 'cull':   return 'Kill ' + need + ' enemies inside the ring';
-    case 'hold':   return 'Survive ' + need + 's inside the ring';
-    case 'gather': return 'Collect all ' + need + ' motes';
-    default:       return 'Stand in the marked circle';
+    case 'cull':     return 'Kill ' + need + ' enemies inside the ring';
+    case 'hold':     return 'Survive ' + need + 's inside the ring';
+    case 'gather':   return 'Collect all ' + need + ' motes';
+    case 'pachinko': return 'Get to the machine and play it';
+    default:         return 'Stand in the marked circle';
   }
 }
 
@@ -826,10 +996,11 @@ function instructionFor(kind, need) {
  * so these are four strings for the whole table rather than one per event.
  */
 const KIND_NOTES = {
-  reach:  'Step back out and the claim drains twice as fast as it filled.',
-  cull:   'Only kills INSIDE the ring count. Killing on the way there does not.',
-  hold:   'The ring closes as the clock runs — the floor gets smaller, not safer.',
-  gather: 'They are the bright motes around the marker. Walk over them.',
+  reach:    'Step back out and the claim drains twice as fast as it filled.',
+  cull:     'Only kills INSIDE the ring count. Killing on the way there does not.',
+  hold:     'The ring closes as the clock runs — the floor gets smaller, not safer.',
+  gather:   'They are the bright motes around the marker. Walk over them.',
+  pachinko: 'It pays out ONCE and you choose what in: the cash or the prize.',
 };
 
 /** The banner's right-hand status line for the kinds with no in/out state. */
@@ -850,6 +1021,12 @@ const SEP = '  ·  ';
 
 function rewardLine(R) {
   if (!R) return '';
+  // THE PARLOUR ADVERTISES THE CHOICE, NOT THE CONTENTS. Its `reward` holds
+  // both halves of an either/or, and running them through the list below would
+  // print "420 gold · 60 fragments · WEAPON" on the briefing card — a promise
+  // of all three, which is exactly what the payout screen then refuses to
+  // honour. A card that lies about the reward is worse than no card.
+  if (R.choice) return 'YOUR PICK: the cash, or the prize';
   let s = '';
   if (R.xpLevels) s += '+' + Math.round(R.xpLevels * 100) + '% of a level';
   if (R.gold) s += (s ? SEP : '') + R.gold + ' gold';

@@ -20,6 +20,28 @@ import { clamp, dist2, TAU, lerp, easeOutCubic } from '../core/math.js';
 import { areaDamage, damagePlayer, dealDamage, SRC } from './damage.js';
 import { applySlow, applyBurn } from './statusEffects.js';
 import { TELEGRAPH_COLORS, TELEGRAPH_SHAPES } from '../data/bosses.js';
+import { effects } from '../render/effects.js';
+import { atlas } from '../render/spriteAtlas.js';
+
+/**
+ * THE CAR THE TRAFFIC HAZARD DRIVES.
+ *
+ * Registered at module scope so the first vehicle of the run is a cache hit —
+ * the same discipline every prop in the ability layer follows, and the same
+ * reason: rasterising a 52px sprite on the frame a hazard fires is a hitch at
+ * the exact moment the player is being asked to move.
+ *
+ * `flash: false` and no `rotates` — nothing can hit it, and `drawSpriteRotated`
+ * turns the context, so one baked frame serves both directions. Both fields are
+ * part of the atlas key, so a copy of this literal that differs by either one
+ * bakes a SECOND car mid-run and tests/renderSmoke.js fails the build over it.
+ */
+const V_CAR = { shape: 'car', color: '#e0455f', accent: '#1a1020', size: 26, flash: false };
+const CAR_SPRITE = atlas.register(V_CAR);
+/** `life` is one frame at 60Hz: the car is re-emitted every tick it is alive,
+ *  so it tracks the damage window exactly instead of drifting behind it. */
+const CAR_EAST = { life: 0.05, from: 0, scale: 2.1, angle: 0, spin: 0, alpha: 1 };
+const CAR_WEST = { life: 0.05, from: 0, scale: 2.1, angle: Math.PI, spin: 0, alpha: 1 };
 
 // --- telegraphs --------------------------------------------------------------
 function makeTelegraph() {
@@ -220,11 +242,22 @@ export class HazardSystem {
     const run = this.run;
     switch (hazardDef.kind) {
       case 'lanes': {
-        const n = this.params.lanes || 3;
+        // LANE POSITIONS ARE AUTHORED WHEN THE STAGE HAS REAL ROADS.
+        //
+        // The even split — (i+1)/(n+1) of the arena height — is right for a
+        // stage whose ground is a texture, and wrong the moment the backdrop
+        // paints a road plan: a car running down the middle of a building block
+        // is not a hazard, it is a bug you cannot dodge because there is nowhere
+        // to dodge TO. `laneY` is a list of fractions of the arena, matching the
+        // road centres in the backdrop's own cell plan; the fallback keeps every
+        // stage that does not care byte-identical.
+        const ys = this.params.laneY;
+        const n = ys ? ys.length : (this.params.lanes || 3);
+        const H = run.bounds.maxY - run.bounds.minY;
         this.lanes = [];
         for (let i = 0; i < n; i++) {
           this.lanes.push({
-            y: run.bounds.minY + (run.bounds.maxY - run.bounds.minY) * ((i + 1) / (n + 1)),
+            y: run.bounds.minY + H * (ys ? ys[i] : (i + 1) / (n + 1)),
             t: runRng.range(0, this.params.interval || 11),
             x: 0, active: false, dir: i % 2 === 0 ? 1 : -1,
           });
@@ -379,6 +412,12 @@ export class HazardSystem {
               damagePlayer(run, P.damage || 45, SRC.HAZARD, { fromX: L.x, fromY: L.y });
             }
             particles.burst(L.x, L.y, 2, '#ffd23f', { speed: 90, life: 0.3, additive: true });
+            // THE CAR ITSELF. `lanes` used to be a moving damage window with two
+            // sparks on it and nothing you could point at — the stage's signature
+            // hazard was invisible. A prop blitted source-over at the damage
+            // window's own position, facing the way it is travelling, is the
+            // whole fix, and it costs one drawSpriteRotated per live lane.
+            effects.fallSprite(L.x, L.y, CAR_SPRITE, L.dir > 0 ? CAR_EAST : CAR_WEST);
             if (L.x < run.bounds.minX - 300 || L.x > run.bounds.maxX + 300) {
               L.active = false;
               L.t = (P.interval || 11) * runRng.range(0.7, 1.3);
@@ -607,12 +646,17 @@ export class HazardSystem {
     }
 
     // Traffic lanes get a persistent road marking so the hazard is legible even
-    // when no truck is coming.
+    // when nothing is coming. On a stage that paints its own roads this is a
+    // dark WEAR STRIP down the middle of the carriageway rather than a band over
+    // the whole width — the backdrop has already drawn the road, and a second
+    // opaque rectangle on top of it hid the lane paint the road was drawn with.
     if (this.kind === 'lanes' && this.lanes) {
       const b = this.run.bounds;
+      const w = this.params.width || 140;
+      const authored = !!this.params.laneY;
       for (const L of this.lanes) {
-        r.drawRect(b.minX, L.y - (this.params.width || 140) * 0.5,
-                   b.maxX - b.minX, this.params.width || 140, '#161020', 0.5);
+        const h = authored ? w * 0.34 : w;
+        r.drawRect(b.minX, L.y - h * 0.5, b.maxX - b.minX, h, '#161020', authored ? 0.28 : 0.5);
       }
     }
     r.setAlpha(1);

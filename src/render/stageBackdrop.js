@@ -114,6 +114,10 @@ const GRID = {
   // 200 makes the arena exactly a 20x20 board, which is what lets the courtyard
   // plan below be written as whole-cell rows and columns instead of fractions.
   courtyard: { cell: 200, joints: false },
+  // Akihabara is the same 20x20 board for the same reason, and `joints: false`
+  // because a road is POURED. A mortar grid ruled across tarmac is the single
+  // most obvious tell that a street was drawn by a spreadsheet.
+  akiba: { cell: 200, joints: false },
   rooftop: { cell: 200, joints: true },
   wet_street: { cell: 220, joints: false },
   ruins: { cell: 210, joints: true },
@@ -283,6 +287,149 @@ export class StageBackdrop {
         const dq = (hash2(Math.floor(i / 3) + ox, Math.floor(j / 3) + oy + 977) & 255) / 255;
 
         switch (kind) {
+          // ================================================================
+          // STAGE 2 — AKIHABARA, AS A STREET PLAN.
+          //
+          // Same technique as the courtyard and for the same reason: the cell
+          // walk is anchored to the world origin, so cell (i,j) is always the
+          // world rect (i*200, j*200, 200, 200) and a fixed 20x20 plan costs no
+          // storage. The seed still picks every shopfront's colour and every
+          // stain on the tarmac; it cannot move a road.
+          //
+          //     j,i <= 2 or >= 17   the RING ROAD, all the way round
+          //     i = 8..11           the NORTH-SOUTH avenue
+          //     j = 8..11           the EAST-WEST avenue
+          //     everything else     four CITY BLOCKS, solid
+          //
+          // The blocks are solid, and the ring road is 600px wide with the two
+          // avenues at 800 — which is the trade this layout is built on. A
+          // bullet heaven needs somewhere to run, and a city that is mostly
+          // building is a corridor maze the steering AI cannot cope with. Four
+          // 1000x1000 blocks is 25% of the arena; the other 75% is street.
+          //
+          // The three horizontal road centres — 0.075, 0.5, 0.925 of the arena —
+          // are the SAME NUMBERS the traffic hazard's `laneY` carries, so a car
+          // is always on tarmac. Change one and change the other.
+          // ================================================================
+          case 'akiba': {
+            const ring = i <= 2 || i >= 17 || j <= 2 || j >= 17;
+            const aveNS = i >= 8 && i <= 11;
+            const aveEW = j >= 8 && j <= 11;
+            const road = ring || aveNS || aveEW;
+            // Is (bi,bj) a BLOCK cell? One predicate, used by the shopfronts and
+            // by the kerbs, so a frontage and the pavement in front of it can
+            // never disagree about where the building ends.
+            const blockAt = (bi, bj) => !(bi <= 2 || bi >= 17 || bj <= 2 || bj >= 17 ||
+                                          (bi >= 8 && bi <= 11) || (bj >= 8 && bj <= 11));
+
+            if (!road) {
+              // --- A CITY BLOCK -----------------------------------------------
+              r.drawRect(x, y, cell, cell, d.far, 1);
+              // Unit-to-unit brightness, at DISTRICT scale so it comes in
+              // stretches of frontage rather than as a chequerboard.
+              if (dq > 0.55) r.drawRect(x + 4, y + 4, cell - 8, cell - 8, d.farLit, 0.5);
+              // Lit windows. `a` is the cell's own grain, so a block has a
+              // scatter of them rather than a grid.
+              for (let k = 0; k < 3; k++) {
+                if (((h >>> (k * 3)) & 7) < 3) continue;
+                r.drawRect(x + 24 + k * 52, y + 42 + ((k * 37) % 90), 26, 18,
+                           d.glow, 0.20 + 0.16 * ((k + a) % 1));
+              }
+              // Alley seams, so 1000px of building is not one flat slab.
+              if (i % 3 === 0) r.drawRect(x, y, 5, cell, d.seam, 0.55);
+              if (j % 3 === 0) r.drawRect(x, y, cell, 5, d.seam, 0.55);
+
+              // SIGNAGE, ON THE STREET SIDE AND NOWHERE ELSE.
+              //
+              // The first pass hung a sign band on every cell of every block,
+              // and the result was a grid of neon boxes rather than a city: a
+              // block's interior cells are the MASS of the building and nobody
+              // can see them, while the cells that front a road are the only
+              // thing the player ever looks at. So a face gets a sign when the
+              // neighbour on that side is not a block — which is exactly the
+              // test the kerb below uses from the other side of the same line.
+              const lit = ((h >>> 4) & 1) ? d.glow : d.farEdge;
+              if (!blockAt(i, j - 1)) r.drawRect(x + 6, y, cell - 12, 9, lit, 0.62);
+              if (!blockAt(i, j + 1)) r.drawRect(x + 6, y + cell - 9, cell - 12, 9, lit, 0.62);
+              if (!blockAt(i - 1, j)) r.drawRect(x, y + 6, 9, cell - 12, lit, 0.62);
+              if (!blockAt(i + 1, j)) r.drawRect(x + cell - 9, y + 6, 9, cell - 12, lit, 0.62);
+              // And a doorway in the middle of one frontage cell in three, so
+              // the parade has entrances in it rather than being a lit wall.
+              if (bq > 0.62) {
+                if (!blockAt(i, j + 1)) r.drawRect(x + cell * 0.38, y + cell - 22, cell * 0.24, 22, d.seam, 0.85);
+                else if (!blockAt(i, j - 1)) r.drawRect(x + cell * 0.38, y, cell * 0.24, 22, d.seam, 0.85);
+                else if (!blockAt(i - 1, j)) r.drawRect(x, y + cell * 0.38, 22, cell * 0.24, d.seam, 0.85);
+                else if (!blockAt(i + 1, j)) r.drawRect(x + cell - 22, y + cell * 0.38, 22, cell * 0.24, d.seam, 0.85);
+              }
+              break;
+            }
+
+            // --- TARMAC ------------------------------------------------------
+            r.drawRect(x, y, cell, cell, d.tile, 1);
+            // Wet patches — this is a rain-slick street and the reflections are
+            // most of what says so. District-scale, so they pool rather than
+            // speckle.
+            if (dq > 0.60) r.drawRect(x + 6, y + 6, cell - 12, cell - 12, d.mid, 0.22);
+            // The neon, lying in the water. Gated on the DISTRICT as well as the
+            // cell: on the cell alone this fired on ~60% of road cells and the
+            // street came out speckled with pink dashes that read as litter
+            // rather than as reflections. Long and faint, so it is a smear of
+            // light on wet tarmac and not a painted mark.
+            if (dq > 0.60 && bq > this.sLot) {
+              r.drawRect(x + c * (cell - 60) + 12, y + bq * (cell - 30) + 8, 46, 6,
+                         d.glow, 0.13);
+            }
+
+            // --- KERBS AND PAVEMENT ------------------------------------------
+            // Drawn on the ROAD side of the boundary, so the pavement belongs to
+            // the street and the block keeps its full footprint. A kerb only
+            // exists where a road cell actually touches a block cell.
+            //
+            // PAVE is 30 rather than the 14 a real kerb stone would be, because
+            // this strip has to be wide enough to stand a lamp post and a bin ON
+            // — the obstacle layout puts them 24px off the block edge, and street
+            // furniture floating on tarmac reads as litter rather than as a
+            // street. The 4px lip is the kerb proper.
+            const PAVE = 30;
+            if (blockAt(i, j - 1)) { r.drawRect(x, y, cell, PAVE, d.midEdge, 0.95); r.drawRect(x, y + PAVE, cell, 4, d.detail, 0.35); }
+            if (blockAt(i, j + 1)) { r.drawRect(x, y + cell - PAVE, cell, PAVE, d.midEdge, 0.95); r.drawRect(x, y + cell - PAVE - 4, cell, 4, d.detail, 0.35); }
+            if (blockAt(i - 1, j)) { r.drawRect(x, y, PAVE, cell, d.midEdge, 0.95); r.drawRect(x + PAVE, y, 4, cell, d.detail, 0.35); }
+            if (blockAt(i + 1, j)) { r.drawRect(x + cell - PAVE, y, PAVE, cell, d.midEdge, 0.95); r.drawRect(x + cell - PAVE - 4, y, 4, cell, d.detail, 0.35); }
+
+            // --- LANE PAINT --------------------------------------------------
+            // A dashed centre line down each carriageway, and a zebra where the
+            // two avenues cross. Both are keyed on i or j ALONE, so they run the
+            // whole length of a road and land at fixed world coordinates.
+            const centreEW = j === 1 || j === 9 || j === 18;
+            const centreNS = i === 1 || i === 9 || i === 18;
+            if (centreEW && !(aveNS && aveEW)) {
+              for (let k = 0; k < 3; k++) {
+                r.drawRect(x + 18 + k * 64, y + cell - 4, 38, 7, d.detail, 0.55);
+              }
+            }
+            if (centreNS && !(aveNS && aveEW)) {
+              for (let k = 0; k < 3; k++) {
+                r.drawRect(x + cell - 4, y + 18 + k * 64, 7, 38, d.detail, 0.55);
+              }
+            }
+            // THE CROSSING. Only where the two avenues actually meet, so it is
+            // one place on the map and it is the middle of it — and only on the
+            // four ARMS of that junction, which is the other half of the same
+            // point. Painting the whole 800px square gave the middle of the map
+            // a chessboard the size of a football pitch; a zebra is the bit you
+            // walk ACROSS, so the stripes run perpendicular to the road they
+            // cross and the corners of the junction stay bare tarmac.
+            if (aveNS && aveEW) {
+              const armNS = i === 8 || i === 11;
+              const armEW = j === 8 || j === 11;
+              if (armEW && !armNS) {
+                for (let k = 0; k < 5; k++) r.drawRect(x + 12 + k * 38, y + 14, 22, cell - 28, d.detail, 0.26);
+              } else if (armNS && !armEW) {
+                for (let k = 0; k < 5; k++) r.drawRect(x + 14, y + 12 + k * 38, cell - 28, 22, d.detail, 0.26);
+              }
+            }
+            break;
+          }
           // ================================================================
           // STAGE 1 — THE SCHOOL COURTYARD, AS A PLAN.
           //

@@ -29,7 +29,11 @@ import * as refs from '../src/data/refs.js';
 // exact source-IP names the flag exists to hide.
 import { SHIP_NAMES } from '../src/data/shipNames.js';
 import { HAZARD_KINDS } from '../src/game/hazards.js';
+import { EVENT_KINDS } from '../src/game/stageEvents.js';
 import { BEHAVIORS } from '../src/game/enemy.js';
+// The aggregator, for allVisuals() — the pre-raster harvest is a data fact and
+// belongs in the data suite, not only in the render smoke pass.
+import * as data from '../src/data/index.js';
 
 import { Rng, mulberry32, hashString } from '../src/core/rng.js';
 import { Pool } from '../src/core/pool.js';
@@ -762,5 +766,99 @@ describe('hazards', () => {
       for (const h of s.hazards || []) if (!stages.HAZARDS[h]) bad.push(`${s.id} -> "${h}"`);
     }
     assert.equal(bad.length, 0, 'unknown hazards: ' + bad.join(', '));
+  });
+});
+
+describe('stage events and the obstacle sets', () => {
+  it('every event a stage names actually exists, with a handled kind', () => {
+    // EVENT_KINDS is what game/stageEvents.js switches on; STAGE_EVENT_KINDS is
+    // the data layer's copy of it (it may not import from src/game). Both are
+    // checked, because "the data names a kind" and "the handler implements it"
+    // are two different claims and the hazard table shipped with them disagreeing.
+    const bad = [];
+    for (const k of stages.STAGE_EVENT_KINDS) {
+      if (EVENT_KINDS.indexOf(k) < 0) bad.push(`data claims "${k}" but no handler implements it`);
+    }
+    for (const k of EVENT_KINDS) {
+      if (stages.STAGE_EVENT_KINDS.indexOf(k) < 0) bad.push(`handler "${k}" is not in STAGE_EVENT_KINDS`);
+    }
+    for (const s of stages.STAGES) {
+      for (const id of s.events || []) {
+        const def = stages.STAGE_EVENTS[id];
+        if (!def) { bad.push(`${s.id} -> unknown event "${id}"`); continue; }
+        if (EVENT_KINDS.indexOf(def.kind) < 0) bad.push(`${id} -> unhandled kind "${def.kind}"`);
+      }
+    }
+    assert.equal(bad.length, 0, bad.join(', '));
+  });
+
+  it('an anchored event is only used on a stage that has something to anchor to', () => {
+    // `anchor: 'building'` moves the marker against a solid box at least 180px
+    // across on both axes. On a stage whose set has no such piece the placement
+    // silently no-ops and the event lands wherever the ring roll put it — which
+    // is not a bug you would ever see, only a promise quietly not kept.
+    const bad = [];
+    for (const s of stages.STAGES) {
+      for (const id of s.events || []) {
+        const def = stages.STAGE_EVENTS[id];
+        if (!def || def.anchor !== 'building') continue;
+        const set = stages.OBSTACLE_SETS[s.obstacles];
+        const big = (set && set.layout || []).some(
+          (p) => p.w !== undefined && p.w * 4000 * 0.5 >= 180 && p.h * 4000 * 0.5 >= 180);
+        if (!big) bad.push(`${s.id} rolls "${id}" but ${s.obstacles} has no building`);
+      }
+    }
+    assert.equal(bad.length, 0, bad.join(', '));
+  });
+
+  it('every obstacle KIND is pre-warmed, not only the set-level fallback', () => {
+    // THE GAP THIS CLOSES SHIPPED. allVisuals() harvested `set.visual` and
+    // nothing else, so a set with a `kinds` list — the courtyard, the Akihabara
+    // blocks — left its cherry trees, fountain, benches, bins and vending
+    // machines to rasterise on the first frame one scrolled into view. The
+    // renderSmoke pass could not see it: it fails on the atlas GROWING mid-run,
+    // and the pieces it happened to drive were the ones the fallback covered.
+    const key = (v) => [v.shape, v.color, v.accent, v.size].join('|');
+    const warm = new Set();
+    for (const v of data.allVisuals()) if (v) warm.add(key(v));
+    const cold = [];
+    for (const id in stages.OBSTACLE_SETS) {
+      for (const kind of stages.OBSTACLE_SETS[id].kinds || []) {
+        if (!warm.has(key(kind.visual))) cold.push(`${id}/${kind.id}`);
+      }
+    }
+    assert.equal(cold.length, 0, 'obstacle kinds that would rasterise mid-run: ' + cold.join(', '));
+  });
+
+  it('an authored layout only names kinds its own set declares', () => {
+    // ObstacleField._kind falls back to the set's own look rather than throwing,
+    // so a typo here is a piece that silently draws as the wrong thing.
+    const bad = [];
+    for (const id in stages.OBSTACLE_SETS) {
+      const set = stages.OBSTACLE_SETS[id];
+      const names = (set.kinds || []).map((k) => k.id);
+      for (const p of set.layout || []) {
+        if (p.kind && names.indexOf(p.kind) < 0) bad.push(`${id} -> "${p.kind}"`);
+      }
+    }
+    assert.equal(bad.length, 0, 'layout pieces naming an undeclared kind: ' + bad.join(', '));
+  });
+
+  it('the traffic lanes are on roads the backdrop actually paints', () => {
+    // `laneY` and the `akiba` case in render/stageBackdrop.js are two copies of
+    // the same three numbers, and the failure mode when they drift is a car
+    // driving through the middle of a building. The blocks are declared in the
+    // obstacle layout, so this compares the two things that can disagree.
+    const P = stages.HAZARDS.traffic_lanes.params;
+    assert.ok(P.laneY && P.laneY.length === P.lanes, 'traffic_lanes needs one laneY per lane');
+    const stage = stages.STAGES.find((s) => (s.hazards || []).indexOf('traffic_lanes') >= 0);
+    const set = stages.OBSTACLE_SETS[stage.obstacles];
+    const blocks = (set.layout || []).filter((p) => p.w !== undefined && p.w >= 0.1 && p.h >= 0.1);
+    const crossing = [];
+    for (const f of P.laneY) {
+      for (const b of blocks) if (Math.abs(f - b.y) < b.h * 0.5) crossing.push(f);
+    }
+    assert.equal(crossing.length, 0,
+                 'lane centres driving through a building: ' + crossing.join(', '));
   });
 });

@@ -395,6 +395,24 @@ export class WaveDirector {
       x = clamp(x, run.bounds.minX + 12, run.bounds.maxX - 12);
       y = clamp(y, run.bounds.minY + 12, run.bounds.maxY - 12);
 
+      // NOTHING SPAWNS INSIDE A BUILDING.
+      //
+      // Every pattern above places relative to the PLAYER, and until Akihabara
+      // grew city blocks the worst that could put an enemy inside was a 90px
+      // crate — which the steering shrugs off in a tick. A 1000px solid block is
+      // a different animal: enemies STEER around static geometry, they are not
+      // hard-resolved out of it (DECISIONS.md §18), so one that starts in the
+      // middle of a building has nothing pushing it out and spends its life
+      // grinding along the inside of a wall the player cannot reach.
+      //
+      // pushOut is the same routine pickups and the altar already use, it costs
+      // an early-out compare on every stage that has no large geometry, and it
+      // is a placement fix rather than a steering one — which is the right layer,
+      // because the enemy is not stuck, it was never legally placed.
+      if (run.obstacles.count > 0 && run.obstacles.pushOut(x, y, 18, SPAWN_FREE)) {
+        x = SPAWN_FREE.x; y = SPAWN_FREE.y;
+      }
+
       const o = telegraph ? { hpMult: opts.hpMult, speedMult: opts.speedMult, affixes: opts.affixes, telegraph } : opts;
       const e = run.enemies.spawn(def, x, y, o);
       if (e) { made++; this.spawnedTotal++; }
@@ -427,6 +445,9 @@ export class WaveDirector {
 
 const SIDES = ['left', 'right', 'top', 'bottom'];
 const EMPTY = {};
+
+/** Scratch for the spawn push-out. Never read across calls. */
+const SPAWN_FREE = { x: 0, y: 0 };
 
 /** Seconds a mid-boss beat waits before retrying when a fight is still live. */
 const MIDBOSS_RETRY = 4;

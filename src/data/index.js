@@ -187,7 +187,20 @@ export function allVisuals() {
   // harvested rather than written out: a hand-kept copy of a data table goes
   // stale the moment content is added to it, and the cost of missing one is a
   // sprite rasterising on the frame a player first walks past a crate.
-  for (const k in stages.OBSTACLE_SETS) push(stages.OBSTACLE_SETS[k].visual);
+  //
+  // AND EVERY `kinds` ENTRY, which is the same argument one level down. A set
+  // used to have exactly one look, so one `visual` was the whole set; the
+  // authored layouts (the courtyard, the Akihabara blocks) carry a LIST of
+  // named looks and blit whichever one a piece declares. Harvesting only the
+  // set's own `visual` left every hedge, cherry tree, fountain, lamp post and
+  // bin to rasterise the first frame it scrolled into view — which is exactly
+  // the failure this function exists to prevent, hidden by the fact that the
+  // set-level fallback was pre-warmed and looked fine.
+  for (const k in stages.OBSTACLE_SETS) {
+    const set = stages.OBSTACLE_SETS[k];
+    push(set.visual);
+    for (const kind of set.kinds || []) push(kind.visual);
+  }
   return out;
 }
 
@@ -347,7 +360,7 @@ export function validate() {
   for (const id in stages.STAGE_EVENTS) {
     const e = stages.STAGE_EVENTS[id];
     const r = e.reward;
-    if (!r || !(r.xpLevels || r.gold || r.chest || r.goldChest || r.healPct)) {
+    if (!r || !(r.xpLevels || r.gold || r.chest || r.goldChest || r.healPct || r.starFragments)) {
       problems.push(`event ${id} pays nothing`);
     }
     if (!e.objective) problems.push(`event ${id} never says what to do`);

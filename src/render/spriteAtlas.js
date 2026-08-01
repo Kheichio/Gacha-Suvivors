@@ -618,6 +618,119 @@ const SHAPES = {
   },
 
   /**
+   * A CAR, TOP-DOWN, pointing +X. Body, cabin, bonnet, four wheels.
+   *
+   * The wheels are the whole read. A top-down car without them is a lozenge,
+   * and a lozenge travelling down a road is a bus, a barrier or a shadow. They
+   * stand PROUD of the body on both sides so the outline picks them up — which
+   * is also true of a real car seen from above and is the cheapest possible way
+   * to say "this is a vehicle and it is pointed that way".
+   */
+  car(ctx, cx, cy, r) {
+    ctx.beginPath();
+    // the body — a rounded wedge, blunter at the back than the front
+    ctx.moveTo(cx + r * 0.94, cy - r * 0.30);
+    ctx.quadraticCurveTo(cx + r, cy, cx + r * 0.94, cy + r * 0.30);
+    ctx.lineTo(cx - r * 0.86, cy + r * 0.38);
+    ctx.quadraticCurveTo(cx - r, cy, cx - r * 0.86, cy - r * 0.38);
+    ctx.closePath();
+    // four wheels, standing proud of the body on both sides
+    for (const sx of [0.50, -0.52]) {
+      for (const sy of [-1, 1]) {
+        ctx.moveTo(cx + r * sx - r * 0.17, cy + sy * r * 0.34);
+        ctx.rect(cx + r * sx - r * 0.17, cy + sy * r * 0.34 - r * 0.10, r * 0.34, r * 0.20);
+      }
+    }
+    ctx.closePath();
+  },
+
+  /**
+   * A STREET LAMP, seen from above: the post, the arm, and the lamp head.
+   *
+   * From directly overhead a lamppost is a dot, which is useless — so this is
+   * drawn the way a top-down game actually draws one, at a slight lean, with
+   * the head offset from the base. The offset IS the shape: base at centre,
+   * head up and left, a visible arm between them.
+   */
+  lamppost(ctx, cx, cy, r) {
+    ctx.beginPath();
+    // the base plinth
+    ctx.moveTo(cx + r * 0.30, cy + r * 0.62);
+    ctx.arc(cx, cy + r * 0.52, r * 0.30, 0, TAU);
+    // the column, leaning up-left
+    ctx.moveTo(cx - r * 0.10, cy + r * 0.52);
+    ctx.lineTo(cx - r * 0.40, cy - r * 0.42);
+    ctx.lineTo(cx - r * 0.18, cy - r * 0.46);
+    ctx.lineTo(cx + r * 0.12, cy + r * 0.52);
+    ctx.closePath();
+    // the arm and the lamp head
+    ctx.moveTo(cx - r * 0.36, cy - r * 0.34);
+    ctx.lineTo(cx + r * 0.30, cy - r * 0.56);
+    ctx.lineTo(cx + r * 0.30, cy - r * 0.40);
+    ctx.lineTo(cx - r * 0.32, cy - r * 0.20);
+    ctx.closePath();
+    ctx.moveTo(cx + r * 0.62, cy - r * 0.48);
+    ctx.arc(cx + r * 0.38, cy - r * 0.48, r * 0.24, 0, TAU);
+    ctx.closePath();
+  },
+
+  /** A STREET BIN: a drum with a lid rim and a slot in it. */
+  bin(ctx, cx, cy, r) {
+    ctx.beginPath();
+    ctx.moveTo(cx + r * 0.78, cy);
+    ctx.ellipse(cx, cy, r * 0.78, r * 0.86, 0, 0, TAU);
+    // the rim, punched out so the drum reads as open
+    ctx.moveTo(cx + r * 0.54, cy);
+    ctx.ellipse(cx, cy, r * 0.54, r * 0.60, 0, 0, TAU, true);
+    // the slot across the middle
+    ctx.moveTo(cx - r * 0.40, cy - r * 0.12);
+    ctx.lineTo(cx + r * 0.40, cy - r * 0.12);
+    ctx.lineTo(cx + r * 0.40, cy + r * 0.12);
+    ctx.lineTo(cx - r * 0.40, cy + r * 0.12);
+    ctx.closePath();
+  },
+
+  /**
+   * A PACHINKO CABINET, seen head on: the case, the glass, the pin field and
+   * the tray at the bottom.
+   *
+   * It is authored UPRIGHT rather than +X, like every other obstacle-and-prop
+   * shape here, and the pin field is drawn as REAL HOLES rather than as painted
+   * dots — the stage shows through them, which at this size is the only thing
+   * that distinguishes a game cabinet from a vending machine.
+   */
+  pachinko(ctx, cx, cy, r) {
+    ctx.beginPath();
+    // the cabinet
+    ctx.moveTo(cx - r * 0.72, cy - r);
+    ctx.lineTo(cx + r * 0.72, cy - r);
+    ctx.lineTo(cx + r * 0.72, cy + r);
+    ctx.lineTo(cx - r * 0.72, cy + r);
+    ctx.closePath();
+    // the glass, punched out
+    ctx.moveTo(cx - r * 0.54, cy - r * 0.80);
+    ctx.lineTo(cx - r * 0.54, cy + r * 0.34);
+    ctx.lineTo(cx + r * 0.54, cy + r * 0.34);
+    ctx.lineTo(cx + r * 0.54, cy - r * 0.80);
+    ctx.closePath();
+    // the pin field, as holes in the case around the glass
+    for (let j = 0; j < 4; j++) {
+      for (let i = 0; i < 4; i++) {
+        const px = cx - r * 0.40 + i * r * 0.27 + (j & 1 ? r * 0.13 : 0);
+        const py = cy - r * 0.62 + j * r * 0.24;
+        ctx.moveTo(px + r * 0.05, py);
+        ctx.arc(px, py, r * 0.05, 0, TAU);
+      }
+    }
+    // the tray
+    ctx.moveTo(cx - r * 0.60, cy + r * 0.50);
+    ctx.lineTo(cx + r * 0.60, cy + r * 0.50);
+    ctx.lineTo(cx + r * 0.50, cy + r * 0.84);
+    ctx.lineTo(cx - r * 0.50, cy + r * 0.84);
+    ctx.closePath();
+  },
+
+  /**
    * A CARROT. Tapers to a point along +X, fronds trailing off the back.
    *
    * The character who throws these had them drawn as `triangle` — an orange
@@ -993,6 +1106,70 @@ SHAPES.orb.overlay = function (ctx, cx, cy, r, color, accent) {
   ctx.beginPath();
   ctx.arc(cx, cy, r * 0.88, Math.PI * 0.55, Math.PI * 1.45);
   ctx.stroke();
+};
+
+/** Windscreen, roof and two headlights — the top-down car's whole identity. */
+SHAPES.car.overlay = function (ctx, cx, cy, r, color, accent) {
+  ctx.fillStyle = 'rgba(18,26,44,0.85)';
+  ctx.beginPath();                                   // windscreen
+  ctx.moveTo(cx + r * 0.46, cy - r * 0.26);
+  ctx.lineTo(cx + r * 0.20, cy - r * 0.30);
+  ctx.lineTo(cx + r * 0.20, cy + r * 0.30);
+  ctx.lineTo(cx + r * 0.46, cy + r * 0.26);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.16)';          // roof
+  ctx.fillRect(cx - r * 0.34, cy - r * 0.26, r * 0.50, r * 0.52);
+  ctx.fillStyle = 'rgba(255,244,190,0.95)';          // headlights
+  ctx.fillRect(cx + r * 0.80, cy - r * 0.26, r * 0.14, r * 0.14);
+  ctx.fillRect(cx + r * 0.80, cy + r * 0.12, r * 0.14, r * 0.14);
+  ctx.fillStyle = 'rgba(255,90,90,0.9)';             // tail lights
+  ctx.fillRect(cx - r * 0.90, cy - r * 0.28, r * 0.10, r * 0.14);
+  ctx.fillRect(cx - r * 0.90, cy + r * 0.14, r * 0.10, r * 0.14);
+};
+
+/** The bulb, lit. It is the one part of a lamppost anybody looks at. */
+SHAPES.lamppost.overlay = function (ctx, cx, cy, r, color, accent) {
+  ctx.fillStyle = 'rgba(255,230,150,0.95)';
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.38, cy - r * 0.48, r * 0.14, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,230,150,0.20)';
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.38, cy - r * 0.48, r * 0.34, 0, TAU);
+  ctx.fill();
+};
+
+/** A liner and two hoops, so the drum is a bin and not a barrel. */
+SHAPES.bin.overlay = function (ctx, cx, cy, r, color, accent) {
+  ctx.fillStyle = 'rgba(30,40,30,0.55)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, r * 0.50, r * 0.56, 0, 0, TAU);
+  ctx.fill();
+  ctx.strokeStyle = accent || 'rgba(20,24,30,0.7)';
+  ctx.lineWidth = Math.max(1, r * 0.07);
+  for (const rr of [0.66, 0.74]) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, r * rr, r * (rr + 0.08), 0, 0, TAU);
+    ctx.stroke();
+  }
+};
+
+/** The lit playfield and a tray full of the things you came for. */
+SHAPES.pachinko.overlay = function (ctx, cx, cy, r, color, accent) {
+  const g = ctx.createLinearGradient(cx, cy - r * 0.8, cx, cy + r * 0.34);
+  g.addColorStop(0, 'rgba(120,220,255,0.55)');
+  g.addColorStop(1, 'rgba(255,110,190,0.5)');
+  ctx.fillStyle = g;
+  ctx.fillRect(cx - r * 0.54, cy - r * 0.80, r * 1.08, r * 1.14);
+  ctx.fillStyle = 'rgba(255,240,180,0.95)';
+  for (let k = 0; k < 5; k++) {
+    ctx.beginPath();
+    ctx.arc(cx - r * 0.34 + k * r * 0.17, cy + r * 0.66, r * 0.07, 0, TAU);
+    ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.fillRect(cx - r * 0.54, cy - r * 0.80, r * 0.16, r * 1.14);
 };
 
 /** Blossom: two lit clumps, one shaded, and the trunk showing through. */

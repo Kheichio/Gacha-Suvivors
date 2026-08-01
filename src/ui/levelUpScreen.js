@@ -515,6 +515,47 @@ class LevelUpScreen {
       return;
     }
 
+    /**
+     * THE PACHINKO PARLOUR'S PAYOUT — the once-a-run find on Akihabara.
+     *
+     * Two buttons, both of them real, and the whole design is that neither is
+     * the obvious one: the cash is worth more the earlier you find it and the
+     * prize is worth more the later, and nothing on this screen tells the
+     * player which side of that line they are on.
+     *
+     * BOTH OPTIONS PRINT WHAT THEY ACTUALLY ARE. "A free weapon" is not an
+     * offer you can weigh against a number — Run rolls the prize BEFORE this
+     * screen opens (openPachinko) precisely so the button can name it. When
+     * the roll came back empty — every slot full and every weapon maxed — the
+     * button says so and is disabled, rather than sitting there live and
+     * quietly eating the reward.
+     */
+    if (res.kind === 'pachinko') {
+      ui.title('🎰  PACHINKO', W / 2, H * 0.22, { size: 40, align: 'center', color: PALETTE.gold });
+      ui.text('The tray is full and the attendant is not looking. One payout.',
+              W / 2, H * 0.22 + 36, { size: 15, color: PALETTE.textDim, align: 'center' });
+      ui.focusGrid(2);
+      const bw2 = 300, bh2 = 104, gap2 = 16;
+      const bx2 = W / 2 - bw2 - gap2 / 2;
+      const cashSub = res.fragments ? res.gold + ' ⭐  +  ' + res.fragments + ' ✦'
+                                    : res.gold + ' ⭐';
+      if (ui.button('pachiCash', bx2, H * 0.44, bw2, bh2, 'CASH OUT',
+                    { size: 20, sub: cashSub })) {
+        run.usePachinko('cash');
+      }
+      const has = !!res.prizeName;
+      if (ui.button('pachiPrize', bx2 + bw2 + gap2, H * 0.44, bw2, bh2,
+                    has ? res.prizeIcon + '  ' + res.prizeName : 'NO PRIZE LEFT',
+                    { size: 20, sub: has ? res.prizeSub : 'every slot full, every weapon maxed',
+                      disabled: !has })) {
+        run.usePachinko('prize');
+      }
+      ui.text('It pays out once. Choose.', W / 2, H * 0.44 + bh2 + 34,
+              { size: 13, color: PALETTE.textFaint, align: 'center' });
+      ui.end();
+      return;
+    }
+
     const isGold = res.gold;
     ui.title(isGold ? '📦  GOLD CHEST' : '📦  CHEST', W / 2, H * 0.26, {
       size: 40, align: 'center', color: isGold ? PALETTE.gold : PALETTE.text,
