@@ -96,6 +96,20 @@ function tone3(d, a) { return a < 0.70 ? d.tile : (a < 0.92 ? d.mid : d.far); }
  * it off: a regular grid ruled across them was the old backdrop's most obvious
  * tell that you were looking at a spreadsheet rather than at a place.
  */
+/**
+ * THE COURTYARD'S PAVING TONES, and the reason they exist as their own pair.
+ *
+ * Every other kind varies its ground through `tone3(d, a)`, which picks between
+ * `d.tile`, `d.mid` and `d.far`. That works because those three are three shades
+ * of ONE surface everywhere else in this file. The courtyard repurposes the
+ * roles — `mid` is grass, `far` is the school building — so `tone3` on a paving
+ * slab returned lawn green and brick purple at random, and the path came out
+ * looking like a bag of sweets. These two are the paving's own light and dark,
+ * mixed off `tile` at module scope so the variation can only ever be grain.
+ */
+const PAVE_LIT = '#7d6576';
+const PAVE_DARK = '#584154';
+
 const GRID = {
   // 200 makes the arena exactly a 20x20 board, which is what lets the courtyard
   // plan below be written as whole-cell rows and columns instead of fractions.
@@ -274,83 +288,101 @@ export class StageBackdrop {
           //
           // The arena is exactly twenty cells square, so the layout is written
           // in whole rows and columns and lands at the same world coordinates in
-          // every run. Reading it as a map, north at the top:
+          // every run. The seed still perturbs every cell's GRAIN; it simply
+          // cannot move a building. Reading it as a map, north at the top:
           //
-          //     j = 0..1     the MAIN BUILDING, full width, with the doors
-          //                  centred on the path
-          //     j = 2..17    the courtyard proper
-          //       i = 0..1   the WEST BLOCK      i = 18..19  the EAST BLOCK
-          //       i = 9..10  the PATH, gate to doors
+          //     j = 0..2     MAIN BUILDING interior, full width
+          //     j = 3        its south wall, doors at i = 9..10
+          //     j = 4..15    the courtyard
+          //       i = 0..2   WEST WING interior     i = 17..19  EAST WING
+          //       i = 3      west wing's east wall, door at j = 9..10
+          //       i = 16     east wing's west wall, door at j = 9..10
+          //       i = 9..10  the main path, gate to doors
+          //       j = 9..10  the cross path, west door to east door
           //       else       lawn
-          //     j = 18..19   the GATE WALL, with the opening on the path
+          //     j = 16..17   the courtyard's south lawn
+          //     j = 18..19   the perimeter wall, gate at i = 9..10
           //
-          // The side blocks are TWO cells and not three. Three was the first
-          // draft and it reads better on paper: a deeper building, a tighter
-          // court. Measured, it spends 30% of the arena on scenery the player
-          // can never stand on — and the soft edge already takes 120px off every
-          // wall on top of that. Two cells is 400px a side, which still frames
-          // the court and leaves the lawns big enough to fight a horde on.
+          // THE BUILDINGS ARE WALKABLE. Their floors are painted here and their
+          // walls are real obstacles in OBSTACLE_SETS.academy_courtyard, with a
+          // gap at every door. That is the whole reason the plan grew a cross
+          // path: three ways in, three ways to be cut off, and a horde that has
+          // to funnel through a doorway to reach you.
           //
-          // The seed still perturbs every cell's grain through `a`/`bq`/`c`; it
-          // simply cannot move a building. That split — fixed geometry, rolled
-          // texture — is the whole idea, and it is why this needed no storage.
+          // NOTHING IN THIS CASE CALLS tone3(). It is the one kind that must
+          // not: `tone3` picks between `d.tile`, `d.mid` and `d.far`, and this
+          // backdrop repurposes `mid` as GRASS and `far` as BUILDING — so the
+          // paving came out with random green and purple slabs in it, which is
+          // exactly what it looked like. Paving varies within the paving family
+          // and nowhere else.
           // ================================================================
           case 'courtyard': {
-            const path = i >= 9 && i <= 10;
-            const west = i <= 1, east = i >= 18;
-            const bldg = j <= 1 || (j >= 2 && j <= 17 && (west || east));
-            const wall = j >= 18;
+            const mainPath = i >= 9 && i <= 10;
+            const crossPath = j >= 9 && j <= 10;
+            const westIn = i <= 2, eastIn = i >= 17;
+            const northIn = j <= 2;
+            const westWall = i === 3, eastWall = i === 16, southWall = j === 3;
+            const perim = j >= 18;
+            // The doors: one in each of the three walls, and each one lines up
+            // with the path that leads to it.
+            const doorN = southWall && mainPath;
+            const doorW = westWall && crossPath;
+            const doorE = eastWall && crossPath;
 
-            if (bldg) {
-              // FLOORPLATE, then the roof panel inset off it, so each block
-              // reads as a solid mass with an edge rather than as dark ground.
+            // --- interiors -------------------------------------------------
+            if (northIn || ((westIn || eastIn) && j >= 4 && j <= 15)) {
+              // A classroom floor: boards running one way, a darker grout grid,
+              // and the occasional desk-shaped scuff. Deliberately calmer than
+              // the courtyard — inside is where you go to stop being shot at.
               r.drawRect(x, y, cell, cell, d.far, 1);
-              r.drawRect(x + 6, y + 6, cell - 12, cell - 12, d.farLit, 0.55);
-              // Windows: two per cell along the face that looks INTO the court,
-              // which is the only face the player can ever see.
-              const lit = a > 0.66;
-              const wc = lit ? d.glow : d.midEdge;
-              if (j <= 1) {
-                r.drawRect(x + 26, y + cell - 46, 44, 26, wc, lit ? 0.55 : 0.8);
-                r.drawRect(x + cell - 70, y + cell - 46, 44, 26, wc, lit ? 0.5 : 0.8);
-              } else if (west) {
-                r.drawRect(x + cell - 40, y + 30, 26, 44, wc, lit ? 0.55 : 0.8);
-                r.drawRect(x + cell - 40, y + cell - 82, 26, 44, wc, lit ? 0.5 : 0.8);
-              } else {
-                r.drawRect(x + 14, y + 30, 26, 44, wc, lit ? 0.55 : 0.8);
-                r.drawRect(x + 14, y + cell - 82, 26, 44, wc, lit ? 0.5 : 0.8);
+              r.drawRect(x + 3, y + 3, cell - 6, cell - 6, d.farLit, 0.30);
+              for (let k = 0; k < 4; k++) {
+                const bx = x + 6 + k * (cell - 12) / 4;
+                r.drawLine(bx, y + 4, bx, y + cell - 4, d.seam, 2, 0.34);
               }
-              // THE MAIN DOORS, exactly once, where the path meets the building
-              // — plus the porch that steps out in front of them. The porch is
-              // what makes this read as the WAY IN rather than as a lit panel:
-              // it breaks the building's straight lower edge at exactly the two
-              // cells the path arrives at, which is the only place the eye is
-              // already looking.
-              if (j === 1 && path) {
-                r.drawRect(x, y + cell - 60, cell, 60, d.seam, 1);
-                r.drawRect(x + 6, y + cell - 52, cell - 12, 52, d.glow, 0.34);
-                r.drawRect(x + cell * 0.5 - 3, y + cell - 52, 6, 52, d.far, 0.9);
-                // the porch roof, standing one step proud into the courtyard
-                r.drawRect(x, y + cell, cell, 22, d.farLit, 1);
-                r.drawRect(x, y + cell + 18, cell, 5, d.midEdge, 0.8);
-                // and a pillar at each outer corner of the pair
-                if (i === 9) r.drawRect(x + 4, y + cell, 16, 22, d.far, 1);
-                if (i === 10) r.drawRect(x + cell - 20, y + cell, 16, 22, d.far, 1);
+              if (bq > this.sSome) {
+                r.drawRect(x + c * (cell - 46) + 14, y + bq * (cell - 40) + 12, 30, 22, d.seam, 0.45);
               }
               break;
             }
 
-            if (wall) {
-              // The perimeter wall and its capping course. The GATE is the one
-              // gap in it, and it is on the path because that is how you get in.
-              if (path) {
-                // The gateway itself: paving continuing out under the arch.
+            // --- the three interior walls ----------------------------------
+            if (southWall || westWall || eastWall) {
+              if (doorN || doorW || doorE) {
+                // A DOORWAY. Paved through, with a threshold and a lit frame on
+                // both jambs, so the gap reads as a way in rather than as a hole
+                // somebody forgot to wall up.
                 r.drawRect(x, y, cell, cell, d.tile, 1);
-                r.drawRect(x + 10, y + 8, cell - 20, cell - 16, tone3(d, a), 0.8);
+                r.drawRect(x + 6, y + 6, cell - 12, cell - 12, d.seam, 0.55);
+                if (southWall) {
+                  r.drawRect(x, y, cell, 10, d.glow, 0.40);
+                  r.drawRect(x, y + cell - 10, cell, 10, d.glow, 0.40);
+                } else {
+                  r.drawRect(x, y, 10, cell, d.glow, 0.40);
+                  r.drawRect(x + cell - 10, y, 10, cell, d.glow, 0.40);
+                }
+                break;
+              }
+              // The wall itself: face, capping course along the courtyard side,
+              // and a pilaster every other cell so a long run has rhythm in it.
+              r.drawRect(x, y, cell, cell, d.far, 1);
+              if (southWall) {
+                r.drawRect(x, y + cell - 16, cell, 16, d.farLit, 0.9);
+                if (i % 2 === 0) r.drawRect(x + cell * 0.5 - 12, y + 10, 24, cell - 30, d.farLit, 0.38);
               } else {
-                // The perimeter wall: a capping course along the top, the wall
-                // face under it, and the buttress every third cell that stops
-                // four hundred pixels of flat rectangle reading as a moat.
+                const inner = westWall ? x + cell - 16 : x;
+                r.drawRect(inner, y, 16, cell, d.farLit, 0.9);
+                if (j % 2 === 0) r.drawRect(x + 10, y + cell * 0.5 - 12, cell - 30, 24, d.farLit, 0.38);
+              }
+              break;
+            }
+
+            // --- the perimeter wall and the main gate ----------------------
+            if (perim) {
+              if (mainPath) {
+                r.drawRect(x, y, cell, cell, d.tile, 1);
+                r.drawRect(x + 10, y + 8, cell - 20, cell - 16, PAVE_LIT, 0.55);
+              } else {
                 r.drawRect(x, y, cell, cell, d.far, 1);
                 r.drawRect(x, y, cell, 18, d.farLit, 0.85);
                 r.drawRect(x + 8, y + 34, cell - 16, cell - 56, d.midEdge, 0.30);
@@ -358,40 +390,48 @@ export class StageBackdrop {
                   r.drawRect(x + cell * 0.5 - 14, y + 18, 28, cell - 30, d.farLit, 0.42);
                 }
               }
-              // THE GATE. Two piers with a lintel across them, drawn on the
-              // cells either side of the opening. It is the loudest thing on the
-              // bottom wall on purpose — it is the one gap in four thousand
-              // pixels of perimeter, and the player arrives facing it.
               if (j === 18 && (i === 8 || i === 11)) {
                 const px = x + (i === 8 ? cell - 52 : 12);
                 r.drawRect(px, y - 6, 40, cell + 6, d.farLit, 1);
                 r.drawRect(px, y - 6, 40, 14, d.glow, 0.65);
                 r.drawRect(px + 6, y + 30, 28, cell - 44, d.far, 0.5);
-                // the lintel, reaching in over the opening from both sides
-                r.drawRect(i === 8 ? px + 40 : x - 40 + 12, y - 6, 44, 16, d.farLit, 0.9);
+                r.drawRect(i === 8 ? px + 40 : x - 28, y - 6, 44, 16, d.farLit, 0.9);
               }
               break;
             }
 
-            if (path) {
-              // PAVING. Two slabs across the cell with a real joint between
-              // them, so the path has a direction of travel in it.
-              r.drawRect(x, y, cell, cell, d.tile, 1);
-              r.drawRect(x + 5, y + 5, cell * 0.5 - 8, cell - 10, tone3(d, a), 1);
-              r.drawRect(x + cell * 0.5 + 3, y + 5, cell * 0.5 - 8, cell - 10, tone3(d, bq), 1);
-              r.drawRect(x, y + cell - 4, cell, 4, d.seam, 0.8);
-              // A kerb down both edges — the line that says "stay on the path",
-              // which is the whole reason a path reads as a path from above.
-              if (i === 9) r.drawRect(x, y, 6, cell, d.farLit, 0.55);
-              if (i === 10) r.drawRect(x + cell - 6, y, 6, cell, d.farLit, 0.55);
+            // --- paving ----------------------------------------------------
+            if (mainPath || crossPath) {
+              // Slabs, in the PAVING family only. `a` and `bq` choose between
+              // three tones derived from `d.tile` at module scope, so the
+              // variation is grain rather than a different material.
+              r.drawRect(x, y, cell, cell, d.seam, 1);
+              const t1 = a < 0.55 ? d.tile : (a < 0.86 ? PAVE_LIT : PAVE_DARK);
+              const t2 = bq < 0.55 ? d.tile : (bq < 0.86 ? PAVE_LIT : PAVE_DARK);
+              if (mainPath) {
+                r.drawRect(x + 5, y + 5, cell * 0.5 - 8, cell - 10, t1, 1);
+                r.drawRect(x + cell * 0.5 + 3, y + 5, cell * 0.5 - 8, cell - 10, t2, 1);
+              } else {
+                r.drawRect(x + 5, y + 5, cell - 10, cell * 0.5 - 8, t1, 1);
+                r.drawRect(x + 5, y + cell * 0.5 + 3, cell - 10, cell * 0.5 - 8, t2, 1);
+              }
+              // KERBS, on the outer edge of each run only — the line that says
+              // "stay on the path", and the reason a path reads as a path from
+              // above. A cell that is on BOTH runs is the crossing and gets none.
+              if (mainPath && !crossPath) {
+                if (i === 9) r.drawRect(x, y, 5, cell, d.farLit, 0.5);
+                if (i === 10) r.drawRect(x + cell - 5, y, 5, cell, d.farLit, 0.5);
+              } else if (crossPath && !mainPath) {
+                if (j === 9) r.drawRect(x, y, cell, 5, d.farLit, 0.5);
+                if (j === 10) r.drawRect(x, y + cell - 5, cell, 5, d.farLit, 0.5);
+              }
               if (bq > this.sSome) {
                 r.drawRect(x + c * (cell - 30) + 8, y + bq * (cell - 30) + 8, 7, 5, this.litter, 0.9);
               }
               break;
             }
 
-            // LAWN. A district-wide mow direction, a per-cell grain, and the
-            // blossom that has drifted onto it.
+            // --- lawn ------------------------------------------------------
             r.drawRect(x, y, cell, cell, d.mid, 1);
             r.drawRect(x + 3, y + 3, cell - 6, cell - 6, dq > 0.5 ? d.mid : d.midEdge, 0.35);
             for (let k = 0; k < 3; k++) {

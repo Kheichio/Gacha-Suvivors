@@ -94,6 +94,9 @@ const FINALE_HANDOVER = EARLY_BOSS_LEAD + 5;
  */
 const FINALE_POLL_MASK = 31;
 
+/** Scratch for the altar's push-out. Written once per run, never read across. */
+const ALTAR_FIX = { x: 0, y: 0 };
+
 export class Run {
   /**
    * @param data    the loaded data layer
@@ -338,6 +341,16 @@ export class Run {
     if (this.obstacleSet) {
       this.obstacles.place(this.obstacleSet);
       this.obstacles.scatter(this.obstacleSet);
+      // THE ALTAR IS PLACED BEFORE THE GEOMETRY IS, so on a stage whose layout
+      // is AUTHORED rather than scattered it can land inside a wall — scatter's
+      // `clearance` holds itself off the altar, but a wall written by hand knows
+      // nothing about a position rolled sixteen lines earlier. Pushing it out
+      // afterwards is the fix that cannot go stale as layouts change. Inside a
+      // BUILDING is fine and even good: it is a reason to go in.
+      if (this.obstacles.pushOut(this.altar.x, this.altar.y, 60, ALTAR_FIX)) {
+        this.altar.x = ALTAR_FIX.x;
+        this.altar.y = ALTAR_FIX.y;
+      }
     }
     this.stageEvents.load(stage, this.data.stages.STAGE_EVENTS);
 

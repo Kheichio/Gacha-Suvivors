@@ -14,6 +14,7 @@ import { CONFIG, DEV_MODE, SIM_MODE, PERF_MODE, TEST_MODE, QUERY, IS_BROWSER } f
 import { input, ACT } from './core/input.js';
 import { audio } from './core/audio.js';
 import { save } from './core/save.js';
+import { attachAdmin } from './core/admin.js';
 import { events, EV } from './core/events.js';
 import { initRenderer } from './render/renderer.js';
 import { camera } from './render/camera.js';
@@ -209,6 +210,12 @@ export async function boot() {
   resize();
 
   await sceneManager.init(data);
+  // The testing console, on `window.gs`. Attached AFTER the scene manager so
+  // `gs.run()` can reach the live run, and deliberately not gated on DEV_MODE:
+  // DEV_MODE is what hides the ref names, so gating on it would mean the one
+  // build worth testing is the build that cannot be tested. Deleting this line
+  // and src/core/admin.js removes it entirely.
+  attachAdmin(data, sceneManager);
   bootProgress(1);
 
   const b = bootEl();

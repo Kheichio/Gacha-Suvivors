@@ -414,17 +414,79 @@ const SHAPES = {
    * thinner ring arrives as pure outline with no stone left in it.
    */
   fountain(ctx, cx, cy, r) {
+    // A SCALLOPED basin rim, not a plain circle. The first pass was three
+    // concentric arcs, and three concentric arcs at 64px with a 4.5px outline on
+    // each is a blur — every edge in it was a soft curve of the same weight, so
+    // there was nothing for the eye to catch. Twelve scallops give the outer
+    // wall a hard, repeating silhouette that survives the outline pass, and the
+    // straight-edged inner ring under it gives the shape a second, DIFFERENT
+    // rhythm so the two rings cannot merge into one grey doughnut.
     ctx.beginPath();
-    ctx.moveTo(cx + r, cy);
-    ctx.arc(cx, cy, r, 0, TAU);                       // the basin's outer wall
-    ctx.moveTo(cx + r * 0.70, cy);
-    ctx.arc(cx, cy, r * 0.70, 0, TAU, true);          // ...punched to a ring
-    ctx.moveTo(cx + r * 0.46, cy);
-    ctx.arc(cx, cy, r * 0.46, 0, TAU);                // the pedestal
-    ctx.moveTo(cx + r * 0.30, cy);
-    ctx.arc(cx, cy, r * 0.30, 0, TAU, true);
-    ctx.moveTo(cx + r * 0.16, cy);
-    ctx.arc(cx, cy, r * 0.16, 0, TAU);                // the spout
+    const N = 12;
+    for (let k = 0; k <= N; k++) {
+      const a = (k / N) * TAU;
+      const rr = r * (k & 1 ? 0.90 : 1.0);
+      const px = cx + Math.cos(a) * rr, py = cy + Math.sin(a) * rr;
+      if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    // ...punched out to a rim of real thickness. 0.72 leaves 0.28r of stone,
+    // which is just over the 0.26r the atlas's own stroke needs to survive.
+    ctx.moveTo(cx + r * 0.72, cy);
+    ctx.arc(cx, cy, r * 0.72, 0, TAU, true);
+    // The pedestal, as an OCTAGON. A circle inside a circle inside a circle is
+    // the thing that read as blurry; a flat-sided plinth is instantly masonry.
+    ctx.moveTo(cx + r * 0.44, cy);
+    for (let k = 1; k <= 8; k++) {
+      const a = (k / 8) * TAU;
+      ctx.lineTo(cx + Math.cos(a) * r * 0.44, cy + Math.sin(a) * r * 0.44);
+    }
+    ctx.closePath();
+    ctx.moveTo(cx + r * 0.28, cy);
+    ctx.arc(cx, cy, r * 0.28, 0, TAU, true);
+    ctx.moveTo(cx + r * 0.15, cy);
+    ctx.arc(cx, cy, r * 0.15, 0, TAU);                // the spout
+    ctx.closePath();
+  },
+
+  /**
+   * A CHERRY TREE FROM ABOVE — the canopy, in blossom.
+   *
+   * The stage is named for these and did not have one. It has to separate from
+   * `hedge` at a glance and from more than the colour: a hedge is CLIPPED, so
+   * its outline is a shallow, regular scallop, and this is not clipped at all.
+   * Five overlapping lobes of different sizes on a fixed pattern give it a
+   * lumpy, asymmetric crown, and the trunk shows as a hole punched through the
+   * middle — which is the one cue that says "seen from above" rather than
+   * "a pink bush".
+   */
+  sakura(ctx, cx, cy, r) {
+    // ONE CONTINUOUS OUTLINE, not a pile of overlapping circles.
+    //
+    // The first draft was six arcs in one path and it came back looking like a
+    // cut flower: `stroke()` strokes EVERY subpath, including the parts buried
+    // inside the union, so each lobe drew its own full dark ring through the
+    // middle of its neighbours. Anything built out of overlapping subpaths has
+    // to be a shape the outline can trace in one go — which is exactly why
+    // `hedge` above is a single closed curve and not eleven circles.
+    //
+    // So: a radius function. Five big lobes, an irregular second harmonic on top
+    // so no two are the same size, and a fixed phase — an obstacle that is a
+    // different shape on a replay of the same seed is an obstacle that spent the
+    // run stream on being pretty.
+    const N = 44;
+    ctx.beginPath();
+    for (let k = 0; k <= N; k++) {
+      const a = (k / N) * TAU;
+      const rr = r * (0.80 + 0.16 * Math.cos(a * 5 + 0.6) + 0.06 * Math.cos(a * 3 - 1.7));
+      const px = cx + Math.cos(a) * rr, py = cy + Math.sin(a) * rr;
+      if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    // The trunk, reverse-wound so it is a hole rather than a disc — and a hole
+    // is the one cue that says "canopy seen from above" and not "pink bush".
+    ctx.moveTo(cx + r * 0.14, cy);
+    ctx.arc(cx, cy, r * 0.14, 0, TAU, true);
     ctx.closePath();
   },
 
@@ -733,25 +795,86 @@ SHAPES.carrot.overlay = function (ctx, cx, cy, r, color, accent) {
   ctx.fill();
 };
 
-/** The water in the basin and in the spout bowl, and the light on it. */
+/**
+ * THE WATER, and the hard edges the stone version could not carry.
+ *
+ * The overlay is where the detail has to live, because the shape path is filled
+ * with ONE gradient and stroked with ONE accent — so every extra ring in the
+ * path cost another 4.5px of soft outline and bought nothing. Here the water
+ * gets: a flat body, EIGHT radial jets (hard, straight, alternating length), a
+ * bright inner ring at the pedestal's foot, a rim highlight on the upper left
+ * and a rim shadow on the lower right. All of them are straight lines or hard
+ * arcs, which is exactly what the first version had none of.
+ */
 SHAPES.fountain.overlay = function (ctx, cx, cy, r, color, accent) {
-  ctx.fillStyle = 'rgba(120,190,235,0.55)';
+  // the water body
+  ctx.fillStyle = 'rgba(96,168,214,0.72)';
   ctx.beginPath();
-  ctx.moveTo(cx + r * 0.70, cy);
-  ctx.arc(cx, cy, r * 0.70, 0, TAU);
-  ctx.moveTo(cx + r * 0.46, cy);
-  ctx.arc(cx, cy, r * 0.46, 0, TAU, true);
+  ctx.moveTo(cx + r * 0.72, cy);
+  ctx.arc(cx, cy, r * 0.72, 0, TAU);
+  ctx.moveTo(cx + r * 0.44, cy);
+  ctx.arc(cx, cy, r * 0.44, 0, TAU, true);
   ctx.fill();
-  // One lit crescent on the water, upper left, so the ring is a surface rather
-  // than a hole cut in the stone.
-  ctx.strokeStyle = 'rgba(220,244,255,0.7)';
+  // eight jets thrown out from the spout across the water
+  ctx.strokeStyle = 'rgba(226,246,255,0.85)';
+  ctx.lineWidth = Math.max(1, r * 0.055);
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * TAU + 0.2;
+    const r0 = r * 0.46, r1 = r * (k & 1 ? 0.62 : 0.70);
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
+    ctx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+    ctx.stroke();
+  }
+  // the ring of foam where the water meets the plinth
+  ctx.strokeStyle = 'rgba(236,250,255,0.75)';
   ctx.lineWidth = Math.max(1, r * 0.07);
   ctx.beginPath();
-  ctx.arc(cx, cy, r * 0.58, Math.PI * 1.05, Math.PI * 1.55);
+  ctx.arc(cx, cy, r * 0.50, 0, TAU);
   ctx.stroke();
-  ctx.fillStyle = 'rgba(200,236,255,0.9)';
+  // rim light upper-left, rim shadow lower-right: the two arcs that give the
+  // basin a direction of light and stop it reading as a flat washer.
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.lineWidth = Math.max(1, r * 0.09);
   ctx.beginPath();
-  ctx.arc(cx, cy, r * 0.14, 0, TAU);
+  ctx.arc(cx, cy, r * 0.80, Math.PI * 1.02, Math.PI * 1.62);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(20,14,26,0.42)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.80, Math.PI * 0.06, Math.PI * 0.60);
+  ctx.stroke();
+  // the spout itself, brightest thing on the prop
+  ctx.fillStyle = 'rgba(240,252,255,0.95)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.13, 0, TAU);
+  ctx.fill();
+};
+
+/** Blossom: two lit clumps, one shaded, and the trunk showing through. */
+SHAPES.sakura.overlay = function (ctx, cx, cy, r, color, accent) {
+  ctx.fillStyle = 'rgba(255,255,255,0.26)';
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.36, cy - r * 0.34, r * 0.30, 0, TAU);
+  ctx.arc(cx + r * 0.30, cy - r * 0.18, r * 0.22, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(120,40,80,0.22)';
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.24, cy + r * 0.42, r * 0.30, 0, TAU);
+  ctx.fill();
+  // A few darker petal clusters, so the canopy has texture rather than being
+  // one flat pink coin with a hole in it.
+  ctx.fillStyle = 'rgba(214,110,158,0.55)';
+  for (let k = 0; k < 5; k++) {
+    const a = k * 1.9 + 0.6;
+    const d = r * (0.34 + 0.22 * (k & 1));
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, r * 0.11, 0, TAU);
+    ctx.fill();
+  }
+  // the trunk in the hole
+  ctx.fillStyle = '#5c3a2c';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.12, 0, TAU);
   ctx.fill();
 };
 

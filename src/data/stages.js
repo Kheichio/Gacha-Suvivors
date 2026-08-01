@@ -760,6 +760,22 @@ export const OBSTACLE_SETS = {
         box: { color: '#2f6a38', edge: '#16301c' },
       },
       {
+        // THE CHERRY TREES. The stage is named for them and it did not have one.
+        // Pink, and pink all the way through: the canopy is the blossom, not a
+        // green tree with pink dots on it.
+        id: 'sakura', detail: 'none',
+        visual: { shape: 'sakura', color: '#ffa8cf', accent: '#5c2a44', size: 32, flash: false },
+        box: { color: '#6b4a3a', edge: '#2a1a14' },
+      },
+      {
+        // WALLS. Boxes, so they never blit a sprite — obstacles.js draws a
+        // rectangle plus a detail pass — and `lattice` is the cross that reads
+        // as a rendered wall panel rather than as a crate.
+        id: 'wall', detail: 'lattice',
+        visual: { shape: 'hedge', color: '#8a6a80', accent: '#3a2436', size: 32, flash: false },
+        box: { color: '#7d5f74', edge: '#33202f' },
+      },
+      {
         id: 'fountain', detail: 'none',
         visual: { shape: 'fountain', color: '#9aa4b0', accent: '#2a3038', size: 32, flash: false },
         box: { color: '#8e98a6', edge: '#2a3038' },
@@ -779,41 +795,85 @@ export const OBSTACLE_SETS = {
         box: { color: '#7a6a52', edge: '#2a2018' },
       },
     ],
+    /**
+     * THE WALLS ARE THE LAYOUT NOW.
+     *
+     * The three buildings are enterable, so each one needs a real barrier with a
+     * real gap in it, and the gap has to line up with the path that leads there.
+     * Everything below is in arena FRACTIONS on the same 20-cell grid the
+     * backdrop paints, so a wall and the floor under it can never disagree:
+     * one cell is 0.05, so cell k spans k*0.05 .. (k+1)*0.05.
+     *
+     *   south wall of the main building   row j=3   -> y 0.15..0.20, centre 0.175
+     *   east wall of the west wing        col i=3   -> x 0.15..0.20, centre 0.175
+     *   west wall of the east wing        col i=16  -> x 0.80..0.85, centre 0.825
+     *   the doors                         cells 9..10 -> 0.45..0.55
+     *
+     * Each wall is TWO boxes with the door between them, so nothing has to model
+     * a hole. Half-extents, because addBox takes half-extents.
+     */
     layout: [
-      // THE FOUNTAIN, dead centre — which is also where the player spawns, so
-      // it is offset a little up the path rather than exactly on 0.5/0.5.
-      { kind: 'fountain', x: 0.50, y: 0.42, r: 0.042 },
+      // --- the main building's south wall, door at x 0.45..0.55 ------------
+      { kind: 'wall', x: 0.225, y: 0.175, w: 0.45, h: 0.05 },
+      { kind: 'wall', x: 0.775, y: 0.175, w: 0.45, h: 0.05 },
+      // --- the west wing's east wall, door at y 0.45..0.55 -----------------
+      { kind: 'wall', x: 0.175, y: 0.325, w: 0.05, h: 0.25 },
+      { kind: 'wall', x: 0.175, y: 0.725, w: 0.05, h: 0.25 },
+      // --- the east wing's west wall, same ---------------------------------
+      { kind: 'wall', x: 0.825, y: 0.325, w: 0.05, h: 0.25 },
+      { kind: 'wall', x: 0.825, y: 0.725, w: 0.05, h: 0.25 },
+      // --- and the wings' own south ends, so a wing is a room and not a
+      //     corridor you can run out of the bottom of ------------------------
+      { kind: 'wall', x: 0.075, y: 0.80, w: 0.15, h: 0.05 },
+      { kind: 'wall', x: 0.925, y: 0.80, w: 0.15, h: 0.05 },
+      // --- the perimeter wall at the bottom, gate at x 0.45..0.55 ----------
+      { kind: 'wall', x: 0.225, y: 0.925, w: 0.45, h: 0.05 },
+      { kind: 'wall', x: 0.775, y: 0.925, w: 0.45, h: 0.05 },
 
-      // BENCHES facing the path, in pairs, down its length.
-      { kind: 'bench', x: 0.415, y: 0.30, w: 0.040, h: 0.011 },
-      { kind: 'bench', x: 0.585, y: 0.30, w: 0.040, h: 0.011 },
-      { kind: 'bench', x: 0.415, y: 0.58, w: 0.040, h: 0.011 },
-      { kind: 'bench', x: 0.585, y: 0.58, w: 0.040, h: 0.011 },
-      { kind: 'bench', x: 0.415, y: 0.74, w: 0.040, h: 0.011 },
-      { kind: 'bench', x: 0.585, y: 0.74, w: 0.040, h: 0.011 },
+      // THE FOUNTAIN, on the main path north of the crossing. Not dead centre:
+      // the player spawns at 0.5/0.5 and the crossing is there.
+      { kind: 'fountain', x: 0.50, y: 0.36, r: 0.042 },
 
-      // HEDGES edging the four lawns. Two runs either side, set well off the
-      // kerb so the path itself is never pinched — the horde steers rather than
-      // pathfinds, and a corridor is the one shape that turns that into a wall.
-      { kind: 'hedge', x: 0.30, y: 0.22, r: 0.030 },
-      { kind: 'hedge', x: 0.30, y: 0.34, r: 0.030 },
-      { kind: 'hedge', x: 0.30, y: 0.46, r: 0.030 },
-      { kind: 'hedge', x: 0.70, y: 0.22, r: 0.030 },
-      { kind: 'hedge', x: 0.70, y: 0.34, r: 0.030 },
-      { kind: 'hedge', x: 0.70, y: 0.46, r: 0.030 },
-      { kind: 'hedge', x: 0.30, y: 0.62, r: 0.030 },
-      { kind: 'hedge', x: 0.30, y: 0.74, r: 0.030 },
-      { kind: 'hedge', x: 0.30, y: 0.86, r: 0.030 },
-      { kind: 'hedge', x: 0.70, y: 0.62, r: 0.030 },
-      { kind: 'hedge', x: 0.70, y: 0.74, r: 0.030 },
-      { kind: 'hedge', x: 0.70, y: 0.86, r: 0.030 },
+      // CHERRY TREES, four to a lawn quarter, well back from both paths. They
+      // are the biggest blockers on the map and the thing the stage is named
+      // for, so they get the corners and the hedges get the edges.
+      { kind: 'sakura', x: 0.29, y: 0.30, r: 0.036 },
+      { kind: 'sakura', x: 0.71, y: 0.30, r: 0.036 },
+      { kind: 'sakura', x: 0.29, y: 0.70, r: 0.036 },
+      { kind: 'sakura', x: 0.71, y: 0.70, r: 0.036 },
+      { kind: 'sakura', x: 0.36, y: 0.62, r: 0.030 },
+      { kind: 'sakura', x: 0.64, y: 0.62, r: 0.030 },
+      { kind: 'sakura', x: 0.36, y: 0.38, r: 0.030 },
+      { kind: 'sakura', x: 0.64, y: 0.38, r: 0.030 },
 
-      // PLANTERS flanking the main doors at the top of the path, and two more
-      // just inside the gate, so both ends of the walk are announced.
-      { kind: 'planter', x: 0.44, y: 0.13, w: 0.016, h: 0.016 },
-      { kind: 'planter', x: 0.56, y: 0.13, w: 0.016, h: 0.016 },
-      { kind: 'planter', x: 0.44, y: 0.855, w: 0.016, h: 0.016 },
-      { kind: 'planter', x: 0.56, y: 0.855, w: 0.016, h: 0.016 },
+      // HEDGES edging the lawns, set well off every kerb: the horde STEERS
+      // rather than pathfinds, so a pinched path is the one shape that turns an
+      // acceptable approximation into a wall.
+      { kind: 'hedge', x: 0.26, y: 0.46, r: 0.026 },
+      { kind: 'hedge', x: 0.26, y: 0.55, r: 0.026 },
+      { kind: 'hedge', x: 0.74, y: 0.46, r: 0.026 },
+      { kind: 'hedge', x: 0.74, y: 0.55, r: 0.026 },
+      { kind: 'hedge', x: 0.40, y: 0.24, r: 0.026 },
+      { kind: 'hedge', x: 0.60, y: 0.24, r: 0.026 },
+      { kind: 'hedge', x: 0.40, y: 0.78, r: 0.026 },
+      { kind: 'hedge', x: 0.60, y: 0.78, r: 0.026 },
+
+      // BENCHES facing the two paths, in pairs.
+      { kind: 'bench', x: 0.425, y: 0.27, w: 0.036, h: 0.010 },
+      { kind: 'bench', x: 0.575, y: 0.27, w: 0.036, h: 0.010 },
+      { kind: 'bench', x: 0.425, y: 0.68, w: 0.036, h: 0.010 },
+      { kind: 'bench', x: 0.575, y: 0.68, w: 0.036, h: 0.010 },
+      { kind: 'bench', x: 0.30, y: 0.435, w: 0.010, h: 0.032 },
+      { kind: 'bench', x: 0.70, y: 0.435, w: 0.010, h: 0.032 },
+
+      // PLANTERS flanking each of the three doors, so every way in is announced
+      // from the outside as well as from the floor plan.
+      { kind: 'planter', x: 0.435, y: 0.225, w: 0.014, h: 0.014 },
+      { kind: 'planter', x: 0.565, y: 0.225, w: 0.014, h: 0.014 },
+      { kind: 'planter', x: 0.225, y: 0.435, w: 0.014, h: 0.014 },
+      { kind: 'planter', x: 0.225, y: 0.565, w: 0.014, h: 0.014 },
+      { kind: 'planter', x: 0.775, y: 0.435, w: 0.014, h: 0.014 },
+      { kind: 'planter', x: 0.775, y: 0.565, w: 0.014, h: 0.014 },
     ],
   },
 
