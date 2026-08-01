@@ -1757,17 +1757,19 @@ const RIMA = {
   },
   autoAttack: {
     id: 'orb_of_deception', name: 'Orb of Deception',
-    desc: 'An orb thrown 430px out and pulled straight back to her hand. ' +
-          '30 damage going, 30 coming home, and it passes through everything ' +
-          'both ways. Half her damage is on the return trip, so the shot is ' +
-          'only worth what her feet were doing while it was away.',
-    interval: 0.62, damage: 30, targeting: { mode: 'nearest' },
+    desc: 'A pale blue orb thrown 470px out THE WAY SHE IS FACING and pulled ' +
+          'straight back to her hand. 30 damage going, 30 coming home, and it ' +
+          'passes through everything both ways. Half her damage is on the ' +
+          'return trip, so the shot is only worth what her feet were doing ' +
+          'while it was away — and she aims it, so the line is hers to pick.',
+    interval: 0.62, damage: 30, targeting: { mode: 'facing' },
   },
   special: {
-    id: 'charm', name: 'CHARM', cooldown: 20,
-    desc: 'For 5s nothing within 340px can see her at all. They are dragged to ' +
-          'the middle of their own crowd and left there taking 34 damage a ' +
-          'second off each other, and she is untargetable for the whole of it.',
+    id: 'fox_fire', name: 'FOX-FIRE', cooldown: 20,
+    desc: 'Three flames rise off her and hang there. For 6s, every 0.55s three ' +
+          'of them peel away at whatever is nearest inside 460px for 62 damage ' +
+          'each — about thirty flames — and they turn hard enough that running ' +
+          'from one is not an answer.',
   },
   escape: {
     id: 'spirit_rush', name: 'Spirit Rush', cooldown: 7, iframes: 0.45, charges: 3,
@@ -1783,9 +1785,8 @@ const RIMA = {
           'time, and never once given back.',
   },
   starUpgrades: {
-    s3: 'CHARM runs 7s instead of 5.',
-    s5: 'Spirit Rush recharges 30% faster, so the third dash is genuinely a ' +
-        'resource rather than an emergency.',
+    s3: 'FOX-FIRE runs 9s instead of 6.',
+    s5: 'FOX-FIRE releases 4 flames a wave instead of 3.',
   },
   signatureRelic: 'the_ninth_tail',
   barks: {
@@ -1801,8 +1802,8 @@ const RIMA = {
   buildPaths: [
     'The long line — Piercing Will + Long Haul + area; the orb already pierces ' +
     'everything, so every extra pixel of travel is a second full pass through it',
-    'The revolving door — Quick Recovery + Wide Reach; CHARM every fifteen ' +
-    'seconds over 400px is a fight she simply never participates in',
+    'The pack — Quick Recovery + Sharp Edge; 30 seeking flames every 15 seconds ' +
+    'is the highest single-target output on the roster and it needs no aiming',
   ],
 };
 
@@ -1829,6 +1830,16 @@ const NIKA = {
   archetype: 'Loose Cannon',
   element: 'lightning',
   visual: { shape: 'capsule', color: '#ff5fa8', accent: '#6ad8ff', emoji: '💥', size: 16, glow: true },
+  /**
+   * THE AMMO BAR, and it is what stops her being a one-button character.
+   *
+   * Rockets beat the minigun in every situation a bullet heaven produces, so a
+   * free toggle between them is not a choice — it is a correct answer you press
+   * once and never revisit. Every rocket spends ammo, an empty tube drops her
+   * back to the gun on the spot, and only the gun refills it. The rotation is
+   * therefore forced and it has a rhythm: shred, bank, dump, get kicked out.
+   */
+  resourceBar: { id: 'ammo', label: 'AMMO', color: '#6ad8ff', max: 100 },
   stats: {
     hp: 108, armor: 0, moveSpeed: 174, pickupRadius: 52,
     damageMult: 1.0, attackSpeedMult: 1.15, areaMult: 1.05,
@@ -1836,10 +1847,11 @@ const NIKA = {
   },
   autoAttack: {
     id: 'switcheroo', name: 'Switcheroo!',
-    desc: 'MINIGUN: one shot every 0.34s at the nearest thing for 21. ROCKETS: ' +
-          'every OTHER shot, aimed at the thickest part of the crowd, for 48 in ' +
-          'a 120px blast. Same trigger, same interval, half the cadence and ' +
-          'five times the splash.',
+    desc: 'MINIGUN: one shot every 0.34s at the nearest thing for 21, and it ' +
+          'refills 13 AMMO a second. ROCKETS: every OTHER shot, aimed at the ' +
+          'thickest part of the crowd, for 48 in a 120px blast — and each one ' +
+          'costs 11 AMMO. Run the tube dry and she is back on the gun that ' +
+          'instant, whether or not she was ready.',
     interval: 0.34, damage: 21, targeting: { mode: 'nearest' },
   },
   special: {

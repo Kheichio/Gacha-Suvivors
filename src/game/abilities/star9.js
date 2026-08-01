@@ -68,21 +68,48 @@ const C_CHOMPER = '#7bf59a';
 // danger, so the retrieval and the disengage are the same button and pressing it
 // well means having thrown well ten seconds earlier.
 
-/** One blade, in the ground, waiting. Same shape as the auto's, unrotated. */
-const V_BLADE = { shape: 'shard', color: C_STEEL, accent: C_KARIN_DARK, size: 9, rotates: true, glow: true };
-const V_PLANTED = { shape: 'shard', color: C_STEEL, accent: C_KARIN_DARK, size: 11, flash: false };
+/**
+ * ACTUAL DAGGERS. `shard` was standing in for these, and a shard is a leaf —
+ * a projectile silhouette with no handle, which is why a floor covered in her
+ * property read as a floor covered in litter. `SHAPES.dagger` carries a
+ * crossguard, and the crossguard is the whole read at nine pixels.
+ */
+const V_BLADE = { shape: 'dagger', color: C_STEEL, accent: C_KARIN_DARK, size: 9, rotates: true, glow: true };
+const V_PLANTED = { shape: 'dagger', color: C_STEEL, accent: C_KARIN_DARK, size: 12, flash: false };
 const SP_PLANTED = H.atlas.register(V_PLANTED);
 H.atlas.register(V_BLADE);
 
-/** Standing in the floor. `shard` points +X, so this stands it on its nose. */
+/** Standing in the floor. `dagger` points +X, so this stands it on its point. */
 const BLADE_NOSE_DOWN = Math.PI * 0.5;
 
 const BLADE_SPEED = 760;
 const BLADE_FLIGHT = 0.26;
 const BLADE_LIFE = 9;
-/** How close is close enough to sweep one up. Deliberately NOT through H.area:
- *  pickup reach is a movement contract, and Wide Reach must not widen it. */
-const BLADE_PICKUP = 72;
+/**
+ * HOW CLOSE IS CLOSE ENOUGH TO SWEEP ONE UP.
+ *
+ * This was a flat 72px and it was the single thing wrong with the character.
+ * Measured: four seconds of autos followed by sweeping a 400-pixel disc around
+ * her collected ONE blade. The reason is geometric rather than buggy — the auto
+ * throws at whatever is nearest, so blades land wherever the crowd happened to
+ * be, three to six hundred pixels out and never twice in the same place, and a
+ * 72px disc dragged through that almost never intersects one. The loop the whole
+ * character is built on simply did not close.
+ *
+ * So it is generous, and it SCALES WITH HER PICKUP STAT. That is the important
+ * half: Magnet is now a build-defining upgrade for her instead of a gem-vacuum,
+ * which is exactly the kind of thing a signature loop should be teaching. It
+ * still does not go through `H.area` — Wide Reach widens what she hits, not how
+ * far her arm reaches.
+ */
+const BLADE_PICKUP_BASE = 120;
+const BLADE_PICKUP_STAT = 2.0;
+function bladeReach(p) {
+  const r = (p.stats.pickupRadius || 50) * BLADE_PICKUP_STAT;
+  return r > BLADE_PICKUP_BASE ? r : BLADE_PICKUP_BASE;
+}
+/** Shunpo sweeps everything within this of where it LANDS, not just its target. */
+const SHUNPO_SWEEP = 190;
 const BLADE_REFUND = 0.7;
 const BLADE_STACK = 0.012;
 const BLADE_DASH = 460;
@@ -166,9 +193,28 @@ const LOTUS_DAMAGE = 42;
 const LOTUS_BLADES = 3;
 const LOTUS_HIT = { falloff: 0.15, element: 'steel', knockback: 90 };
 const LOTUS_FX = { life: 0.34, width: 5, spokes: 12 };
-const LOTUS_SPIN = { speed: 260, life: 0.36, size: 0.4, drag: 2.6, shape: 'shard' };
+const LOTUS_SPIN = { speed: 260, life: 0.36, size: 0.4, drag: 2.6, shape: 'dagger' };
+/** The swept blades. `scale` is set per volley off the reach; see SCYTHE_UNIT. */
+const LOTUS_SWEEP = { life: 0.26, sweep: 1, scale: 1, ghosts: 3, alpha: 0.9 };
+const LOTUS_UNIT = 0.9 / Math.max(1, SP_PLANTED.w);
 
 const SHUNPO_IFRAME_FX = { speed: 220, life: 0.34, size: 0.36, additive: true };
+const SHUNPO_SWEEP_FX = { life: 0.30, width: 4, from: 20, spokes: 14 };
+
+/**
+ * THE SPIN, AND IT IS THE SPRITE THAT SPINS.
+ *
+ * "Make her actually turn round" is not something a front-facing pixel plan can
+ * do honestly — there is no back view to show, and drawing one would be a second
+ * character. What a 2D sprite CAN do, and what reads as a full turn at this
+ * size, is the coin flip: squash the horizontal scale to nothing and let it come
+ * back out mirrored. Through zero, the silhouette is a vertical sliver; either
+ * side of it, it is her, facing the other way. The eye fills in the rest.
+ *
+ * `p.flags.spinHz` is read by Player.draw. Zero or absent means no spin at all,
+ * so this costs every other character in the game exactly nothing.
+ */
+const LOTUS_SPIN_HZ = 2.6;
 
 // =============================================================================
 //                    RIMA — "Nine Reasons To Stay"
@@ -185,39 +231,78 @@ const SHUNPO_IFRAME_FX = { speed: 220, life: 0.34, size: 0.36, additive: true };
 // everything in the circle is dragged to one point and grinds itself down there.
 // She is not invulnerable — she is IRRELEVANT, which is a different feeling.
 
-const V_ORB = { shape: 'circle', color: C_ARCANE, accent: C_RIMA_DARK, size: 13, rotates: true, glow: true };
-const ORB_SPEED = 430;
-const ORB_OUT = 0.42;
+/**
+ * THE ORB IS LIGHT BLUE AND IT IS A SPHERE THAT SPINS.
+ *
+ * It was a magenta `circle` with a glow, which is a bullet. `SHAPES.orb` is a
+ * disc with a crescent bitten out of the upper left and a wound tail through it,
+ * so it reads as a THING TURNING rather than as a dot of light — and the colour
+ * is the pale cyan the reference actually throws, not the pink of her hair.
+ */
+const C_ORB = '#7fd4ff';
+const C_ORB_DEEP = '#1a3a5c';
+const V_ORB = { shape: 'orb', color: C_ORB, accent: C_ORB_DEEP, size: 14, rotates: true, glow: true };
+const ORB_SPEED = 470;
+const ORB_OUT = 0.40;
 const ORB_HIT = { falloff: 0, element: 'spirit', knockback: 40 };
 const ORB = {
   motion: H.MOTION.BOOMERANG, originX: 0, originY: 0, outTime: ORB_OUT,
-  damage: 0, speed: ORB_SPEED, life: 1.5, radius: 15, pierce: 99,
-  element: 'spirit', visual: V_ORB, trailColor: C_ARCANE,
-  owner: null, tag: 'rima_orb', knockback: 40,
+  damage: 0, speed: ORB_SPEED, life: 1.6, radius: 16, pierce: 99,
+  element: 'spirit', visual: V_ORB, trailColor: C_ORB,
+  owner: null, tag: 'rima_orb', knockback: 40, spin: 7,
 };
-const RIMA_AIM = { mode: 'nearest' };
+/**
+ * IT GOES WHERE SHE IS LOOKING. `nearest` made the orb a turret — it swung to
+ * whatever happened to be closest on the frame she threw, which is the one
+ * behaviour that stops a there-and-back weapon being about positioning at all.
+ * `facing` puts the line under the player's control, which is the whole point:
+ * she aims it, walks it onto a row, and the return trip is hers to earn.
+ */
+const RIMA_AIM = { mode: 'facing' };
 const ORB_FX = { speed: 200, life: 0.2, size: 0.34, additive: true };
+/** The comet tail. Emitted per frame from the live orb, not from the muzzle. */
+const ORB_TRAIL = { color: C_ORB, life: 0.34, size: 0.5, sizeEnd: 0.06, drag: 2.2, additive: true };
+const ORB_HALO = { color: '#dff2ff', life: 0.22, size: 0.34, sizeEnd: 0.02, drag: 3, additive: true };
 
-const CHARM_TIME = 5;
-const CHARM_RADIUS = 340;
-const CHARM_DPS = 34;
-const CHARM_PULL = { param: 150 };
-const CHARM_FX = { life: 0.6, width: 6, from: 30, spokes: 20 };
-const CHARM_HEART = { speed: 120, life: 1.0, size: 0.46, drag: 2.2, shape: 'flower' };
-const CHARM_MOTE = { color: C_ARCANE, life: 0.9, size: 0.4, sizeEnd: 0.1, drag: 1.6, additive: true };
+// --- FOX-FIRE, which replaced the charm ------------------------------------
+//
+// THE CHARM DID NOT WORK AND IT WAS NOT GOING TO. What the reference does is
+// turn one enemy around and walk it toward you; what this engine has is a taunt
+// that points a crowd at a POINT, and there is no enemy-versus-enemy damage
+// anywhere in it. So the honest version — taunt them to their own centroid and
+// drop a damage field on it to stand in for them fighting — was a pull-well
+// with extra steps, and it read as one. It never said "charmed", it said
+// "something is sucking them in", which is a mechanic the game already has
+// three of.
+//
+// Fox-Fire is the other half of the same kit and it is a thing this engine is
+// genuinely good at: three flames that hang around her and then LEAVE, one at a
+// time, at whatever is nearest. Homing projectiles are a solved problem here,
+// the seek is the fantasy rather than an approximation of it, and it fixes the
+// real complaint about her — that outside the orb's out-and-back she had no
+// reason to be looking anywhere in particular.
+const FIRE_TIME = 6;
+const FIRE_CADENCE = 0.55;
+const FIRE_COUNT = 3;
+const FIRE_DAMAGE = 62;
+const FIRE_RANGE = 460;
+const FIRE_ORBIT = 74;
+const V_FIRE = { shape: 'foxfire', color: C_ORB, accent: C_RIMA_DARK, size: 11, rotates: true, glow: true };
+const FIRE_SHOT = {
+  motion: H.MOTION.HOMING, target: null, turnRate: 9,
+  damage: 0, speed: 620, life: 1.5, radius: 13, pierce: 0,
+  element: 'spirit', visual: V_FIRE, trailColor: C_ORB,
+  owner: null, tag: 'rima_fire', knockback: 60,
+};
+H.atlas.register(V_FIRE);
+const FIRE_AIM = { mode: 'nearest', range: FIRE_RANGE };
+const FIRE_SPAWN = { color: C_ORB, life: 0.4, size: 0.5, sizeEnd: 0.05, drag: 2, additive: true };
+const FIRE_HALO = { life: 0.5, width: 4, from: 18, spokes: 14 };
+/** Up to twelve at once; `collectNearest` caps at 12 and writes into this. */
+const FIRE_TARGETS = [];
 
-/** Shared scratch for the charm's enemy walk. Never read across calls. */
+/** Shared scratch. Never read across calls. */
 const S = { t: 0, x: 0, y: 0, n: 0, sx: 0, sy: 0 };
-
-function charmOne(e) {
-  // Taunted to the CENTROID of the crowd rather than to the player. That one
-  // argument is the whole ability: they walk to each other instead of to her.
-  H.applyTaunt(e.st, S.t, S.x, S.y);
-  H.applyPull(e.st, S.t, S.x, S.y, 150);
-  H.applyNoRegen(e.st, S.t);
-  S.n++;
-}
-function sumPosition(e) { S.sx += e.x; S.sy += e.y; S.n++; }
 
 const RUSH_DIST = 320;
 const RUSH_DAMAGE = 55;
@@ -249,7 +334,8 @@ const THEFT_STACK = 0.008;
 // the drop, and then she gets three seconds of a completely still arena.
 
 const V_BULLET = { shape: 'shard', color: C_NIKA_PINK, accent: C_NIKA_DARK, size: 7, rotates: true, glow: true };
-const V_ROCKET = { shape: 'triangle', color: C_NIKA_BLUE, accent: C_NIKA_DARK, size: 11, rotates: true, glow: true };
+/** An actual rocket — nose, body, fins, lit nozzle. `triangle` was a dart. */
+const V_ROCKET = { shape: 'rocket', color: C_NIKA_BLUE, accent: C_NIKA_DARK, size: 12, rotates: true, glow: true };
 const V_CHOMPER = { shape: 'hex', color: C_CHOMPER, accent: '#14301c', size: 13, flash: false };
 const SP_CHOMPER = H.atlas.register(V_CHOMPER);
 H.atlas.register(V_BULLET);
@@ -257,6 +343,25 @@ H.atlas.register(V_ROCKET);
 
 const MODE_MINIGUN = 0;
 const MODE_ROCKETS = 1;
+
+/**
+ * THE AMMO BAR, and it is what stops her being a one-button character.
+ *
+ * Rockets are strictly better than the minigun in every situation a bullet
+ * heaven produces — more damage, splash, aimed at the crowd — so a free toggle
+ * between them is not a choice, it is a correct answer you press once and never
+ * revisit. The bar is the cost: every rocket that leaves the tube spends ammo,
+ * an empty tube drops her back to the minigun on the spot, and the minigun is
+ * what refills it. The rotation is therefore forced and it has a rhythm:
+ * shred with the gun, bank ammo, dump it as splash, get kicked back out.
+ *
+ * `resourceBar` on the character card is the sanctioned way to surface this —
+ * one of exactly three character-specific fields the data layer allows.
+ */
+const AMMO_MAX = 100;
+const AMMO_PER_ROCKET = 11;
+const AMMO_REGEN = 13;          // per second, minigun only
+const AMMO_SWAP_COST = 0;       // the swap itself is free; the firing is not
 
 const BULLET = {
   motion: H.MOTION.STRAIGHT, damage: 0, speed: 980, life: 0.9, radius: 7, pierce: 1,
@@ -349,9 +454,11 @@ registerAll({
         return;
       }
       ctx.active = true;
-      ctx.t = LOTUS_TIME;
+      ctx.t = ctx.s3 ? LOTUS_TIME + 1.0 : LOTUS_TIME;
       ctx.castT = 0;
+      ctx.spin = 0;
       p.flags.auraColor = C_BLOOD;
+      p.flags.spinHz = LOTUS_SPIN_HZ;      // SHE TURNS. See LOTUS_SPIN_HZ above.
       H.grade(run, C_BLOOD, 0.3, 0.6);
       H.announce(run, 'DEATH LOTUS', C_BLOOD);
       H.camera.punch(0.04, 0.3);
@@ -378,6 +485,17 @@ registerAll({
         const ty = H.clamp(p.y + Math.sin(a) * d, run.bounds.minY + 24, run.bounds.maxY - 24);
         throwBlade(run, p, p.x, p.y, tx, ty, LANDED_DAMAGE);
       }
+      // THE BLADE WALL. Four daggers swept round her on the spin's own angle,
+      // as PROPS rather than as a light ring — the point of the move is that
+      // she is surrounded by steel, and a coloured circle says nothing about
+      // steel. `sweepSprite` blits in the source-over pass, so they read as
+      // objects over the stage instead of as another additive flash.
+      for (let k = 0; k < 4; k++) {
+        LOTUS_SWEEP.sweep = k & 1 ? 1 : -1;
+        LOTUS_SWEEP.scale = r * LOTUS_UNIT;
+        H.effects.sweepSprite(p.x, p.y, ctx.spin + k * (H.TAU / 4), 1.5,
+                              r * 0.62, SP_PLANTED, LOTUS_SWEEP);
+      }
       H.effects.burstRing(p.x, p.y, r, C_BLOOD, LOTUS_FX);
       H.particles.ring(p.x, p.y, 8, C_STEEL, r * 2.2);
       H.particles.burst(p.x, p.y, 5, C_BLOOD, LOTUS_SPIN);
@@ -385,6 +503,7 @@ registerAll({
     },
     end(run, p, ctx) {
       p.flags.auraColor = null;
+      p.flags.spinHz = 0;
       H.particles.ring(p.x, p.y, 14, C_BLOOD, 280);
     },
   },
@@ -415,11 +534,20 @@ registerAll({
         // AIMED: a retrieval that re-aims to the stick is a retrieval that
         // misses the thing it exists to collect.
         H.blink(run, p, best.x, best.y, ctx.def.iframes, H.AIMED);
-        collectBlade(run, p, best);
       } else {
         H.dash(run, p, a, reach, ctx.def.iframes);
       }
+      // AND SHE SWEEPS EVERYTHING WHERE SHE LANDS, not just the one blade she
+      // aimed at. Blades land in clumps because the crowd fights in clumps, so
+      // collecting exactly one out of a pile of five is the version of this that
+      // feels broken — and the spin drops a dozen in one place on purpose.
+      const s2 = SHUNPO_SWEEP * SHUNPO_SWEEP;
+      for (let i = 0; i < BLADE_SLOTS; i++) {
+        const b = BLADES[i];
+        if (b.live && b.run === run && H.dist2(p.x, p.y, b.x, b.y) <= s2) collectBlade(run, p, b);
+      }
       H.effects.afterimage(p.x, p.y, a, 30, C_STEEL, RUSH_FX);
+      H.effects.burstRing(p.x, p.y, SHUNPO_SWEEP, C_STEEL, SHUNPO_SWEEP_FX);
       H.particles.cone(p.x, p.y, a + Math.PI, 0.9, 8, C_STEEL, SHUNPO_IFRAME_FX);
       H.audio.play('escape');
       H.camera.punch(0.03, 0.2);
@@ -440,7 +568,8 @@ registerAll({
       bladeSlot = 0; landingSlot = 0;
     },
     tick(run, p, ctx, dt) {
-      const pick2 = BLADE_PICKUP * BLADE_PICKUP;
+      const reach = bladeReach(p);
+      const pick2 = reach * reach;
       for (let i = 0; i < BLADE_SLOTS; i++) {
         const b = BLADES[i];
         if (!b.live) continue;
@@ -477,61 +606,72 @@ registerAll({
     },
   },
 
-  charm: {
-    // "For 5s nothing inside 340px can see her at all: they are dragged to the
-    //  middle of their own crowd and left there taking 34 a second. She is
-    //  untargetable for the whole of it."
-    //  S3: 7s. S5: it also heals her for a tenth of what it deals.
+  fox_fire: {
+    // "Three flames rise off her and hang there. For 6s, every 0.55s three of
+    //  them peel away at whatever is nearest inside 460px for 62 damage each —
+    //  about thirty flames over the duration — and they turn hard enough that
+    //  running from one is not an answer."
+    //  S3: 9s. S5: four a wave instead of three.
     cast(run, p, ctx, opts) {
       if (H.isHostile(opts)) {
+        // The boss gets the volley and none of the duration.
         const o = H.origin(run, p, opts);
-        H.hostileDamage(run, opts, o.x, o.y, H.area(p, CHARM_RADIUS),
-                        H.abilityDamage(run, p, CHARM_DPS * 2, opts));
+        H.hostileDamage(run, opts, o.x, o.y, H.area(p, 200),
+                        H.abilityDamage(run, p, FIRE_DAMAGE * 2, opts));
         H.audio.play('telegraph');
         return;
       }
-      const dur = ctx.s3 ? CHARM_TIME + 2 : CHARM_TIME;
-      const r = H.area(p, CHARM_RADIUS);
-
-      // THE CENTROID FIRST. Everything is taunted to where the crowd already
-      // IS, so they converge on each other rather than on a point she picked —
-      // which is what makes it read as them turning on one another.
-      S.sx = 0; S.sy = 0; S.n = 0;
-      H.forEachEnemyIn(run, p.x, p.y, r, sumPosition);
-      const cx = S.n > 0 ? S.sx / S.n : p.x;
-      const cy = S.n > 0 ? S.sy / S.n : p.y;
-
-      S.t = dur; S.x = cx; S.y = cy; S.n = 0;
-      H.forEachEnemyIn(run, p.x, p.y, r, charmOne);
-
-      // The grinder they make of themselves. A real field, so it keeps working
-      // on anything that wanders in for the whole five seconds.
-      H.field(run, p, cx, cy, CHARM_RADIUS * 0.55, dur, 'damage',
-              H.abilityDamage(run, p, CHARM_DPS), C_ARCANE, CHARM_PULL);
-
       ctx.active = true;
-      ctx.t = dur;
-      ctx.cx = cx; ctx.cy = cy;
-      ctx.moteT = 0;
-      H.applyUntargetable(p.st, dur);
-      p.flags.auraColor = C_ARCANE;
-      H.effects.shockwave(p.x, p.y, r, C_ARCANE, CHARM_FX);
-      H.particles.burst(cx, cy, 12, C_ARCANE, CHARM_HEART);
-      H.grade(run, C_ARCANE, 0.32, 0.6);
-      H.announce(run, 'CHARM', C_ARCANE);
-      H.floaters.spawn(p.x, p.y - 40, S.n + ' CHARMED', C_ARCANE, 16, 1.0);
+      ctx.t = ctx.s3 ? FIRE_TIME + 3 : FIRE_TIME;
+      ctx.castT = 0;
+      ctx.orbit = 0;
+      p.flags.auraColor = C_ORB;
+      H.effects.shockwave(p.x, p.y, H.area(p, 190), C_ORB, FIRE_HALO);
+      H.particles.ring(p.x, p.y, 14, C_ORB, 300);
+      H.grade(run, C_ORB, 0.30, 0.55);
+      H.announce(run, 'FOX-FIRE', C_ORB);
+      H.camera.punch(0.03, 0.26);
       H.audio.play('special');
     },
     tick(run, p, ctx, dt) {
-      ctx.moteT -= dt;
-      if (ctx.moteT > 0) return;
-      ctx.moteT = 0.14;
-      H.particles.drift(ctx.cx + H.fxRng.signed() * 90, ctx.cy + H.fxRng.signed() * 90,
-                        C_ARCANE, CHARM_MOTE);
+      // The ones still WAITING, orbiting her shoulder. Particles rather than
+      // projectiles: they do no damage until they leave, and a damaging orbit
+      // would be a second ability nobody asked for.
+      ctx.orbit += dt * 2.6;
+      for (let k = 0; k < FIRE_COUNT; k++) {
+        const a = ctx.orbit + k * (H.TAU / FIRE_COUNT);
+        H.particles.drift(p.x + Math.cos(a) * FIRE_ORBIT,
+                          p.y + Math.sin(a) * FIRE_ORBIT, C_ORB, FIRE_SPAWN);
+      }
+
+      ctx.castT -= dt;
+      if (ctx.castT > 0) return;
+      ctx.castT += FIRE_CADENCE;
+
+      // THEY SEEK, AND THEY SEEK DIFFERENT THINGS. `collectNearest` fills the
+      // shared array with up to twelve, so three flames released together go to
+      // three separate targets instead of stacking on one — which is the whole
+      // reason this reads as a pack rather than as a shotgun.
+      const n = ctx.s5 ? FIRE_COUNT + 1 : FIRE_COUNT;
+      FIRE_TARGETS.length = 0;
+      H.collectNearest(run, p, H.area(p, FIRE_RANGE), null, n, FIRE_TARGETS);
+      if (FIRE_TARGETS.length === 0) return;
+      FIRE_SHOT.damage = H.abilityDamage(run, p, FIRE_DAMAGE);
+      FIRE_SHOT.owner = p;
+      for (let k = 0; k < n; k++) {
+        const t = FIRE_TARGETS[k % FIRE_TARGETS.length];
+        if (!t) continue;
+        const a = ctx.orbit + k * (H.TAU / n);
+        FIRE_SHOT.target = t;
+        run.projectiles.fire(p.x + Math.cos(a) * FIRE_ORBIT,
+                             p.y + Math.sin(a) * FIRE_ORBIT,
+                             H.angleTo(p.x, p.y, t.x, t.y), FIRE_SHOT);
+      }
+      H.audio.play('shoot');
     },
     end(run, p, ctx) {
       p.flags.auraColor = null;
-      H.particles.ring(ctx.cx, ctx.cy, 14, C_RIMA_GOLD, 320);
+      H.particles.ring(p.x, p.y, 12, C_ORB, 260);
     },
   },
 
@@ -589,10 +729,36 @@ registerAll({
       ctx.mode = MODE_MINIGUN;
       ctx.beat = 0;
       p.flags.nikaMode = MODE_MINIGUN;
+      // `p.resource` / `p.resourceMax` is the engine's generic bar — a NUMBER on
+      // the player, declared as `resourceBar` on the character card and rendered
+      // by the HUD without knowing what it means. The ability owns the value.
+      p.resource = p.resourceMax;
+    },
+    /**
+     * The refill. Minigun only — standing in rocket form does not reload you,
+     * which is the entire reason the rotation exists rather than a preference.
+     */
+    tick(run, p, ctx, dt) {
+      if (ctx.mode === MODE_MINIGUN && p.resource < p.resourceMax) {
+        p.addResource(AMMO_REGEN * dt);
+      }
     },
     fire(run, p, ctx, opts) {
       const o = H.origin(run, p, opts);
-      const rockets = ctx.mode === MODE_ROCKETS;
+      let rockets = ctx.mode === MODE_ROCKETS;
+
+      // OUT OF AMMO IS OUT OF ROCKETS, on the frame it happens rather than at
+      // the next press. Being dropped back to the gun mid-volley is the whole
+      // feedback loop; making the player press the button to find out would put
+      // the cost somewhere they are not looking.
+      if (rockets && p.resource < AMMO_PER_ROCKET) {
+        ctx.mode = MODE_MINIGUN;
+        p.flags.nikaMode = MODE_MINIGUN;
+        rockets = false;
+        H.floaters.spawn(p.x, p.y - 40, 'OUT!', C_NIKA_BLUE, 15, 0.8);
+        H.particles.burst(p.x, p.y, 8, C_NIKA_BLUE, MUZZLE_FX);
+        H.audio.play('uiBack');
+      }
 
       // HALF CADENCE, COUNTED HERE. The card says one interval and means it; a
       // mode that quietly rewrote the attack-speed stat would be lying about a
@@ -612,7 +778,10 @@ registerAll({
         ROCKET.owner = p;
         ROCKET.aoeRadius = H.area(p, ROCKET_BLAST);
         ROCKET.aoeDamage = ROCKET.damage;
-        H.spread(run, p, o.x, o.y, t.angle, n, 0.22, ROCKET);
+        const fired = H.spread(run, p, o.x, o.y, t.angle, n, 0.22, ROCKET);
+        // Charged per rocket that actually LEFT, not per press, so Extra Shot
+        // costs what it gives and a volley the pool refused is not billed.
+        p.addResource(-AMMO_PER_ROCKET * (fired || n));
         H.particles.cone(o.x, o.y, t.angle, 0.4, 6, C_NIKA_BLUE, MUZZLE_FX);
         H.camera.punch(0.02, 0.14);
       } else {

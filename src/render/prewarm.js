@@ -100,6 +100,8 @@ const PARTICLE_PAIRS = [
   // Rima's charm scatters flowers; Nika's chompers bite in hexes. Neither shape
   // is in the cross product and neither ever will be — one character each.
   ['#ff7ad0', 'flower'], ['#7bf59a', 'hex'],
+  // ...and Karin's spin throws dagger-shaped chips in her own red.
+  ['#c8203a', 'dagger'],
 ];
 
 /**
@@ -206,11 +208,11 @@ const EFFECT_VISUALS = [
   // by the time the boot pass snapshots the atlas is an ORDERING accident, and
   // tests/renderSmoke.js fails the build the moment it goes the other way.
   // Listing them makes it the boot pass's job either way.
-  { shape: 'shard', color: '#dfe8f5', accent: '#1b1f2a', size: 9, rotates: true, glow: true },
-  { shape: 'shard', color: '#dfe8f5', accent: '#1b1f2a', size: 11, flash: false },
-  { shape: 'circle', color: '#ff7ad0', accent: '#2a1a3a', size: 13, rotates: true, glow: true },
+  { shape: 'dagger', color: '#dfe8f5', accent: '#1b1f2a', size: 9, rotates: true, glow: true },
+  { shape: 'dagger', color: '#dfe8f5', accent: '#1b1f2a', size: 12, flash: false },
+  { shape: 'orb', color: '#7fd4ff', accent: '#1a3a5c', size: 14, rotates: true, glow: true },
   { shape: 'shard', color: '#ff5fa8', accent: '#2a2233', size: 7, rotates: true, glow: true },
-  { shape: 'triangle', color: '#6ad8ff', accent: '#2a2233', size: 11, rotates: true, glow: true },
+  { shape: 'rocket', color: '#6ad8ff', accent: '#2a2233', size: 12, rotates: true, glow: true },
   { shape: 'hex', color: '#7bf59a', accent: '#14301c', size: 13, flash: false },
   // ...and the two projectiles their signature relics throw (game/relicHooks.js).
   { shape: 'shard', color: '#dfe8f5', accent: '#1b1f2a', size: 9, rotates: true, glow: true },

@@ -580,7 +580,21 @@ export class Player {
     // ever one player, so there is nobody to fall into lockstep with.
     const dx = this.x - this.px, dy = this.y - this.py;
     const anim = this.sprite.animIndexFor(this.run.time, dx * dx + dy * dy, 0);
-    r.drawSprite(this.sprite, x, y, 0, scale, a, this.flashT > 0, anim);
+    // THE COIN-FLIP SPIN. An ability that wants the character to turn all the
+    // way round sets `flags.spinHz`; the horizontal scale then runs through zero
+    // and out the other side, so the silhouette narrows to a sliver and comes
+    // back MIRRORED. There is no back view to show — a front-facing pixel plan
+    // does not have one, and drawing one would be a second character — and this
+    // is what a 2D sprite can honestly do instead. Absent or zero on every other
+    // character, in which case the whole thing costs one property read.
+    const hz = this.flags.spinHz || 0;
+    if (hz > 0) {
+      const xs = Math.cos(this.run.time * hz * TAU);
+      r.drawSprite(this.sprite, x, y, 0, scale, a, this.flashT > 0, anim,
+                   Math.abs(xs) < 0.06 ? 0.06 : Math.abs(xs));
+    } else {
+      r.drawSprite(this.sprite, x, y, 0, scale, a, this.flashT > 0, anim);
+    }
 
     // Aura ring while a transformation is active — the loudest state read.
     if (this.flags.auraColor) {

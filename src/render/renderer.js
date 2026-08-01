@@ -130,7 +130,13 @@ export class Renderer {
    * @param flash  true -> the pre-rastered white silhouette
    * @param anim   animation frame index for sheet-backed sprites
    */
-  drawSprite(sprite, x, y, rot, scale, alpha, flash, anim) {
+  /**
+   * @param xScale optional horizontal squash, 0..1, for the coin-flip spin.
+   *               Omitted on every call but one; when present it narrows the
+   *               drawn width about the sprite's own centre and nothing else,
+   *               so it costs one multiply and never touches the transform.
+   */
+  drawSprite(sprite, x, y, rot, scale, alpha, flash, anim, xScale) {
     if (x < this.cullMinX || x > this.cullMaxX || y < this.cullMinY || y > this.cullMaxY) {
       this.stats.culled++;
       return;
@@ -138,7 +144,7 @@ export class Renderer {
     const img = flash ? sprite.flashAt(rot || 0, anim || 0) : sprite.frameAt(rot || 0, anim || 0);
     if (!img) return;
     const s = scale === undefined ? 1 : scale;
-    const w = sprite.w * s, h = sprite.h * s;
+    const w = sprite.w * s * (xScale === undefined ? 1 : xScale), h = sprite.h * s;
     if (alpha !== undefined && alpha !== this._alpha) { this._alpha = alpha; this.ctx.globalAlpha = alpha; }
     // (v + 0.5) | 0 rounding at draw time keeps sprites off half-pixels, which is
     // the difference between crisp and mushy at integer zooms.

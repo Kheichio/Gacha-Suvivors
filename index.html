@@ -4,6 +4,43 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Gacha Survivors</title>
+
+<!--
+  TAB ICON AND SOCIAL EMBED.
+
+  Both assets are LOCAL FILES generated from the game's own sprite system
+  (see the note in package.json / scratch tooling): the card is a slice of the
+  real roster over the real stage-1 palette, and the favicon is the mascot's own
+  bust. Nothing here reaches a CDN, an icon service or a font host, because
+  tests/run.js greps this file for a remote origin and fails the build on one —
+  and because a game whose whole premise is "open the folder and read all of it"
+  should not fetch its own face from somebody else's server.
+
+  og:image WANTS AN ABSOLUTE URL. Facebook, Discord, Slack and iMessage all
+  resolve it against nothing — a relative path is silently dropped and you get a
+  bare link. Set the two `content` values below to wherever this is hosted; they
+  are left relative so the repo is honest about not knowing, and a relative card
+  still works on the platforms that do resolve it (Twitter/X, Telegram).
+-->
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="favicon.png">
+<meta name="theme-color" content="#0b0814">
+<meta name="author" content="Studio8Heads">
+<meta name="description" content="An anime bullet-heaven roguelike. Pull a roster of 28, build a kit out of whatever the level-up screen offers, and survive fifteen minutes of it. Zero dependencies, no build step.">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Gacha Survivors">
+<meta property="og:title" content="Gacha Survivors">
+<meta property="og:description" content="An anime bullet-heaven roguelike. Pull a roster of 28, build a kit out of whatever the level-up screen offers, and survive fifteen minutes of it. Created by Studio8Heads.">
+<meta property="og:image" content="social-card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A crowd of pixel-art character portraits from Gacha Survivors.">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Gacha Survivors">
+<meta name="twitter:description" content="An anime bullet-heaven roguelike. Pull a roster of 28 and survive fifteen minutes. Created by Studio8Heads.">
+<meta name="twitter:image" content="social-card.png">
 <style>
   /*
     TYPOGRAPHY, AND WHY THERE IS NO @font-face HERE.
@@ -88,6 +125,16 @@
     letter-spacing: .16em; text-transform: uppercase;
     text-shadow: 0 1px 2px rgba(0,0,0,.9);
   }
+  /* THE CREDIT. Under the status line and quieter than it, because the boot
+     screen has exactly one sentence doing the talking and this is not it. It
+     lives here rather than on the canvas so it is present from the first
+     painted frame — before the atlas has rasterised anything at all. */
+  #bootby {
+    margin-top: 22px;
+    font-family: var(--font-ui); font-size: 12px; font-weight: 400;
+    color: #6d7799; letter-spacing: .10em;
+  }
+  #bootby b { color: #9fb0d8; font-weight: 700; letter-spacing: .06em; }
   #fatal {
     position: absolute; inset: 0; z-index: 100; display: none; padding: 24px;
     overflow: auto; background: #12060c; color: #ffb4c6; font: 13px/1.5 ui-monospace, Consolas, monospace;
@@ -104,6 +151,7 @@
     <div id="bootrule"></div>
     <div id="bootbar"><i></i></div>
     <div id="bootmsg">booting…</div>
+    <div id="bootby">created by <b>Studio8Heads</b></div>
   </div>
   <div id="fatal"><h2>The run derailed.</h2><pre id="fatalmsg"></pre></div>
 </div>

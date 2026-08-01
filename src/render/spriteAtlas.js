@@ -519,6 +519,105 @@ const SHAPES = {
   },
 
   /**
+   * A DAGGER. Points +X: blade, then a crossguard, a grip and a pommel.
+   *
+   * `shard` was standing in for this and a shard is a projectile silhouette —
+   * a leaf. What makes a dagger a dagger at nine pixels is not the blade, it is
+   * the CROSSGUARD: one hard notch three quarters of the way down that breaks
+   * the taper. Everything here exists to keep that notch legible after the
+   * atlas's `size * 0.14` outline has eaten into both sides of it, which is why
+   * the guard is 0.44r deep against a blade that is only 0.30r.
+   */
+  dagger(ctx, cx, cy, r) {
+    ctx.beginPath();
+    // the blade — a long triangle with a slight belly, tip at +X
+    ctx.moveTo(cx + r, cy);
+    ctx.lineTo(cx - r * 0.04, cy - r * 0.30);
+    ctx.lineTo(cx - r * 0.20, cy - r * 0.24);
+    ctx.lineTo(cx - r * 0.20, cy + r * 0.24);
+    ctx.lineTo(cx - r * 0.04, cy + r * 0.30);
+    ctx.closePath();
+    // the crossguard — the one hard horizontal in the whole shape
+    ctx.moveTo(cx - r * 0.32, cy - r * 0.44);
+    ctx.lineTo(cx - r * 0.18, cy - r * 0.44);
+    ctx.lineTo(cx - r * 0.18, cy + r * 0.44);
+    ctx.lineTo(cx - r * 0.32, cy + r * 0.44);
+    ctx.closePath();
+    // the grip
+    ctx.moveTo(cx - r * 0.78, cy - r * 0.15);
+    ctx.lineTo(cx - r * 0.32, cy - r * 0.15);
+    ctx.lineTo(cx - r * 0.32, cy + r * 0.15);
+    ctx.lineTo(cx - r * 0.78, cy + r * 0.15);
+    ctx.closePath();
+    // the pommel
+    ctx.moveTo(cx - r * 0.78, cy - r * 0.27);
+    ctx.lineTo(cx - r * 0.94, cy - r * 0.20);
+    ctx.lineTo(cx - r * 0.94, cy + r * 0.20);
+    ctx.lineTo(cx - r * 0.78, cy + r * 0.27);
+    ctx.closePath();
+  },
+
+  /**
+   * A ROCKET. Points +X: nose cone, body, two fins and a flared skirt.
+   *
+   * `triangle` was standing in for this, which is a dart. A rocket needs THREE
+   * things and a triangle has none of them — a blunt body that does not taper,
+   * fins that break the silhouette outward at the back, and a nozzle that is
+   * wider than the body it hangs off. The fins are drawn as part of the same
+   * path so the outline wraps them into the shape.
+   */
+  rocket(ctx, cx, cy, r) {
+    ctx.beginPath();
+    // nose cone into a parallel body
+    ctx.moveTo(cx + r, cy);
+    ctx.lineTo(cx + r * 0.34, cy - r * 0.30);
+    ctx.lineTo(cx - r * 0.52, cy - r * 0.30);
+    ctx.lineTo(cx - r * 0.52, cy + r * 0.30);
+    ctx.lineTo(cx + r * 0.34, cy + r * 0.30);
+    ctx.closePath();
+    // two fins, swept back off the body
+    ctx.moveTo(cx - r * 0.16, cy - r * 0.30);
+    ctx.lineTo(cx - r * 0.34, cy - r * 0.66);
+    ctx.lineTo(cx - r * 0.60, cy - r * 0.62);
+    ctx.lineTo(cx - r * 0.46, cy - r * 0.30);
+    ctx.closePath();
+    ctx.moveTo(cx - r * 0.16, cy + r * 0.30);
+    ctx.lineTo(cx - r * 0.34, cy + r * 0.66);
+    ctx.lineTo(cx - r * 0.60, cy + r * 0.62);
+    ctx.lineTo(cx - r * 0.46, cy + r * 0.30);
+    ctx.closePath();
+    // the nozzle, wider than the body
+    ctx.moveTo(cx - r * 0.52, cy - r * 0.24);
+    ctx.lineTo(cx - r * 0.86, cy - r * 0.40);
+    ctx.lineTo(cx - r * 0.86, cy + r * 0.40);
+    ctx.lineTo(cx - r * 0.52, cy + r * 0.24);
+    ctx.closePath();
+  },
+
+  /**
+   * A SPELL ORB — a sphere with a comet swirl wound through it.
+   *
+   * `circle` was standing in for this, and a circle with a glow is a bullet. An
+   * orb has to read as a THING SPINNING: the outer disc, a crescent bitten out
+   * of the upper left where the light is, and a wound tail that says which way
+   * it is turning. The crescent and the tail are reverse-wound holes, so the
+   * outline traces them and the stage shows through — which is the difference
+   * between a marble and a ball of light.
+   */
+  orb(ctx, cx, cy, r) {
+    ctx.beginPath();
+    ctx.moveTo(cx + r, cy);
+    ctx.arc(cx, cy, r, 0, TAU);
+    // the bite: an off-centre disc punched out of the upper left
+    ctx.moveTo(cx - r * 0.30 + r * 0.46, cy - r * 0.30);
+    ctx.arc(cx - r * 0.30, cy - r * 0.30, r * 0.46, 0, TAU, true);
+    // and a small counter-eye lower right, so the two holes spiral
+    ctx.moveTo(cx + r * 0.42 + r * 0.17, cy + r * 0.36);
+    ctx.arc(cx + r * 0.42, cy + r * 0.36, r * 0.17, 0, TAU, true);
+    ctx.closePath();
+  },
+
+  /**
    * A CARROT. Tapers to a point along +X, fronds trailing off the back.
    *
    * The character who throws these had them drawn as `triangle` — an orange
@@ -848,6 +947,52 @@ SHAPES.fountain.overlay = function (ctx, cx, cy, r, color, accent) {
   ctx.beginPath();
   ctx.arc(cx, cy, r * 0.13, 0, TAU);
   ctx.fill();
+};
+
+/** A steel fuller down the blade and a lit edge, so it reads as forged. */
+SHAPES.dagger.overlay = function (ctx, cx, cy, r, color, accent) {
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.lineWidth = Math.max(1, r * 0.08);
+  ctx.beginPath();
+  ctx.moveTo(cx + r * 0.86, cy);
+  ctx.lineTo(cx - r * 0.10, cy);
+  ctx.stroke();
+  ctx.fillStyle = accent || 'rgba(30,20,26,0.6)';
+  ctx.fillRect(cx - r * 0.72, cy - r * 0.10, r * 0.36, r * 0.20);   // grip wrap
+};
+
+/** A hot nozzle and a warhead band — the two things that say "this explodes". */
+SHAPES.rocket.overlay = function (ctx, cx, cy, r, color, accent) {
+  ctx.fillStyle = 'rgba(255,220,120,0.9)';
+  ctx.beginPath();
+  ctx.moveTo(cx - r * 0.60, cy - r * 0.22);
+  ctx.lineTo(cx - r * 0.84, cy - r * 0.34);
+  ctx.lineTo(cx - r * 0.84, cy + r * 0.34);
+  ctx.lineTo(cx - r * 0.60, cy + r * 0.22);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = accent || 'rgba(24,18,32,0.75)';
+  ctx.fillRect(cx + r * 0.10, cy - r * 0.30, r * 0.16, r * 0.60);
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.fillRect(cx - r * 0.40, cy - r * 0.26, r * 0.50, r * 0.09);   // body highlight
+};
+
+/** The core, and a wound tail of light — the orb is spinning, not floating. */
+SHAPES.orb.overlay = function (ctx, cx, cy, r, color, accent) {
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.10, cy + r * 0.06, r * 0.26, 0, TAU);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+  ctx.lineWidth = Math.max(1, r * 0.11);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.66, Math.PI * 0.15, Math.PI * 1.05);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+  ctx.lineWidth = Math.max(1, r * 0.07);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.88, Math.PI * 0.55, Math.PI * 1.45);
+  ctx.stroke();
 };
 
 /** Blossom: two lit clumps, one shaded, and the trunk showing through. */

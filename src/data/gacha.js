@@ -156,8 +156,22 @@ const POOL_4 = ['hoshino_rei', 'yamikage', 'uzu', 'captain_yuli', 'kagura', 'uni
 // character in two rarity pools at once is not a rarer character, it is a bug —
 // she would roll off both the 8% band and the 1% band and the pull screen would
 // print two different beam colours for the same result.
+/**
+ * THE ★5 STANDARD POOL — the ten that shipped, and only those ten.
+ *
+ * These are the characters a player can pull anywhere, forever, off any banner
+ * including the free one. That is deliberate and it is the floor the whole
+ * economy stands on: a player with no fragments and no luck still has a roster
+ * that grows, and a rate-up they cannot afford is not a wall.
+ *
+ * Everything added AFTER launch is banner-exclusive instead (see BANNERS). The
+ * split is not a monetisation decision, it is a legibility one — "the ten are
+ * always here, everyone else lives on a banner with their name on it" is a rule
+ * a player can hold in their head, and "some of the new ones are in the standard
+ * pool and some are not" is not.
+ */
 const POOL_5 = ['rin', 'niten', 'shiro_same', 'reika', 'nekromina', 'hikari', 'kira',
-                'yukine', 'wren', 'brant', 'karin', 'nika'];
+                'yukine', 'wren', 'brant'];
 
 /**
  * The full ★6 roster, shared by every rate-up banner.
@@ -181,7 +195,25 @@ const POOL_5 = ['rin', 'niten', 'shiro_same', 'reika', 'nekromina', 'hikari', 'k
  * you off the losing half of the coin flip. Featuring is a scheduling dial the
  * owner turns; obtainability is a pool invariant, and the pool is correct.
  */
-const POOL_6 = ['sovereign_alicia', 'sora', 'han', 'aoi', 'mirel', 'akane', 'pekora', 'rima'];
+/**
+ * ★6 IS BANNER-EXCLUSIVE, ONE PER BANNER, AND THIS LIST IS NOW ONLY A LEDGER.
+ *
+ * It used to be every rate-up's `pool[6]`, so losing a 50/50 handed you a random
+ * ★6 out of the whole bracket. That is the standard genre answer and it is the
+ * wrong one for a roster this size: with eight of them the loser prize is a
+ * character you were not pulling for seven times out of eight, the rate-up's
+ * name stops meaning anything, and there is no reason to ever pull a specific
+ * banner over the one with the nicest art.
+ *
+ * Each banner now holds exactly ONE ★6 in its pool — its own — so a ★6 pull on
+ * a banner is that character, always. The 50/50 goes with it (`rateUpChance: 1`,
+ * `guaranteedOnLoss: false`): there is nothing to lose it to.
+ *
+ * Nothing reads this array at runtime any more. It is kept because it is the one
+ * place the full ★6 bracket is written down next to the banners, and the boot
+ * validator's rarity cross-check is easier to reason about with it here.
+ */
+const POOL_6_ALL = ['sovereign_alicia', 'sora', 'han', 'aoi', 'mirel', 'akane', 'pekora', 'rima'];
 
 // -----------------------------------------------------------------------------
 // BANNERS
@@ -222,16 +254,16 @@ export const BANNERS = [
     subDesc: 'Win the ★6 coin flip and she is yours. Lose it and the next ★6 is hers, guaranteed.',
     featured6: 'sovereign_alicia',
     featured5: ['rin', 'reika', 'hikari'],
-    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: POOL_6 },
+    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: ['sovereign_alicia'] },
     costSingle: 15,
     costTen: 135,
     currency: 'starFragments',
     normalizeRates: false,
     /** The 50/50: a won ★6 is the featured one half the time. */
-    rateUpChance: 0.5,
+    rateUpChance: 1,
     /** Lose it and the next ★6 is featured, no questions asked. Stored per
      *  banner as save.gacha.guaranteedFeatured[bannerId]. */
-    guaranteedOnLoss: true,
+    guaranteedOnLoss: false,
     /** Same split one rarity down: half of all ★5s come from featured5,
      *  uniformly among the three. The other half rolls the full ★5 pool. */
     rateUp5Chance: 0.5,
@@ -259,13 +291,13 @@ export const BANNERS = [
     subDesc: 'Guaranteed ★6 by pull 80, guaranteed ★5 by pull 50. The counters stay on screen.',
     featured6: 'sora',
     featured5: ['niten', 'shiro_same'],
-    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: POOL_6 },
+    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: ['sora'] },
     costSingle: 15,
     costTen: 135,
     currency: 'starFragments',
     normalizeRates: false,
-    rateUpChance: 0.5,
-    guaranteedOnLoss: true,
+    rateUpChance: 1,
+    guaranteedOnLoss: false,
     rateUp5Chance: 0.5,
     pity5Key: 'shared',
     pity6Key: 'banner',
@@ -293,13 +325,13 @@ export const BANNERS = [
     // every ★5 in the game is favoured on EXACTLY one rate-up, and this banner
     // was carrying a single name while the others carried two or three.
     featured5: ['yukine', 'karin'],
-    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: POOL_6 },
+    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5.concat(['karin']), 6: ['aoi'] },
     costSingle: 15,
     costTen: 135,
     currency: 'starFragments',
     normalizeRates: false,
-    rateUpChance: 0.5,
-    guaranteedOnLoss: true,
+    rateUpChance: 1,
+    guaranteedOnLoss: false,
     rateUp5Chance: 0.5,
     pity5Key: 'shared',
     pity6Key: 'banner',
@@ -316,13 +348,13 @@ export const BANNERS = [
     subDesc: 'Guaranteed ★6 by pull 80, guaranteed ★5 by pull 50. She says that is no time at all.',
     featured6: 'mirel',
     featured5: ['wren', 'brant'],
-    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: POOL_6 },
+    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: ['mirel'] },
     costSingle: 15,
     costTen: 135,
     currency: 'starFragments',
     normalizeRates: false,
-    rateUpChance: 0.5,
-    guaranteedOnLoss: true,
+    rateUpChance: 1,
+    guaranteedOnLoss: false,
     rateUp5Chance: 0.5,
     pity5Key: 'shared',
     pity6Key: 'banner',
@@ -351,19 +383,103 @@ export const BANNERS = [
     // ...and Nika here, for the same reason. Twelve ★5s across five rate-ups no
     // longer divides evenly, so the two banners that were light take one each.
     featured5: ['nekromina', 'kira', 'nika'],
-    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: POOL_6 },
+    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5.concat(['nika']), 6: ['pekora'] },
     costSingle: 15,
     costTen: 135,
     currency: 'starFragments',
     normalizeRates: false,
-    rateUpChance: 0.5,
-    guaranteedOnLoss: true,
+    rateUpChance: 1,
+    guaranteedOnLoss: false,
     rateUp5Chance: 0.5,
     pity5Key: 'shared',
     pity6Key: 'banner',
     tenPullGuarantee: 4,
     inRotation: true,
     art: { color: '#5b8fe0', accent: '#101c33' },
+  },
+
+  // ---------------------------------------------------------------------------
+  // THE THREE ★6s THAT HAD NO BANNER.
+  //
+  // Han, Akane and Rima were reachable only off the losing half of somebody
+  // else's 50/50 — which, now that a ★6 pull is banner-exclusive, means not
+  // reachable at all. Each one gets the same shape as the five above: its own
+  // name on the tin, its own ★6 in the pool and nobody else's, and a pair of
+  // standard-pool ★5s favoured alongside.
+  //
+  // The ★5 favourites REPEAT here, and that is a deliberate break from the
+  // disjointness rule the first five keep among themselves. Ten standard ★5s do
+  // not divide into eight banners, and the alternative — leaving three banners
+  // with no ★5 rate-up at all — makes them strictly worse to pull for a reason
+  // that has nothing to do with the character on the front.
+  // ---------------------------------------------------------------------------
+  {
+    id: 'banner_cell_games',
+    name: 'The Tournament Ends',
+    type: 'rateup',
+    desc: 'Rate-up: ★6 Han, and he is exclusive to this banner. Half of every ★5 you pull here is Rin or Brant.',
+    subDesc: 'Guaranteed ★6 by pull 80, guaranteed ★5 by pull 50. Every ★6 on this banner is him.',
+    featured6: 'han',
+    featured5: ['rin', 'brant'],
+    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: ['han'] },
+    costSingle: 15,
+    costTen: 135,
+    currency: 'starFragments',
+    normalizeRates: false,
+    rateUpChance: 1,
+    guaranteedOnLoss: false,
+    rateUp5Chance: 0.5,
+    pity5Key: 'shared',
+    pity6Key: 'banner',
+    tenPullGuarantee: 4,
+    inRotation: true,
+    art: { color: '#7ab6e8', accent: '#241a3a' },
+  },
+
+  {
+    id: 'banner_red_tide',
+    name: 'Colours Struck',
+    type: 'rateup',
+    desc: 'Rate-up: ★6 Akane, and she is exclusive to this banner. Half of every ★5 you pull here is Niten or Yukine.',
+    subDesc: 'Guaranteed ★6 by pull 80, guaranteed ★5 by pull 50. She has already spent the fragments.',
+    featured6: 'akane',
+    featured5: ['niten', 'yukine'],
+    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: ['akane'] },
+    costSingle: 15,
+    costTen: 135,
+    currency: 'starFragments',
+    normalizeRates: false,
+    rateUpChance: 1,
+    guaranteedOnLoss: false,
+    rateUp5Chance: 0.5,
+    pity5Key: 'shared',
+    pity6Key: 'banner',
+    tenPullGuarantee: 4,
+    inRotation: true,
+    art: { color: '#c2233c', accent: '#241f2e' },
+  },
+
+  {
+    id: 'banner_nine_tails',
+    name: 'Nine Reasons To Stay',
+    type: 'rateup',
+    desc: 'Rate-up: ★6 Rima, and she is exclusive to this banner. Half of every ★5 you pull here is Shiro Same or Wren.',
+    subDesc: 'Guaranteed ★6 by pull 80, guaranteed ★5 by pull 50. Everyone always does.',
+    featured6: 'rima',
+    featured5: ['shiro_same', 'wren'],
+    pool: { 3: POOL_3, 4: POOL_4, 5: POOL_5, 6: ['rima'] },
+    costSingle: 15,
+    costTen: 135,
+    currency: 'starFragments',
+    normalizeRates: false,
+    rateUpChance: 1,
+    guaranteedOnLoss: false,
+    rateUp5Chance: 0.5,
+    pity5Key: 'shared',
+    pity6Key: 'banner',
+    tenPullGuarantee: 4,
+    inRotation: true,
+    art: { color: '#7fd4ff', accent: '#1e2a52' },
   },
 
   {
