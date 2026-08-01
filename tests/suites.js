@@ -28,7 +28,7 @@ import * as refs from '../src/data/refs.js';
 // (DECISIONS.md §22.3). If they lived in refs.js, DEV_MODE=false would print the
 // exact source-IP names the flag exists to hide.
 import { SHIP_NAMES } from '../src/data/shipNames.js';
-import { HAZARD_KINDS } from '../src/game/hazards.js';
+import { HAZARD_KINDS, HazardSystem, CAR_HITBOX } from '../src/game/hazards.js';
 import { EVENT_KINDS } from '../src/game/stageEvents.js';
 import { BEHAVIORS } from '../src/game/enemy.js';
 // The aggregator, for allVisuals() — the pre-raster harvest is a data fact and
@@ -766,6 +766,63 @@ describe('hazards', () => {
       for (const h of s.hazards || []) if (!stages.HAZARDS[h]) bad.push(`${s.id} -> "${h}"`);
     }
     assert.equal(bad.length, 0, 'unknown hazards: ' + bad.join(', '));
+  });
+
+  it('the traffic car is drawn ON the damage window, one per live lane', () => {
+    // THIS SHIPPED BROKEN AND NOTHING COULD SEE IT.
+    //
+    // The car used to be pushed through `effects.fallSprite` once per tick with
+    // a one-frame life. fallSprite animates a prop FALLING onto a point, and
+    // its `from` guard is `o.from > 0 ? o.from : 260` — so `from: 0` is falsy,
+    // took the 260px default, and every car was drawn up to 231px ABOVE the
+    // lane it was damaging, two at a time, at different alphas. Measured, not
+    // guessed. Every existing test passed: it threw nothing, drew something,
+    // and landed on screen.
+    //
+    // The contract that makes that impossible is one line: what is DRAWN and
+    // what is HIT are the same two numbers. So this compares them.
+    const hz = Object.create(HazardSystem.prototype);
+    hz.kind = 'lanes';
+    hz.lanes = [
+      { y: 300,  x: 900,  dir: 1,  active: true,  warnT: 0 },
+      { y: 2000, x: 2600, dir: -1, active: true,  warnT: 0 },
+      { y: 3700, x: 1500, dir: 1,  active: true,  warnT: 0.4 },  // still telegraphing
+      { y: 3700, x: 0,    dir: 1,  active: false, warnT: 0 },     // not running
+    ];
+    const blits = [];
+    const r = {
+      cullMinX: -1e6, cullMaxX: 1e6, cullMinY: -1e6, cullMaxY: 1e6,
+      drawSpriteRotated(sp, x, y, rot) { blits.push({ x, y, rot }); },
+      drawCircle() {}, drawRect() {}, setAlpha() {},
+    };
+    hz._drawVehicles(r);
+
+    assert.equal(blits.length, 2,
+                 'one car per RUNNING lane — a telegraphing or idle lane draws none');
+    for (const L of hz.lanes) {
+      if (!L.active || L.warnT > 0) continue;
+      const hit = blits.find((b) => b.x === L.x && b.y === L.y);
+      assert.ok(hit, `no car drawn at the damage window (${L.x}, ${L.y})`);
+      // And it faces the way it is going, or it is a car driving backwards.
+      assert.equal(Math.abs(Math.cos(hit.rot) - L.dir) < 1e-9, true,
+                   'the car is facing the wrong way down its lane');
+    }
+  });
+
+  it('the traffic car hits you where the car is', () => {
+    // The old box was 180 long x 140 wide against a car drawn 113 x 57: two
+    // thirds of what killed you was not on screen. Both assertions below fail
+    // on those numbers, and neither can be satisfied by a box that is not
+    // roughly car-shaped.
+    const P = stages.HAZARDS.traffic_lanes.params;
+    assert.ok(CAR_HITBOX.hw < CAR_HITBOX.hl,
+              'a car is longer than it is wide; this hitbox is not');
+    assert.ok(CAR_HITBOX.hw * 2 <= P.width,
+              'the player box is wider than the telegraph that warned about it');
+    // And it is not a token sliver either — a hazard you can stand inside is
+    // the opposite failure and just as invisible.
+    assert.ok(CAR_HITBOX.hw * 2 >= P.width * 0.5,
+              'the car hitbox has collapsed to less than half the lane');
   });
 });
 

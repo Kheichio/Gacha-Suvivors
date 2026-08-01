@@ -20,7 +20,6 @@ import { clamp, dist2, TAU, lerp, easeOutCubic } from '../core/math.js';
 import { areaDamage, damagePlayer, dealDamage, SRC } from './damage.js';
 import { applySlow, applyBurn } from './statusEffects.js';
 import { TELEGRAPH_COLORS, TELEGRAPH_SHAPES } from '../data/bosses.js';
-import { effects } from '../render/effects.js';
 import { atlas } from '../render/spriteAtlas.js';
 
 /**
@@ -35,13 +34,61 @@ import { atlas } from '../render/spriteAtlas.js';
  * turns the context, so one baked frame serves both directions. Both fields are
  * part of the atlas key, so a copy of this literal that differs by either one
  * bakes a SECOND car mid-run and tests/renderSmoke.js fails the build over it.
+ *
+ * IT IS DRAWN BY THIS FILE, NOT PUSHED THROUGH THE EFFECT POOL, and the first
+ * attempt got that wrong in four ways at once. It called
+ * `effects.fallSprite(...)` once per tick with a one-frame life, and fallSprite
+ * animates a prop DROPPING onto a point:
+ *
+ *   - `from: 0` is falsy, so `o.from > 0 ? o.from : 260` fell through to the
+ *     default and every car was drawn 260px ABOVE the lane it was damaging,
+ *     easing down over a lifetime it never lived long enough to finish. The
+ *     hazard hit you from a car floating over the next street.
+ *   - a one-frame life at 60Hz still leaves three of them alive at once, each
+ *     at a different point in that drop and a different alpha, 15px apart at
+ *     900px/s — a smeared column of ghost cars rather than a car.
+ *   - fallSprite paints a shadow disc too, so there were three of those.
+ *   - and it burned three of the 160 effect slots per lane per tick, which
+ *     evicts the oldest — the player's own ability effects.
+ *
+ * A car is not an effect. It is a thing that exists at a place for as long as
+ * the hazard says it does, which is a draw, not a particle.
  */
 const V_CAR = { shape: 'car', color: '#e0455f', accent: '#1a1020', size: 26, flash: false };
 const CAR_SPRITE = atlas.register(V_CAR);
-/** `life` is one frame at 60Hz: the car is re-emitted every tick it is alive,
- *  so it tracks the damage window exactly instead of drifting behind it. */
-const CAR_EAST = { life: 0.05, from: 0, scale: 2.1, angle: 0, spin: 0, alpha: 1 };
-const CAR_WEST = { life: 0.05, from: 0, scale: 2.1, angle: Math.PI, spin: 0, alpha: 1 };
+const CAR_SCALE = 3.4;
+
+/**
+ * THE PAINTED EXTENT of the car, as a fraction of its 64px sprite box. Measured
+ * off the raster, not read off the path coordinates: the shape has an outline,
+ * an underlay and an overlay, and only the pixels know where it actually ends.
+ */
+const CAR_BODY_L = 0.84, CAR_BODY_W = 0.42;
+
+/**
+ * THE BOX THAT HITS THE PLAYER *IS* THE CAR.
+ *
+ * It used to be `|dy| < width/2 && |dx| < 90` — a 180 x 140 rectangle, against
+ * a car drawn 113 long and 57 wide. Two thirds of the thing that killed you was
+ * not on screen, and 40px of clear road either side of the bonnet was lethal.
+ * That is the exact "hard vs unfair" line this file's own header is about, and
+ * it is invisible in play: you die next to a car and conclude the hitboxes are
+ * mushy, which is not a bug report anybody can act on.
+ *
+ * So both numbers come from the sprite now and cannot drift from it. The result
+ * is 92 x 46 — the same length as before and less than half the width, which is
+ * what a car actually is.
+ *
+ * `params.width` is untouched and still does its two other jobs: the telegraph
+ * beam (deliberately WIDER than the danger, which is the forgiving direction)
+ * and the enemy sweep, which is meant to be generous — trucks flatten the horde
+ * and baiting them is the point.
+ */
+export const CAR_HITBOX = {
+  scale: CAR_SCALE,
+  hl: CAR_SPRITE.w * CAR_SCALE * CAR_BODY_L * 0.5,
+  hw: CAR_SPRITE.h * CAR_SCALE * CAR_BODY_W * 0.5,
+};
 
 // --- telegraphs --------------------------------------------------------------
 function makeTelegraph() {
@@ -408,16 +455,25 @@ export class HazardSystem {
               areaDamage(run, L.x, L.y, halfW * 1.4, (P.damage || 45) * 3, SRC.HAZARD,
                          { canCrit: false, knockback: 400 });
             }
-            if (Math.abs(p.y - L.y) < halfW && Math.abs(p.x - L.x) < 90) {
+            // The CAR's footprint, not the lane's — see CAR_HITBOX.
+            if (Math.abs(p.y - L.y) < CAR_HITBOX.hw && Math.abs(p.x - L.x) < CAR_HITBOX.hl) {
               damagePlayer(run, P.damage || 45, SRC.HAZARD, { fromX: L.x, fromY: L.y });
             }
-            particles.burst(L.x, L.y, 2, '#ffd23f', { speed: 90, life: 0.3, additive: true });
-            // THE CAR ITSELF. `lanes` used to be a moving damage window with two
-            // sparks on it and nothing you could point at — the stage's signature
-            // hazard was invisible. A prop blitted source-over at the damage
-            // window's own position, facing the way it is travelling, is the
-            // whole fix, and it costs one drawSpriteRotated per live lane.
-            effects.fallSprite(L.x, L.y, CAR_SPRITE, L.dir > 0 ? CAR_EAST : CAR_WEST);
+            // SPRAY OFF THE BACK TYRES, not a shower of yellow sparks.
+            //
+            // The old burst fired TWO additive yellow particles EVERY TICK — 120
+            // a second per lane — and it was the whole of what the hazard looked
+            // like before there was a car. A glowing yellow comet is what an
+            // energy bolt looks like; it is not what a vehicle looks like, and
+            // with the car drawn on top of it the two read as two hazards. It
+            // fires four times a second now, behind the car rather than on it,
+            // in the road's own grey.
+            L.spray = (L.spray || 0) - dt;
+            if (L.spray <= 0) {
+              L.spray = 0.25;
+              particles.burst(L.x - L.dir * 70, L.y, 2, '#8e97b5',
+                              { speed: 60, life: 0.45, size: 0.5 });
+            }
             if (L.x < run.bounds.minX - 300 || L.x > run.bounds.maxX + 300) {
               L.active = false;
               L.t = (P.interval || 11) * runRng.range(0.7, 1.3);
@@ -645,24 +701,66 @@ export class HazardSystem {
       r.strokeCircle(f.x, f.y, f.radius, f.color, 2, a * 1.8);
     }
 
-    // Traffic lanes get a persistent road marking so the hazard is legible even
-    // when nothing is coming. On a stage that paints its own roads this is a
-    // dark WEAR STRIP down the middle of the carriageway rather than a band over
-    // the whole width — the backdrop has already drawn the road, and a second
-    // opaque rectangle on top of it hid the lane paint the road was drawn with.
+    // TRAFFIC LANES GET A PERSISTENT MARKING so the hazard is legible even when
+    // nothing is coming — but WHAT that marking is depends on whether the stage
+    // has drawn a road under it.
+    //
+    // Without `laneY` the lane is an abstraction on a texture, and a dark band
+    // the full width of the damage window is the honest drawing of it.
+    //
+    // With `laneY` the backdrop has already painted a carriageway, complete with
+    // its own dashed centre line, and the band was covering it up: a 47px slab
+    // of near-black straight down the middle of a road that had just been drawn.
+    // What the player actually needs to know on that stage is not "there is a
+    // road here" — they can see that — but "cars come down THIS one", and the
+    // real-world answer to that is TYRE WEAR. Two thin darkened tracks either
+    // side of the centre line say it without hiding anything.
     if (this.kind === 'lanes' && this.lanes) {
       const b = this.run.bounds;
       const w = this.params.width || 140;
-      const authored = !!this.params.laneY;
-      for (const L of this.lanes) {
-        const h = authored ? w * 0.34 : w;
-        r.drawRect(b.minX, L.y - h * 0.5, b.maxX - b.minX, h, '#161020', authored ? 0.28 : 0.5);
+      const W = b.maxX - b.minX;
+      if (this.params.laneY) {
+        for (const L of this.lanes) {
+          r.drawRect(b.minX, L.y - w * 0.30, W, 11, '#0e0a18', 0.30);
+          r.drawRect(b.minX, L.y + w * 0.30 - 11, W, 11, '#0e0a18', 0.30);
+        }
+      } else {
+        for (const L of this.lanes) r.drawRect(b.minX, L.y - w * 0.5, W, w, '#161020', 0.5);
       }
     }
     r.setAlpha(1);
   }
 
+  /**
+   * THE CARS, drawn over the horde because a car is a solid object and the
+   * things it is flattening are underneath it.
+   *
+   * One blit and one shadow per live lane, straight from this file's own state.
+   * There is no pooling and no interpolation: `L.x` IS the damage window's
+   * position, so what the player sees and what the hazard hits are the same
+   * number by construction — which is the bug that killed the first version,
+   * where the sprite was an effect animating its own way toward a point the
+   * damage had already left.
+   */
+  _drawVehicles(r) {
+    if (this.kind !== 'lanes' || !this.lanes) return;
+    for (const L of this.lanes) {
+      if (!L.active || L.warnT > 0) continue;
+      // A CAR-SHAPED shadow. A disc under a 184x92 vehicle is the wrong shape in
+      // both axes at once — too short to reach the bumpers and too tall at the
+      // flanks — and at this size that reads as a dark halo rather than as a
+      // thing sitting on the road. Offset down, because the light in this whole
+      // stage is overhead signage.
+      r.drawRect(L.x - CAR_HITBOX.hl * 0.94, L.y - CAR_HITBOX.hw * 0.72 + 17,
+                 CAR_HITBOX.hl * 1.88, CAR_HITBOX.hw * 1.44, '#000000', 0.26);
+      r.drawSpriteRotated(CAR_SPRITE, L.x, L.y, L.dir > 0 ? 0 : Math.PI,
+                          CAR_HITBOX.scale, 1, false, 0);
+    }
+    r.setAlpha(1);
+  }
+
   drawOver(r, alpha) {
+    this._drawVehicles(r);
     const tel = this.telegraphs.items;
     for (let i = 0; i < this.telegraphs.count; i++) {
       const t = tel[i];
