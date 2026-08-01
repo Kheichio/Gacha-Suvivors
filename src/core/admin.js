@@ -2,12 +2,21 @@
 // src/core/admin.js — THE TESTING CONSOLE.
 // =============================================================================
 //
-// Everything here writes the save file directly and then calls `save.touch()`,
-// which is the same door the shop, the gacha and the results screen already go
-// through. Nothing bypasses a system: granting a character calls the same
-// roster shape `rosterEntry` builds, unlocking a stage writes the same
-// `{ cleared }` flag a real clear writes, and every currency goes through
-// `addCurrency` so the lifetime-earned stats stay honest.
+// Everything here writes the save and then calls `save.save()` — the IMMEDIATE
+// write, not `save.touch()`. Touch only marks the file dirty and the flush
+// happens in `save.tick()` at most once a second, which is exactly right for the
+// hot path and exactly wrong here: type `gs.gems()`, hit reload inside a second,
+// and the grant is gone with no error. A console command is not a hot path.
+//
+// Nothing bypasses a system: granting a character writes the same roster shape
+// `rosterEntry` builds, unlocking a stage writes the same `{ cleared }` flag a
+// real clear writes, and every currency goes through `addCurrency` so the
+// lifetime-earned stats stay honest.
+//
+// MULTI-LINE OUTPUT IS console.log'd, NOT RETURNED. A browser console prints a
+// returned string as a quoted literal with the newlines escaped, so `gs.help()`
+// came back as one unreadable line of `\n`s. The long commands log the text and
+// return a short summary; the short ones still just return their confirmation.
 //
 // WHY IT IS ALWAYS ON. `DEV_MODE` is the flag that hides the ref names, and it
 // is off in anything resembling a shipping build — gating the test console on it
@@ -19,7 +28,7 @@
 // rather than `undefined`. That is the whole reason a testing tool feels usable.
 // =============================================================================
 
-import { save, addCurrency, defaultSave } from './save.js';
+import { save, addCurrency } from './save.js';
 
 /** Filled by attachAdmin, so this module never imports the data layer. */
 let DATA = null;
@@ -89,7 +98,7 @@ export const admin = {
       e.owned = true;
       e.starLevel = Math.max(e.starLevel, s);
     }
-    save.touch();
+    save.save();
     return 'granted ' + ids.length + ' character(s) at ★' + s;
   },
 
@@ -104,7 +113,7 @@ export const admin = {
       if (!e || !e.owned) continue;
       e.starLevel = s; n++;
     }
-    save.touch();
+    save.save();
     return n + ' character(s) set to ★' + s;
   },
 
@@ -116,7 +125,9 @@ export const admin = {
       return '  ' + (owned ? '★' + e.starLevel : ' - ') + '  ' +
              c.id.padEnd(20) + '★' + c.rarity + '  ' + c.name;
     });
-    return 'ROSTER (' + rows.length + ')\n' + rows.join('\n');
+    const owned = rows.filter((r) => r[2] === '★').length;
+    console.log('ROSTER (' + rows.length + ')\n' + rows.join('\n'));
+    return owned + ' / ' + rows.length + ' owned — ids are the second column';
   },
 
   // --- relics ---------------------------------------------------------------
@@ -127,16 +138,19 @@ export const admin = {
     const ids = id === undefined ? all : (all.includes(id) ? [id] : null);
     if (!ids) return 'no such relic: ' + id + '  (try gs.relics())';
     for (const rid of ids) save.data.relics[rid] = { owned: true, banked: true };
-    save.touch();
+    save.save();
     return 'owned + banked ' + ids.length + ' relic(s)';
   },
   relics() {
-    return 'RELICS (' + DATA.relics.RELICS.length + ')\n' +
+    let banked = 0;
+    console.log('RELICS (' + DATA.relics.RELICS.length + ')   B = banked, o = owned\n' +
       DATA.relics.RELICS.map((r) => {
         const e = save.data.relics[r.id];
+        if (e && e.banked) banked++;
         return '  ' + (e && e.banked ? 'B' : e && e.owned ? 'o' : '-') + '  ' +
                r.id.padEnd(28) + (r.owner || r.stageOwner || '');
-      }).join('\n');
+      }).join('\n'));
+    return banked + ' / ' + DATA.relics.RELICS.length + ' banked';
   },
 
   // --- progression ----------------------------------------------------------
@@ -149,7 +163,7 @@ export const admin = {
       e.cleared = true;
       e.clears = Math.max(1, e.clears);
     }
-    save.touch();
+    save.save();
     return 'all ' + DATA.stages.STAGES.length + ' stages marked cleared';
   },
 
@@ -159,7 +173,7 @@ export const admin = {
     for (const u of DATA.shrine.SHRINE_UPGRADES || []) {
       save.data.shrine[u.id] = u.maxLevel || 1; n++;
     }
-    save.touch();
+    save.save();
     return n + ' shrine upgrade(s) maxed';
   },
 
@@ -169,7 +183,7 @@ export const admin = {
     for (const a of DATA.achievements.ACHIEVEMENTS || []) {
       if (!save.data.achievements[a.id]) { save.data.achievements[a.id] = 1; n++; }
     }
-    save.touch();
+    save.save();
     return n + ' achievement(s) unlocked';
   },
 
@@ -224,22 +238,19 @@ export const admin = {
   /**
    * Wipe the save. Asks nothing — that is the point of a test tool.
    *
-   * Through `defaultSave()` rather than by deleting the key, so the object the
-   * rest of the game is holding a reference to stays the right SHAPE. Dropping
-   * `save.data` to null instead leaves every screen that already read it
-   * pointing at a corpse until the reload lands.
+   * Straight through `SaveManager.wipe()`, which already existed and which this
+   * originally reimplemented by hand. Doing it by hand skipped the two things
+   * that method exists for: clearing the storage key, and RESEEDING the gacha
+   * stream. Without the reseed a wiped save resumes the old pull sequence, so
+   * "fresh account" testing would have replayed the previous account's pulls.
    */
   wipe() {
-    const fresh = defaultSave();
-    for (const k of Object.keys(save.data)) delete save.data[k];
-    Object.assign(save.data, fresh);
-    save.touch();
-    save.flush ? save.flush() : null;
-    return 'save wiped. Reload the page.';
+    save.wipe();
+    return 'save wiped and the gacha stream reseeded. Reload the page.';
   },
 
   help() {
-    return [
+    console.log([
       'GACHA SURVIVORS — testing console.  Everything is on `gs`.',
       '',
       'CURRENCY',
@@ -273,7 +284,8 @@ export const admin = {
       '',
       'DANGER',
       '  gs.wipe()         erase the save',
-    ].join('\n');
+    ].join('\n'));
+    return 'everything is on `gs` — grants are written to disk immediately';
   },
 };
 
