@@ -128,22 +128,29 @@ class LevelUpScreen {
       x0 += cw + gap;
     }
 
-    // reroll / banish / skip
+    // reroll / skip. TWO buttons and one 12px gap, and the row is centred on
+    // exactly that width — `bw * 2 + 12`.
+    //
+    // There was a third, BANISH, and it is worth saying why it is gone rather
+    // than leaving a hole here for someone to "fix" by putting it back. It read
+    // `run.banishUpgrade(ui.focus)`, and `ui.focus` is the FLAT WIDGET INDEX, not
+    // a card index — widgets.js sets it to the hovered widget and requires
+    // `focus === idx` to fire at all, so at the instant the banish button
+    // activated, focus was by definition the banish button's own index (4 on a
+    // three-card screen). `levelUpChoices[4]` is undefined, so banishUpgrade()
+    // bailed on its `if (!id) return false` every single time and nothing was
+    // ever removed from any pool. The screen still replayed the card fly-in, so
+    // it looked like it had done something. There was no way to point at a card
+    // to banish it, because the button being pressed is what focus is.
     const by = y + CARD_H + 26;
     const bw = 150;
-    const bx = W / 2 - (bw * 3 + 24) / 2;
+    const bx = W / 2 - (bw * 2 + 12) / 2;
     if (ui.button('reroll', bx, by, bw, 40, `REROLL (${run.rerollsLeft})`,
                   { disabled: run.rerollsLeft <= 0, size: 14 })) {
       run.rerollUpgrades();
       this.t = 0;
     }
-    if (ui.button('banish', bx + bw + 12, by, bw, 40, `BANISH (${run.banishesLeft})`,
-                  { disabled: run.banishesLeft <= 0, size: 14,
-                    tooltip: 'Removes the focused upgrade from this run’s pool entirely.' })) {
-      run.banishUpgrade(ui.focus);
-      this.t = 0;
-    }
-    if (ui.button('skip', bx + (bw + 12) * 2, by, bw, 40,
+    if (ui.button('skip', bx + bw + 12, by, bw, 40,
                   `SKIP (+${run.data.upgrades.LEVELUP.skipGold} ⭐)`, { size: 14 })) {
       run.skipUpgrade();
     }
@@ -251,15 +258,25 @@ class LevelUpScreen {
 
     // THE NUMBER. SECTION 10's rule: never "increases damage" — the per-level
     // value and the running total, always, both computed from the data.
-    const thisLevel = formatValue(up, up.perLevel);
-    const total = formatValue(up, up.perLevel * level);
+    //
+    // Both used to be `up.perLevel` and `up.perLevel * level` inline. That was
+    // right while every row paid the same amount every time and became a LIE the
+    // moment the healing rows started ramping: a level-8 Second Wind card would
+    // have shouted "+0.2 HP/s (now +1.6 total)" at a player who was actually
+    // being handed +1.2 and ending on 5.6. Nothing would have caught it —
+    // tests/suites.js only asserts a digit appears — so the card asks the data
+    // what this level gives (deltaAt) and what the player will hold (totalAt)
+    // instead of doing the arithmetic itself.
+    const U = run.data.upgrades;
+    const thisLevel = formatValue(up, U.deltaAt(up, level));
+    const total = formatValue(up, U.totalAt(up, level), true);
     r.drawRect(x + 16, y + 74, w - 32, 1, 'rgba(150,170,225,0.22)', 1);
     ui.text(thisLevel, x + w / 2, y + 106, {
       size: fitSize(r, thisLevel, w - 30, 26, 800), color: PALETTE.text,
       align: 'center', weight: 800,
     });
     if (level > 1) {
-      const totalTxt = `now ${total} total`;
+      const totalTxt = `now ${total}`;
       ui.text(totalTxt, x + w / 2, y + 132, {
         size: fitSize(r, totalTxt, w - 30, 13, 700), color: PALETTE.accent,
         align: 'center', weight: 700,
@@ -579,7 +596,18 @@ class LevelUpScreen {
       ui.card(x, y, cw, ch, rarity, {});
       ui.text(up.icon || '◆', x + 30, y + ch / 2, { size: 26, align: 'center' });
       ui.text(up.name, x + 56, y + 26, { size: 15, color: RARITY_COLOR[rarity], weight: 800 });
-      ui.text(formatValue(up, up.perLevel), x + 56, y + 48, { size: 13, color: PALETTE.text });
+      // WHICH level this row actually granted. The chest applies every upgrade
+      // before this screen is drawn, so the player's current level IS the level
+      // this row paid — minus however many copies of the same upgrade come later
+      // in the list, because a chest can grant the same card twice in one open.
+      // (Weapon and evolution rows are chestRow() objects with no `id` and a
+      // pre-resolved `fmt`; they fall through to the level-0/perLevel path and
+      // print the line they were built with.)
+      let laterCopies = 0;
+      for (let j = i + 1; j < granted.length; j++) if (up.id && granted[j].id === up.id) laterCopies++;
+      const lv = up.id ? Math.max(1, run.player.upgradeLevel(up.id) - laterCopies) : 0;
+      ui.text(formatValue(up, lv > 0 ? run.data.upgrades.deltaAt(up, lv) : up.perLevel),
+              x + 56, y + 48, { size: 13, color: PALETTE.text });
     }
 
     ui.focusGrid(1);
@@ -1125,14 +1153,37 @@ function weaponStatRows(run, choice) {
   return out;
 }
 
-/** Renders an upgrade's per-level value using its declared unit. */
-function formatValue(up, v) {
-  if (up.fmt) {
-    const num = up.unit === 'percent' ? Math.round(v * 1000) / 10 : Math.round(v * 100) / 100;
-    return up.fmt.replace('{v}', num);
-  }
-  if (up.unit === 'percent') return '+' + (v * 100).toFixed(0) + '%';
-  return '+' + (Math.round(v * 100) / 100);
+/**
+ * Renders an upgrade's value using its declared unit. `isTotal` picks the row's
+ * `totalFmt` phrase over its `fmt` one.
+ *
+ * TWO DECLARED FIELDS WERE BEING READ BY NOTHING before the healing ramp, and
+ * both are load-bearing now.
+ *
+ *   totalFmt   Every one of the 22 rows carries one, and upgrades.js documents
+ *              the rendering as `"<fmt> (now <totalFmt>)"` — but this function
+ *              only ever used `fmt`, so the running-total line read "now +36%
+ *              damage total" instead of "now +36% total". Harmless while both
+ *              said a number; actively wrong on a row like Phantom Step, whose
+ *              totalFmt is the only place the 60% cap is written down.
+ *   decimals   second_wind and bloodthirst both declare it and it was ignored in
+ *              favour of a hardcoded 1 place for percents and 2 for flats. A
+ *              ramp can produce values the flat rows never did (a delta of
+ *              0.30000000000000004, say), and the row is the only thing that
+ *              knows how precise its own number is meant to be.
+ *
+ * `decimals` is a CEILING, not a pad: 12.0 still prints as "12". A card that
+ * writes "+12.0% total" where it used to write "+12%" has been made worse by a
+ * correctness fix, which is not a trade this screen makes.
+ */
+function formatValue(up, v, isTotal) {
+  const phrase = (isTotal && up.totalFmt) || up.fmt;
+  const scaled = up.unit === 'percent' ? v * 100 : v;
+  const places = up.decimals !== undefined ? up.decimals : (up.unit === 'percent' ? 1 : 2);
+  const p = Math.pow(10, places);
+  const num = Math.round(scaled * p) / p;
+  if (phrase) return phrase.replace('{v}', num);
+  return '+' + num + (up.unit === 'percent' ? '%' : '');
 }
 
 export const levelUpScreen = new LevelUpScreen();

@@ -1,10 +1,20 @@
-// THE SHRINE — 22 permanent meta upgrades bought with GOLD, plus bond levels and
+// THE SHRINE — 21 permanent meta upgrades bought with GOLD, plus bond levels and
 // the SECTION 5 currency award table.
 //
 // SPEC: SECTION 12 (prompt lines 1573-1597). Every stated per-level value on the
-// FIRST TEN rows is verbatim from lines 1574-1585. SECTION 5's award numbers are
-// verbatim from DECISIONS.md §1's resolved table. The twelve rows after those ten
+// FIRST NINE rows is verbatim from lines 1574-1585. SECTION 5's award numbers are
+// verbatim from DECISIONS.md §1's resolved table. The twelve rows after those nine
 // are not in the spec at all and say so, loudly, in their own block below.
+//
+// THE SPEC LISTED TEN. The tenth was BANISH and it is gone, so that the count
+// above is nine and not ten. It was not a balance call and not a taste call: the
+// level-up screen passed `ui.focus` — the flat WIDGET index, which at the moment
+// the BANISH button fires is always the banish button's own index — into
+// run.banishUpgrade(index), which reads it as a CARD index. `levelUpChoices[4]`
+// on a three-card screen is undefined, so the method returned false before
+// decrementing anything, every time, for the life of the project. The row sold
+// up to 25,200 gold of a counter that could not be spent once. Saves that bought
+// it are refunded by save.js's v2 -> v3 migration.
 //
 // PURE DATA. The shrine screen and the run-setup stat pipeline read this file;
 // nothing here knows how either works. No ref strings live here (DECISIONS.md §22).
@@ -25,6 +35,14 @@
 //                 synonyms — `goldMult` is the same bucket Cursed Coin feeds.
 //   perLevel      amount applied per level. Signed: Haste is negative, because
 //                 a smaller cooldown multiplier is a shorter cooldown.
+//   levelTotals   OPTIONAL, and only on Mending. The ACCUMULATED value at each
+//                 level, so the row can RAMP instead of paying the same amount
+//                 every time. Exactly the field upgrades.js documents, read
+//                 through the same totalAt()/deltaAt() pair — one definition of
+//                 what a ramped row is worth, shared by both data files, because
+//                 two implementations of it is two chances to disagree with the
+//                 stat the player actually gets. Absent = flat = perLevel * level,
+//                 which is every other row here.
 //   mode          'add'  additive into a multiplier bucket: final = base * (1 + Σ)
 //                 'flat' straight onto the raw stat:        final = base + Σ
 //                 Same two modes as upgrades.js, same shared application path
@@ -46,17 +64,17 @@
 //                 absent; each entry carries its own stat/perLevel/mode/unit.
 //   scope         'run' marks a row that the RUN reads for itself out of
 //                 save.data.shrine when it starts (run.js), rather than one the
-//                 player stat pipeline applies. Rerolls, Banish and Curse are the
-//                 three, and the marker is not decoration: player.js walks this
-//                 whole list, and before the marker existed it fed `freeRerolls`
-//                 and `banishes` into _applyStat(), which does not know those
-//                 keys and answered the only way it can — with the "unknown
-//                 stat" warning it exists to raise for upgrades that silently do
-//                 nothing. Both upgrades worked; run.js had already read them.
-//                 But every dev session opened with two false positives from the
-//                 project's one honest alarm about dead stat keys, which is the
-//                 exact way an alarm stops being read. `scope: 'run'` is the row
-//                 telling the pipeline, truthfully, that it is not talking to it.
+//                 player stat pipeline applies. Rerolls and Curse are the two,
+//                 and the marker is not decoration: player.js walks this whole
+//                 list, and before the marker existed it fed `freeRerolls` into
+//                 _applyStat(), which does not know that key and answered the
+//                 only way it can — with the "unknown stat" warning it exists to
+//                 raise for upgrades that silently do nothing. The upgrade
+//                 worked; run.js had already read it. But every dev session
+//                 opened with a false positive from the project's one honest
+//                 alarm about dead stat keys, which is the exact way an alarm
+//                 stops being read. `scope: 'run'` is the row telling the
+//                 pipeline, truthfully, that it is not talking to it.
 //   baseCost      gold for level 1.
 //   costGrowth    geometric growth. Cost of level n (1-indexed) is
 //                 round(baseCost * costGrowth^(n-1)).
@@ -81,7 +99,7 @@
 //     cheaper would just tell players which to buy first.
 //   - Fortune and Insight are the cheapest per level because they compound into
 //     everything else; making them expensive taxes the player twice.
-//   - Rerolls and Banish double each level, and the last one should sting.
+//   - Rerolls doubles each level, and the last one should sting.
 //   - Revival is the spec's stated "expensive": 2,500 then 6,000 then 14,400.
 //   - Curse is cheap on purpose. It is a handicap you are choosing.
 //
@@ -89,9 +107,11 @@
 // THE DEEP TIER
 // ---------------------------------------------------------------------------
 // Play report: "create more use for gold coins, its too easy to get and too
-// little to do with it." It was right. The spec's ten rows totalled 59 levels and
-// ~65,700 gold — twenty-odd good runs and the entire meta layer was finished
+// little to do with it." It was right. The spec's rows totalled 56 levels and
+// ~62,900 gold — twenty-odd good runs and the entire meta layer was finished
 // forever, after which every coin picked up off the floor was decoration.
+// (59 levels and ~65,700 while Banish was still a row; its three spec levels
+// cost 400/800/1,600.)
 //
 // So every row keeps its spec levels EXACTLY as priced and then keeps going. The
 // deep tier is not a second, gentler curve: it is the SAME geometric curve run
@@ -107,14 +127,17 @@
 //   fortune       8  ->  14          63,912           69,823
 //   insight       8  ->  14          63,912           69,823
 //   rerolls       3  ->   6          22,400           25,200
-//   banish        3  ->   6          22,400           25,200
 //   revival       2  ->   3          14,400           22,900
 //   greed         5  ->  10          66,928           71,641
 //   curse         5  ->  10          30,043           34,000
 //   ----------------------------------------------------------
-//   59 levels -> 103                540,156          605,861
+//   56 levels ->  97                517,756          580,661
 //
-// ~606,000 gold, up from ~65,700: 44 new levels and 9.2x the demand. Fortune and
+// BANISH was a tenth row here — 3 -> 6 levels, 22,400 deep, 25,200 total — and
+// its removal is why every figure in this block is 6 levels and 25,200 gold
+// lighter than it used to be. See the header for why the row went.
+//
+// ~581,000 gold, up from ~62,900: 41 new levels and 9.2x the demand. Fortune and
 // Curse both feed the wallet that pays for the rest, so the curve is a long climb
 // rather than a wall — and the refund below is still free, still total, so none of
 // the deep tier is a purchase anyone is stuck with.
@@ -256,15 +279,6 @@ export const SHRINE_UPGRADES = [
     fmt: '+{v} rerolls',
   },
   {
-    // LEVELUP.banishes starts at 0 — the spec lists Banish as a feature but
-    // grants none at run start, so this row is the only source of the first one.
-    id: 'banish', name: 'Banish', icon: '🚫', maxLevel: 6, specLevels: 3,
-    stat: 'banishes', perLevel: 1, mode: 'flat', scope: 'run',
-    baseCost: 400, costGrowth: 2.00,
-    desc: '+1 level-up banish per level, six levels deep. Removes an upgrade from the pool for the whole run.',
-    fmt: '+{v} banishes',
-  },
-  {
     // `revives` is Second Chance's key. Revives are hard-capped at 3 per run
     // across ALL sources and resolve in a fixed order (DECISIONS.md §29). THREE
     // levels, and not one more: this row now reaches that cap on its own, and a
@@ -379,16 +393,32 @@ export const SHRINE_UPGRADES = [
     fmt: '+{v}% pickup radius',
   },
   {
-    // 0.2 HP/s a level against Second Wind's 0.7 — a third of the in-run rate,
-    // and it is running from the first second of minute zero instead of from
-    // whenever the pool happened to offer it. Two HP/s at the top is a contact
-    // hit back every ten seconds, which is the difference between attrition and
-    // a death spiral, and the HUD already draws the green three-second band that
-    // proves it is happening.
+    // RAMPED, and it is the single worst low-level healing source in the game —
+    // worse than Second Wind, which at least costs a level-up card. This row is
+    // live from the first second of EVERY run, on every character, for free,
+    // bought once with gold you already had.
+    //
+    // A flat 0.2 a level was 42-63% of everything stage 1 does to you in the
+    // opening minutes (measured in tree: 0.32-0.47 HP/s incoming), for 220 gold —
+    // under a single good run's earnings. Maxed it was +2 HP/s against that same
+    // 0.47, i.e. the run out-healing the entire stage from minute zero, which the
+    // harness had literally never measured because simulate() zeroes the shrine.
+    // It has now: mochi with this row at 10 healed 249 HP against 242 taken over
+    // 300s on stage 1 — a heal ratio of 103%.
+    //
+    // So the same shape as Second Wind: `levelTotals` carries the ACCUMULATED
+    // value (see the schema note in upgrades.js, whose totalAt() the pipeline
+    // reads it through). Level 1 is 0.1 HP/s, half of what it was; level 10 is
+    // still exactly 2.0, so nothing anybody has already paid 31,618 gold for got
+    // taken away. Every total is one decimal on purpose — the HUD prints regen as
+    // toFixed(1), and a row whose first level renders as a rounded-up "+0.1/s"
+    // when it is really 0.05 is a card lying by a factor of two.
     id: 'mending', name: 'Mending', icon: '🌿', maxLevel: 10, specLevels: 0,
-    stat: 'regen', perLevel: 0.2, mode: 'flat',
+    stat: 'regen', perLevel: 0.1, mode: 'flat',
+    //            +0.1 +0.1 +0.1 +0.1 +0.2 +0.2 +0.3 +0.3 +0.3 +0.3
+    levelTotals: [0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.1, 1.4, 1.7, 2.0],
     baseCost: 220, costGrowth: 1.55,
-    desc: '+0.2 HP/s regeneration per level, ten levels deep. +2 HP/s at the top, running in and out of combat from the first second of the run.',
+    desc: 'Regeneration in and out of combat from the first second of the run, ramping: +0.1 HP/s for each of the first four levels and +0.3 for each of the last four. +2 HP/s at the top.',
     fmt: '+{v} HP/s regen',
   },
   {

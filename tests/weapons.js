@@ -143,7 +143,32 @@ describe('weapons / data integrity', () => {
     // was tiny, and nothing on screen ever said it had happened.
     const regen = data.upgrades.UPGRADES.find((u) => u.stat === 'regen');
     assert.ok(regen, 'no regen upgrade found');
-    assert.atLeast(regen.perLevel, 0.6, 'one level of regen is still imperceptible');
+
+    // THIS USED TO ASSERT perLevel >= 0.6, and that assertion is now wrong on
+    // purpose. The row RAMPS: the first card is deliberately small because a flat
+    // 0.7 HP/s from level one was the "too powerful low level" the owner reported,
+    // and the eighth card is what restores the old maxed total. So the shape is
+    // what gets guarded here, not the first number.
+    //
+    // The three clauses are what a flattening would have to survive:
+    //   1. the ramp exists at all (a flat row would fail this),
+    //   2. every card is worth strictly more than the one before it,
+    //   3. the TOP of the curve did not quietly get nerfed along with the bottom.
+    const totals = regen.levelTotals;
+    assert.ok(totals && totals.length === regen.maxLevel,
+              'the regen row must carry one accumulated total per level');
+    assert.equal(regen.perLevel, totals[0],
+                 'perLevel must stay equal to levelTotals[0] or the card prints a lie');
+    let prev = 0;
+    for (let lv = 1; lv <= regen.maxLevel; lv++) {
+      const step = data.upgrades.deltaAt(regen, lv);
+      assert.ok(step > prev,
+                `regen level ${lv} gives ${step}, not more than the ${prev} before it — ` +
+                'the ramp has been flattened back out');
+      prev = step;
+    }
+    assert.atLeast(data.upgrades.totalAt(regen, regen.maxLevel), 5,
+                   'a maxed regen build no longer reaches the power it used to');
 
     freshSave();
     const run = makeRun(2024);

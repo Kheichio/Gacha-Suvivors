@@ -141,6 +141,16 @@ export class HazardSystem {
     // stage hazard state
     this.kind = null;
     this.params = null;
+    /**
+     * The BURNING-WRECKAGE sub-hazard's params, or null.
+     *
+     * A sub-hazard rather than a second entry in `stage.hazards` because that
+     * array is single-occupancy in practice: game/run.js wires `hazards[0]` and
+     * the stage-select card previews `hazards[0]`, so a second id is data that
+     * validates, previews nowhere and never fires. See `_updateFires`.
+     */
+    this.fires = null;
+    this._fireT = 0;
     this.t = 0;
     this.lanes = null;
     this.visibilityRadius = 0;
@@ -285,8 +295,18 @@ export class HazardSystem {
     this._hazT = 0;
     this._smokeT = 0;
 
-    if (!hazardDef) return;
+    if (!hazardDef) { this.fires = null; this._fireT = 0; return; }
     const run = this.run;
+
+    // THE FIRES ARE READ OFF `params`, NOT off `kind`, and that is deliberate.
+    // Setting a stage's scenery alight has nothing to do with whether its
+    // signature hazard drops rubble, floods, or moves the walls, so this is an
+    // opt-in block any hazard of any kind may carry rather than a branch of the
+    // switch below. Seeded to 60% of an interval so the first fire is not
+    // competing with the opening rubble volley (which seeds to 50%).
+    this.fires = hazardDef.params ? hazardDef.params.fires || null : null;
+    this._fireT = this.fires ? (this.fires.interval || 6) * 0.6 : 0;
+
     switch (hazardDef.kind) {
       case 'lanes': {
         // LANE POSITIONS ARE AUTHORED WHEN THE STAGE HAS REAL ROADS.
@@ -387,10 +407,152 @@ export class HazardSystem {
                         f.y + fxRng.signed() * f.radius * 0.7, f.color,
                         { life: 0.5, size: 0.35, speed: 10 });
       }
+      // A BURNING field also throws embers, at half the rate and in a hotter
+      // colour than the pool itself. `drift` already carries a -12 gravity, so
+      // an ember rises off the fire and dies, which is what an ember does; the
+      // pool's own mote is the smoke. Both colours are pre-rastered — #ffb03d
+      // is in prewarm.js PARTICLE_COLORS — because a particle sheet baked on
+      // the frame a fire lights is a hitch at the exact moment the player is
+      // being asked to move.
+      if (f.effect === FIELD.BURN && (run.frameParity & 3) === 0) {
+        particles.drift(f.x + fxRng.signed() * f.radius * 0.5,
+                        f.y + fxRng.signed() * f.radius * 0.5, '#ffb03d',
+                        { life: 0.8, size: 0.28, speed: 16 });
+      }
     }
 
     // --- the stage hazard ---------------------------------------------------
     if (this.kind) this._updateStageHazard(dt);
+    if (this.fires) this._updateFires(dt);
+  }
+
+  /**
+   * BURNING WRECKAGE — the ruins keep catching, and the fire is ANCHORED TO
+   * THE GEOMETRY rather than rolled on open ground.
+   *
+   * Stage 3's brief is a town that burned down. Rolling a damaging disc at a
+   * random bearing would have produced fires standing in the middle of an empty
+   * street with nothing to have set them off, which reads as a mechanic rather
+   * than as a place — so this walks the STATIC BLOCKER list, takes a piece
+   * inside [minRange, maxRange] of the player, and lights the ground just off
+   * its face. Every anchor is therefore a house, a beam, a cart or a rubble
+   * pile, INCLUDING the wreckage the collapsing-walls hazard dropped nine
+   * seconds ago: a wall comes down, and then it catches.
+   *
+   * THREE RULES IT MAY NOT BREAK, in order of how expensive getting them wrong
+   * is:
+   *
+   *   1. IT IS TELEGRAPHED. An untelegraphed damaging zone in a bullet heaven
+   *      is a cheap death — this file's own header is about exactly that line.
+   *      `telegraph` is a real number in the data and it is read here.
+   *   2. IT NEVER LIGHTS UNDER YOU. `minRange` is checked against the FINAL
+   *      point, after the offset off the blocker, not against the blocker — an
+   *      anchor 320px away with a 90px radius can otherwise put the fire 230px
+   *      from the player, inside its own inner limit.
+   *   3. IT NEVER LIGHTS INSIDE A WALL. A field centred in a solid box is
+   *      damage the player is hard-blocked out of standing in, which is not a
+   *      hazard, it is a decal. `overlaps` is the same test the drop path uses.
+   *
+   * Bounded everywhere and no `while (true)` anywhere: a hazard may not stall
+   * the sim, so a volley that cannot find room places fewer fires and moves on.
+   */
+  _updateFires(dt) {
+    const F = this.fires;
+    this._fireT -= dt;
+    if (this._fireT > 0) return;
+    // Jittered, so the fires never fall into lockstep with the 9s rubble volley
+    // and the stage stops having a rhythm you can set a metronome to.
+    this._fireT = (F.interval || 6) * runRng.range(0.8, 1.25);
+
+    const run = this.run;
+    const n = Math.min(F.count || 2, FIRE_X.length);
+    const radius = F.radius || 118;
+    const tel = F.telegraph || 1.2;
+    const minR = F.minRange || radius + 180;
+    const maxR = F.maxRange || 900;
+    const sep = F.spacing || radius * 2.4;
+    let placed = 0;
+    for (let i = 0; i < n; i++) {
+      if (!this._fireSpot(SPOT, F, minR, maxR)) continue;
+      let ok = true;
+      for (let k = 0; k < placed; k++) {
+        if (dist2(SPOT.x, SPOT.y, FIRE_X[k], FIRE_Y[k]) < sep * sep) { ok = false; break; }
+      }
+      if (!ok) continue;
+      FIRE_X[placed] = SPOT.x; FIRE_Y[placed] = SPOT.y; placed++;
+      this.telegraph(SPOT.x, SPOT.y, radius, tel, 'red', 'x');
+      run.scheduler.after(tel, ignite, {
+        hz: this, x: SPOT.x, y: SPOT.y, radius,
+        dps: F.dps || 26, life: F.life || 8,
+        // Defaults to FALSE, which is the opposite of spawnField's own default
+        // and is the point: a persistent field ticking four times a second
+        // across a 300-strong horde is free damage that scales with density,
+        // and it would re-rank the stage in the balance sweep without anybody
+        // authoring a number.
+        hitsEnemies: F.damagesEnemies === true,
+      });
+    }
+  }
+
+  /**
+   * Where the next fire catches, into `out`. Returns false if there is nowhere.
+   *
+   * The blocker walk starts at a random index and takes the first piece in the
+   * band rather than collecting candidates and picking one: there is no bag to
+   * allocate, the start offset is what keeps it from always burning the same
+   * house, and the cost is one squared distance per blocker against a field of
+   * at most 128.
+   */
+  _fireSpot(out, F, minR, maxR) {
+    const run = this.run;
+    const p = run.player;
+    const b = run.bounds;
+    const obs = run.obstacles;
+    const gap = F.gap || 46;
+    const radius = F.radius || 118;
+    // The core, not the whole disc. A fire whose EDGE clips a wall is a fire
+    // banked against a building, which is what this is meant to look like;
+    // rejecting on the full radius would only ever light in open ground.
+    const core = radius * 0.35;
+    const minR2 = minR * minR, maxR2 = maxR * maxR;
+
+    const n = obs ? obs.count : 0;
+    if (n > 0) {
+      const start = runRng.int(0, n - 1);
+      for (let k = 0; k < n; k++) {
+        const idx = (start + k) % n;
+        const d2 = dist2(obs.x[idx], obs.y[idx], p.x, p.y);
+        if (d2 < minR2 || d2 > maxR2) continue;
+        const reach = obs.r[idx] + gap;
+        for (let attempt = 0; attempt < 4; attempt++) {
+          const ang = runRng.angle();
+          const x = clamp(obs.x[idx] + Math.cos(ang) * reach, b.minX + 80, b.maxX - 80);
+          const y = clamp(obs.y[idx] + Math.sin(ang) * reach, b.minY + 80, b.maxY - 80);
+          if (dist2(x, y, p.x, p.y) < minR2) continue;
+          if (obs.overlaps(x, y, core)) continue;
+          out.x = x; out.y = y;
+          return true;
+        }
+      }
+    }
+
+    // NOTHING TO BURN IN RANGE — the middle of the market square, or a stage
+    // that opted in with no geometry at all. Fall back to the ring roll the
+    // debris volley uses, reflected per axis so the arena edge can never drag
+    // a mark onto the player (the bug documented on `case 'debris'`).
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const ang = runRng.angle();
+      const d = runRng.range(minR, maxR);
+      let ox = Math.cos(ang) * d, oy = Math.sin(ang) * d;
+      if (p.x + ox < b.minX + 80 || p.x + ox > b.maxX - 80) ox = -ox;
+      if (p.y + oy < b.minY + 80 || p.y + oy > b.maxY - 80) oy = -oy;
+      const x = clamp(p.x + ox, b.minX + 80, b.maxX - 80);
+      const y = clamp(p.y + oy, b.minY + 80, b.maxY - 80);
+      if (obs && obs.overlaps(x, y, core)) continue;
+      out.x = x; out.y = y;
+      return true;
+    }
+    return false;
   }
 
   _applyFieldToEnemies(f) {
@@ -687,6 +849,12 @@ export class HazardSystem {
     this.salvoT = 0;
     this._hazT = 0;
     this._smokeT = 0;
+    // RUN STATE, and nothing else resets it. The headless harness runs a
+    // hundred runs in one process; a leftover `fires` block would set the next
+    // stage's scenery alight, and a leftover countdown would light Stage 3's
+    // first fire at a different second on the same seed.
+    this.fires = null;
+    this._fireT = 0;
   }
 
   // --- drawing ---------------------------------------------------------------
@@ -696,7 +864,9 @@ export class HazardSystem {
     for (let i = 0; i < this.fields.count; i++) {
       const f = fl[i];
       const t = f.t / f.duration;
-      const a = (t > 0.8 ? 1 - (t - 0.8) / 0.2 : 1) * 0.28;
+      const fade = t > 0.8 ? 1 - (t - 0.8) / 0.2 : 1;
+      const a = fade * 0.28;
+      if (f.effect === FIELD.BURN) { this._drawFire(r, f, fade); continue; }
       r.drawCircle(f.x, f.y, f.radius, f.color, a);
       r.strokeCircle(f.x, f.y, f.radius, f.color, 2, a * 1.8);
     }
@@ -729,6 +899,61 @@ export class HazardSystem {
       }
     }
     r.setAlpha(1);
+  }
+
+  /**
+   * FIRE IS NOT AN ORANGE DISC.
+   *
+   * Every field in this system draws as one translucent circle and one stroke,
+   * which is the right drawing of a chill puddle or a heal pool and is not what
+   * anybody means by "the ruins are burning". A burning field gets four flat
+   * rings instead — a scorch bed, the body, a hotter middle and a white-hot
+   * core — plus three tongues rolling inside it.
+   *
+   * ALL OF IT IS FLAT ON THE FLOOR. This game is top-down: a flame drawn as if
+   * it had height is a flame hovering over the arena, which is the exact bug
+   * that cost render/stageBackdrop.js its entire parallax layer.
+   *
+   * IT CATCHES RATHER THAN APPEARING — but the catch is an INTENSITY ramp and
+   * not a radius one, and that distinction was paid for. The body used to grow
+   * out of nothing over the first 12% of the life; on an 8s fire that is a FULL
+   * SECOND in which a 118px disc that is already dealing 26/s is drawn as a
+   * black scorch bed with a thin ring and nothing at all inside it. Rendered in
+   * a real run and looked at: the frame the telegraph expires, the thing that
+   * has just started hurting you reads as a shadow on the road. The header of
+   * this file refuses exactly that trade — the damage is full-radius from the
+   * frame it lights, so the fire is too. It flares from ember to white-hot over
+   * a quarter of a second, at the size it is going to keep.
+   *
+   * THE FLICKER IS PHASED OFF THE POOL INDEX, not off an RNG. Draw code may
+   * never touch `runRng` — a replay would diverge the moment somebody watched
+   * it — and `fxRng` would leave two adjacent fires flickering in lockstep as
+   * often as not, because they would be sampling the same stream on the same
+   * frame. `f._i` is the pool slot, which is stable for the life of the field
+   * and different for every field alive at once.
+   */
+  _drawFire(r, f, fade) {
+    // 0.50 -> 1 over the first quarter second, in REAL seconds off `f.t` rather
+    // than as a fraction of the life: a 2s ember and a 12s bonfire have to catch
+    // at the same rate, because what the ramp is describing is fire and not the
+    // hazard's tuning.
+    const catchK = 0.50 + 0.50 * (f.t < 0.25 ? f.t / 0.25 : 1);
+    const rad = f.radius;
+    const beat = f.t * 3.1 + f._i * 1.7;
+    r.drawCircle(f.x, f.y, rad * 1.06, '#120c09', fade * 0.42);
+    r.drawCircle(f.x, f.y, rad, f.color, fade * 0.46 * catchK);
+    r.drawCircle(f.x, f.y, rad * (0.62 + 0.06 * Math.sin(beat)), '#ff9a3c', fade * 0.50 * catchK);
+    r.drawCircle(f.x, f.y, rad * (0.30 + 0.05 * Math.sin(beat * 1.7)), '#ffd76a', fade * 0.58 * catchK);
+    for (let k = 0; k < 3; k++) {
+      const ang = beat * 0.4 + k * 2.0944;
+      const off = rad * (0.40 + 0.20 * Math.sin(beat * 1.3 + k));
+      r.drawCircle(f.x + Math.cos(ang) * off, f.y + Math.sin(ang) * off,
+                   rad * 0.20, '#ff7a3d', fade * 0.40 * catchK);
+    }
+    // The edge of the damage, and it is the one ring that does NOT breathe:
+    // what the player has to be able to find is where standing here starts to
+    // cost, and a boundary that moves is a boundary you cannot read.
+    r.strokeCircle(f.x, f.y, f.radius, '#ffd76a', 2, fade * 0.55);
   }
 
   /**
@@ -856,6 +1081,24 @@ function dropRubble(ctx) {
 }
 
 /**
+ * THE IGNITION, `telegraph` seconds after the mark went down.
+ *
+ * It goes through `spawnField` — the ONE place in the codebase that owns
+ * damaging ground — rather than doing its own damage, so the fire tick, the
+ * 0.25s cadence, the player/enemy split and the burn status all behave exactly
+ * the way a Brazier Oni's pool or a mortar's puddle already does. There is no
+ * second damage path here and there must never be one.
+ */
+function ignite(ctx) {
+  const { hz, x, y, radius, dps, life, hitsEnemies } = ctx;
+  hz.spawnField(x, y, radius, life, 'burn', dps, FIRE_COLOR,
+                { hitsPlayer: true, hitsEnemies });
+  // The catch. Small and warm — the fire itself is the loud part, and this only
+  // has to say WHEN, on the one frame the telegraph stops being a promise.
+  particles.burst(x, y, 10, '#ff7a3d', { speed: 150, life: 0.55, size: 0.6 });
+}
+
+/**
  * Where this volley's marks went, for the spacing check. Module-level, per the
  * house rule that a hazard is not allowed to allocate its own bag every nine
  * seconds. Eight is well over the largest `zones` any stage authors (three), and
@@ -864,8 +1107,27 @@ function dropRubble(ctx) {
 const MARK_X = new Float64Array(8);
 const MARK_Y = new Float64Array(8);
 
+/**
+ * The same, for the fires. Its OWN pair rather than a share of MARK_X: the
+ * rubble volley and a fire volley can land on the same tick, and a spacing
+ * check reading half of somebody else's marks would silently stack two fires.
+ */
+const FIRE_X = new Float64Array(8);
+const FIRE_Y = new Float64Array(8);
+
+/**
+ * The stage colour of standing fire. Pre-rastered as a particle already — it is
+ * `STAGE_EVENTS.hold_the_breach.color` in data/stages.js, which prewarm.js
+ * harvests — so the drifting smoke a field emits in its own colour costs no
+ * mid-run bake. Changing it means adding the new hex to prewarm.js.
+ */
+const FIRE_COLOR = '#e07a3f';
+
 /** Scratch for the altar's obstacle push-out in _reconfigureRooms. */
 const FREE = { x: 0, y: 0 };
+
+/** Scratch for the fire-anchor search. Written and read within one call. */
+const SPOT = { x: 0, y: 0 };
 
 const FIELD_COLOR = ['#ff5f7e', '#6ad8ff', '#ff7a3d', '#c58cff', '#7bf59a', '#ffe9a3'];
 const FIELD_FROM_NAME = { damage: 0, chill: 1, burn: 2, pull: 3, heal: 4, sunlight: 5 };

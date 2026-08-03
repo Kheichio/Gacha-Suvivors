@@ -142,6 +142,18 @@ export class Player {
     this._regenT = 0;
     this._regenFx = 0;
 
+    /**
+     * HOW MUCH HP THIS RUN HAS GIVEN BACK, by the two routes that do NOT go
+     * through healPlayer() and so emit no PLAYER_HEAL event: the regen tick
+     * writes `hp` directly, and a max-HP increase heals inside recompute().
+     * Nothing in the simulation reads either counter — the balance harness does,
+     * because until it could see these two numbers a healing change was
+     * literally unmeasurable: a run that takes 2,278 HP and heals 3,221 of it
+     * back reported the identical `damageTaken` as one that healed none.
+     */
+    this.healedByRegen = 0;
+    this.healedByMaxHp = 0;
+
     this.starLevel = 1;
     this.bond = 0;
 
@@ -202,24 +214,32 @@ export class Player {
     // out of save.data.shrine by run.js at start-of-run and has nothing to say
     // to this pipeline at all.
     //
-    // The scope check is not a micro-optimisation. Rerolls and Banish declare
-    // `freeRerolls` and `banishes`, which are real keys that run.js really
-    // consumes but which STAT_KEYS has never heard of — so every recompute fed
-    // _applyStat() two keys it could only answer with the "unknown stat" warning
-    // below. Both upgrades worked the whole time, and the warning that exists to
-    // catch the ones that DON'T opened every dev session with two false
-    // positives, which is precisely how a warning stops being read. Worse, it
-    // burned those two names in WARNED, so the two loudest examples of the bug
-    // that warning is for could only ever be reported once, first, and wrongly.
+    // The scope check is not a micro-optimisation. Rerolls declares
+    // `freeRerolls`, a real key that run.js really consumes but which STAT_KEYS
+    // has never heard of — so every recompute fed _applyStat() a key it could
+    // only answer with the "unknown stat" warning below. The upgrade worked the
+    // whole time, and the warning that exists to catch the ones that DON'T opened
+    // every dev session with a false positive, which is precisely how a warning
+    // stops being read. Worse, it burned that name in WARNED, so one of the
+    // loudest examples of the bug that warning is for could only ever be reported
+    // once, first, and wrongly. (Banish declared `banishes` the same way and had
+    // the same problem; the feature is gone entirely now.)
+    //
+    // `totalAt` rather than `perLevel * lv`, for both shapes. A row may declare
+    // `levelTotals` — the accumulated value at each level — so that what it pays
+    // can RAMP instead of being the same every time, which is what the healing
+    // rows do. Rows without it are flat and totalAt returns exactly the old
+    // product, so every other shrine row is bit-identical.
+    const totalAt = this.run.data.upgrades.totalAt;
     const shrineLevels = save.data.shrine;
     for (const up of this.run.data.shrine.SHRINE_UPGRADES) {
       if (up.scope === 'run') continue;
       const lv = shrineLevels[up.id] || 0;
       if (lv <= 0) continue;
       if (up.effects) {
-        for (const e of up.effects) this._applyStat(s, e.stat, e.perLevel * lv, e.mode);
+        for (const e of up.effects) this._applyStat(s, e.stat, totalAt(e, lv), e.mode);
       } else {
-        this._applyStat(s, up.stat, up.perLevel * lv, up.mode);
+        this._applyStat(s, up.stat, totalAt(up, lv), up.mode);
       }
     }
 
@@ -234,7 +254,7 @@ export class Player {
     for (const id in this.upgrades) {
       const up = this.run.data.upgrades.UPGRADES_BY_ID[id];
       if (!up) continue;
-      this._applyStat(s, up.stat, up.perLevel * this.upgrades[id], up.mode);
+      this._applyStat(s, up.stat, totalAt(up, this.upgrades[id]), up.mode);
     }
 
     // --- relics --------------------------------------------------------------
@@ -280,7 +300,7 @@ export class Player {
     // should feel like a reward, not like the bar getting proportionally emptier.
     const gained = s.maxHp - this.maxHp;
     this.maxHp = s.maxHp;
-    if (gained > 0) this.hp += gained;
+    if (gained > 0) { this.hp += gained; this.healedByMaxHp += gained; }
     this.hp = Math.min(this.hp, this.maxHp);
     if (this.hp <= 0 && !this.dead) this.hp = 1;
 
@@ -446,6 +466,7 @@ export class Player {
       const before = this.hp;
       this.hp = Math.min(this.maxHp, this.hp + this.stats.regen * dt);
       this._regenBank += this.hp - before;
+      this.healedByRegen += this.hp - before;
       this._regenT += dt;
       if (this._regenBank >= 1) {
         const whole = Math.floor(this._regenBank);

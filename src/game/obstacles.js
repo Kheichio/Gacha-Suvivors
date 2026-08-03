@@ -47,6 +47,16 @@ export class ObstacleField {
     this.r = new Float32Array(MAX_OBSTACLES);
     this.hw = new Float32Array(MAX_OBSTACLES);   // half-width for boxes
     this.hh = new Float32Array(MAX_OBSTACLES);
+    /**
+     * THE LONGEST HALF-EXTENT — how far along this piece an escape may cost.
+     *
+     * Kept as its own array rather than recomputed as `max(hw, hh)` in the
+     * steering loop because that loop runs for every enemy against every piece
+     * every tick, and this is pure geometry: it can only change when a piece is
+     * added or removed. Do NOT fold a `feel` constant into it — those move under
+     * the F4 sliders and a cached copy would go stale until the next stage load.
+     */
+    this.ext = new Float32Array(MAX_OBSTACLES);
     this.isBox = new Uint8Array(MAX_OBSTACLES);
     this.life = new Float32Array(MAX_OBSTACLES); // 0 = permanent
     this.fade = new Float32Array(MAX_OBSTACLES);
@@ -64,6 +74,21 @@ export class ObstacleField {
     this.kinds = [DEFAULT_STYLE];
     this.sprites = [null];
     this.style = DEFAULT_STYLE;
+    /**
+     * THE DEEPEST A BODY CAN BE BURIED IN ANYTHING ON THIS FIELD — the largest
+     * SHORT half-extent, over every piece.
+     *
+     * Not a drawing or a collision number: it is what enemy.js asks to decide
+     * whether an OFF-SCREEN enemy still needs steering. Off-screen AI is
+     * deliberately cheapened to movement only (SECTION 1) and that is right for
+     * a 60px chunk of rubble — a mob cannot bury itself in one far enough to
+     * matter, and the drop it makes when it comes back into view is a few
+     * pixels. It stops being right when a piece is deeper than the off-screen
+     * band is tall: Akihabara's blocks are 1000px square against a 480px
+     * half-view, so a mob crosses one entirely out of sight and then, on the
+     * frame it enters the view, is depenetrated 516px sideways in a single tick.
+     */
+    this.deepest = 0;
   }
 
   /** The look for piece `i`, always defined — an unknown index falls back. */
@@ -169,6 +194,8 @@ export class ObstacleField {
     if (this.count >= MAX_OBSTACLES) return -1;
     const i = this.count++;
     this.x[i] = x; this.y[i] = y; this.r[i] = r;
+    this.ext[i] = r;
+    if (r > this.deepest) this.deepest = r;
     this.isBox[i] = 0; this.life[i] = life || 0; this.fade[i] = 0;
     this.kind[i] = kind || 0;
     return i;
@@ -180,6 +207,11 @@ export class ObstacleField {
     this.x[i] = x; this.y[i] = y;
     this.hw[i] = hw; this.hh[i] = hh;
     this.r[i] = Math.hypot(hw, hh);
+    this.ext[i] = hw > hh ? hw : hh;
+    // The SHORT axis, deliberately: a 1800x200 courtyard wall can only ever
+    // bury a body 100px deep, however long it is.
+    const short = hw < hh ? hw : hh;
+    if (short > this.deepest) this.deepest = short;
     this.isBox[i] = 1; this.life[i] = life || 0; this.fade[i] = 0;
     this.kind[i] = kind || 0;
     return i;
@@ -218,19 +250,33 @@ export class ObstacleField {
     return placed;
   }
 
-  clear() { this.count = 0; }
+  clear() { this.count = 0; this.deepest = 0; }
+
+  /** Rebuild `deepest` after a removal. O(count) and only on the rare path. */
+  _remeasure() {
+    let d = 0;
+    for (let i = 0; i < this.count; i++) {
+      const short = this.isBox[i]
+        ? (this.hw[i] < this.hh[i] ? this.hw[i] : this.hh[i])
+        : this.r[i];
+      if (short > d) d = short;
+    }
+    this.deepest = d;
+  }
 
   removeAt(i) {
     const last = --this.count;
     if (i !== last) {
       this.x[i] = this.x[last]; this.y[i] = this.y[last]; this.r[i] = this.r[last];
       this.hw[i] = this.hw[last]; this.hh[i] = this.hh[last];
+      this.ext[i] = this.ext[last];
       this.isBox[i] = this.isBox[last]; this.life[i] = this.life[last];
       this.fade[i] = this.fade[last];
       // Swap-and-pop compaction. Forget this line and a surviving piece
       // silently inherits the dead one's appearance.
       this.kind[i] = this.kind[last];
     }
+    this._remeasure();
   }
 
   update(dt) {
@@ -390,14 +436,63 @@ export class ObstacleField {
   }
 
   /**
-   * Soft steering for enemies: look one body-length ahead, and if that point is
-   * inside an obstacle, add a lateral push. Cheap, allocation-free, and it reads
-   * as "the horde flows around the rubble".
+   * SOFT STEERING FOR ENEMIES — still not pathfinding, but it ROUTES.
+   *
+   * This used to look one flat body-length ahead and add a lateral push, which
+   * is exactly right for a 60px chunk of rubble and useless against a 1000px
+   * city block: 46px of warning is 6% of one face, and the 500px mid-face-to-
+   * corner traverse an escape costs was re-decided from scratch every tick from
+   * a dot product that is exactly 0 at a face centre. The horde dithered
+   * +/-3.33px a tick, integrated to nothing, and ground along the wall.
+   *
+   * Three things fix that, none of them a nav mesh (DECISIONS.md §18 still
+   * stands — no A*, no graph, no per-stage authoring):
+   *
+   *   HEADING FROM THE ACTUAL STEP. `e.vx/e.vy` are written by exactly one
+   *   function in enemy.js (`_moveToward`) and the swarmer, the charger's dash,
+   *   the ranged back-off, the orbiter and every teleport move `e.x/e.y`
+   *   directly — so on Akihabara, where swarmers are 76 of the 130 mob-table
+   *   weight, most of the crowd read a velocity of (0,0), failed the "am I
+   *   moving" test and got no avoidance at all. `e.x - e.px` is the step the
+   *   enemy ACTUALLY took this tick (enemy.js stamps px/py at the top of the
+   *   tick, and steer runs after the behaviour, the pull and the separation),
+   *   so it is true for every archetype. vx/vy remain the fallback for the tick
+   *   a teleport re-stamps px/py.
+   *
+   *   LOOKAHEAD THAT SCALES WITH THE PIECE. See feel.avoidanceSizeScale: a
+   *   lamp post is seen from 72px, a city block from 287.
+   *
+   *   A COMMITTED SIDE. Once a mob picks a way round a piece it KEEPS that
+   *   choice until the traverse should be over (feel.avoidanceCommitScale),
+   *   which is what turns a stateless nudge into wall-following. `+t` is
+   *   perp(outward normal) and therefore circulates the piece the same way on
+   *   every face, so the commitment survives the 90-degree normal flip at a
+   *   corner — the flip that used to make a mob dither "north around" against
+   *   "east around" forever on a perfect square.
+   *
+   * And the push itself is a SLIDE, not a nudge: the component of the step that
+   * drove into the surface is removed, and the tangential component is topped up
+   * to the mob's own pace on the committed side. Before, nothing ever cancelled
+   * the inward chase, so a mob against a face was a spring held shut.
+   *
+   * Still O(obstacles) behind the same squared broad reject, still
+   * allocation-free, still deterministic — the only tiebreak is `e.uid & 1`,
+   * never runRng, so a replayed seed splits the horde the same way.
    */
   steer(e, dt) {
     if (this.count === 0) return;
-    const speed = Math.hypot(e.vx, e.vy);
-    if (speed < 1) {
+    if (e.avoidT > 0) e.avoidT -= dt;
+
+    // The step this enemy actually took, then vx/vy for the tick a teleport
+    // re-stamped px/py and left the delta at zero.
+    let mx = e.x - e.px, my = e.y - e.py;
+    let mag = Math.hypot(mx, my);
+    const floor = STEER_MIN_SPEED * dt;
+    if (mag < floor) {
+      const sp = Math.hypot(e.vx, e.vy);
+      if (sp > STEER_MIN_SPEED) { mx = e.vx * dt; my = e.vy * dt; mag = sp * dt; }
+    }
+    if (mag < floor) {
       // Standing still inside geometry: just push out.
       for (let i = 0; i < this.count; i++) {
         const pen = this._penetration(i, e.x, e.y, e.radius, PUSH);
@@ -405,25 +500,135 @@ export class ObstacleField {
       }
       return;
     }
-    const nx = e.vx / speed, ny = e.vy / speed;
-    const look = feel.avoidanceLookahead + e.radius;
-    const ax = e.x + nx * look, ay = e.y + ny * look;
+    const hx = mx / mag, hy = my / mag;
+    const lookBase = e.radius + feel.avoidanceLookahead;
+    const sizeScale = feel.avoidanceSizeScale;
+    const cap = feel.avoidanceForce * dt;
 
     for (let i = 0; i < this.count; i++) {
+      const look = lookBase + sizeScale * this.ext[i];
       // Broad reject first — most obstacles are nowhere near.
       const dx = this.x[i] - e.x, dy = this.y[i] - e.y;
       const reach = this.r[i] + look + e.radius;
       if (dx * dx + dy * dy > reach * reach) continue;
 
-      const pen = this._penetration(i, ax, ay, e.radius, PUSH);
+      const pen = this._penetration(i, e.x + hx * look, e.y + hy * look, e.radius, PUSH);
       if (pen <= 0) continue;
-      // Steer perpendicular to the obstacle normal, choosing the side that keeps
-      // the enemy moving forward rather than reversing into the horde.
-      const px = -PUSH.y, py = PUSH.x;
-      const sideSign = (px * nx + py * ny) >= 0 ? 1 : -1;
-      const f = feel.avoidanceForce * dt;
-      e.x += px * sideSign * f + PUSH.x * f * 0.5;
-      e.y += py * sideSign * f + PUSH.y * f * 0.5;
+
+      /**
+       * THE NORMAL COMES FROM WHERE THE ENEMY IS, NOT FROM WHERE THE PROBE IS.
+       *
+       * The probe answers "is my way blocked, and how badly" — that is all it is
+       * for. The SURFACE a mob slides along is the one nearest its own body, and
+       * on a big box those are not the same face. A mob pinned to the west side
+       * of a 1000x1000 block, 300px north of centre, throws its probe 287px
+       * along a heading that points south-east: the probe lands deep inside on
+       * the diagonal, `_penetration`'s shallower-axis rule calls that a NORTH
+       * face, and the tangent comes back east — straight into the wall the mob
+       * is already touching. Measured: 0.26px of useless motion a tick against a
+       * 1.03px step, i.e. a dead stop 160px short of the corner.
+       *
+       * Computed here rather than by changing _penetration, which pushOut, the
+       * altar, every drop and the player's hard block all depend on.
+       */
+      const ex = e.x - this.x[i], ey = e.y - this.y[i];
+      let nx, ny;
+      if (this.isBox[i]) {
+        const ox = (ex < 0 ? -ex : ex) - this.hw[i];
+        const oy = (ey < 0 ? -ey : ey) - this.hh[i];
+        if (ox > oy) { nx = ex < 0 ? -1 : 1; ny = 0; }
+        else { nx = 0; ny = ey < 0 ? -1 : 1; }
+      } else {
+        const d = Math.hypot(ex, ey);
+        // Dead centre of a circle: back the way we came, so the mob leaves the
+        // way it entered instead of picking a normal out of a divide by zero.
+        if (d < 0.001) { nx = -hx; ny = -hy; } else { nx = ex / d; ny = ey / d; }
+      }
+      const tx = -ny, ty = nx;                // +t circulates the piece one way
+
+      // --- which way round, and hold it ------------------------------------
+      // Keyed on WHERE the piece is, not on its slot: removeAt() swap-and-pops,
+      // so slot 5 becomes a different obstacle the moment a rubble pile expires
+      // and a mob would inherit a commitment made against something else.
+      //
+      // ONLY A PIECE THE MOB CANNOT SEE PAST gets to own that one slot. There is
+      // exactly one commitment per enemy, and a lamp post 2px off a city block's
+      // pavement would otherwise overwrite the block's every tick and hand it
+      // back thrashed. A piece smaller than the mob's own probe budget does not
+      // need the memory anyway: it is gone in a body-length, and the stateless
+      // rule below is stable over that distance.
+      const key = this.x[i] * KEY_MUL + this.y[i];
+      const worthHolding = this.ext[i] > lookBase;
+      const mine = worthHolding && e.avoidT > 0 && e.avoidKey === key;
+      let side;
+      if (mine) {
+        side = e.avoidSide;
+      } else {
+        // NEAREST WAY OUT, not "whichever side the player happens to be on".
+        // `off` is how far along the tangent the mob already is from the piece's
+        // centre, so its sign points at the closer corner — and it only grows
+        // once the mob starts moving, which means re-deciding later agrees with
+        // itself instead of reversing. It is identically 0 for a circle (the
+        // normal is radial), which is correct: nothing about a lamp post says
+        // which way round it, so the heading does.
+        const off = ex * tx + ey * ty;
+        side = off > 1 ? 1 : off < -1 ? -1 : 0;
+        if (side === 0) {
+          // Dead square-on. Keep going the way the step already leans, and if
+          // that is 0 too, split the horde by parity — two streams round a
+          // block read far better than one conga line, and `uid & 1` costs no
+          // RNG, which a seeded replay would notice.
+          const along = tx * hx + ty * hy;
+          side = along > 0.02 ? 1 : along < -0.02 ? -1 : ((e.uid & 1) ? 1 : -1);
+        }
+        // Claim the slot only if it is free. Whichever big piece got there
+        // first keeps it until it stops blocking, which is what makes a mob
+        // finish rounding one block before it starts negotiating the next.
+        if (worthHolding && e.avoidT <= 0) { e.avoidKey = key; e.avoidSide = side; }
+      }
+      if (mine || (worthHolding && e.avoidKey === key)) {
+        // REFRESHED EVERY BLOCKED TICK, not counted down from the decision. The
+        // commitment has to last until the mob CLEARS the piece, and a timer
+        // that expires mid-traverse is worse than none at all: `off` is measured
+        // from the piece's centre, so a mob halfway along the north face after
+        // rounding the north-west corner re-decides "the west corner is nearer"
+        // — which is true, and is the corner it just came from. It would turn
+        // round and walk back.
+        //
+        // The window only matters once the mob is CLEAR: it is how long the same
+        // side is remembered across the gap between two encounters with the same
+        // piece (rounding a corner is exactly that gap), and how long before a
+        // mob that has genuinely left is free to choose afresh.
+        // How far there is to slide: for a box, the half-extent of the axis the
+        // normal is NOT on — and `nx` is exactly 0 or exactly +/-1 for a box, so
+        // that test is safe. A circle has no hh at all (the array is never
+        // written for one) and its own radius is the answer.
+        const tan = this.isBox[i] ? (nx !== 0 ? this.hh[i] : this.hw[i]) : this.r[i];
+        e.avoidT = feel.avoidanceCommitScale * (tan + e.radius) /
+                   (feel.avoidanceForce + mag / dt);
+      }
+
+      // --- slide along the surface -----------------------------------------
+      // `ramp` is 0 the instant the probe first clips the piece and 1 when the
+      // body is against it, so a mob arcs into the turn instead of snapping
+      // sideways the moment a corner enters its 287px probe.
+      //
+      // CLAMPED, because the ratio only tops out at 1 for a body OUTSIDE the
+      // piece. A mob that is already inside one — recycled into a building, or
+      // dropped there by a summoner — probes from the middle and reads 516/303,
+      // and an over-unity slide would fling it out sideways instead of letting
+      // the hard-resolve below walk it out the short way.
+      const span = e.radius + look;
+      const ramp = pen < span ? pen / span : 1;
+      const into = mx * nx + my * ny;
+      if (into < 0) { e.x -= nx * into * ramp; e.y -= ny * into * ramp; }
+      // Top the tangential motion up to the mob's own pace (capped by
+      // avoidanceForce) on the committed side. A TOP-UP and not an addition:
+      // a mob already sliding that way keeps its own speed rather than being
+      // flung along the wall at twice it.
+      const want = side * (mag < cap ? mag : cap) * ramp;
+      const add = want - (mx * tx + my * ty);
+      if (side > 0 ? add > 0 : add < 0) { e.x += tx * add; e.y += ty * add; }
 
       // Then hard-resolve so nothing ends the tick inside a wall.
       const hard = this._penetration(i, e.x, e.y, e.radius * 0.8, PUSH);
@@ -541,6 +746,23 @@ export class ObstacleField {
 }
 
 const PUSH = { x: 0, y: 0 };
+
+/**
+ * Under this many px/s an enemy counts as STANDING STILL and is only pushed out
+ * of geometry, never steered. 4 rather than 1 because the step steer() reads is
+ * the real displacement, which a stationary mob still collects from separation
+ * jitter — and a heading derived from jitter is a heading pointing nowhere.
+ */
+const STEER_MIN_SPEED = 4;
+
+/**
+ * Packs a piece's centre into one number, so a committed avoidance can name the
+ * obstacle it committed against with a single float on the pooled enemy rather
+ * than a slot index (which swap-and-pop reassigns) or a pair of coordinates
+ * (which is two more fields on 2,200 preallocated enemies). 9973 is larger than
+ * the 4,000px arena on either axis, so no two pieces in a legal layout collide.
+ */
+const KEY_MUL = 9973;
 
 /** Scratch for the weighted form roll in scatter(). Never read across calls. */
 const WEIGHTS = [];

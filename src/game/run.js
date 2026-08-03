@@ -260,16 +260,14 @@ export class Run {
      * and skipUpgrade, the only two ways out. It used to advance immediately
      * after the opening roll, which meant it named the NEXT screen for the entire
      * time the current one was on-screen, and that is the exact failure the
-     * paragraph above warns about: every reroll and every banish re-rolled at a
-     * cadence position one ahead of the screen the player was looking at, so a
-     * reroll on screen 2 could hand out a weapon card that screen 2 was never
-     * entitled to. The level-up screen's "next weapon offer in N levels" hint was
-     * reading the same field and was off by one in both directions because of it.
+     * paragraph above warns about: every reroll re-rolled at a cadence position
+     * one ahead of the screen the player was looking at, so a reroll on screen 2
+     * could hand out a weapon card that screen 2 was never entitled to. The
+     * level-up screen's "next weapon offer in N levels" hint was reading the same
+     * field and was off by one in both directions because of it.
      */
     this.levelUpIndex = 0;
     this.rerollsLeft = 0;
-    this.banishesLeft = 0;
-    this.banished = [];
     this.chestResult = null;
     /**
      * The weapon the pachinko parlour rolled, held between the screen opening
@@ -328,7 +326,6 @@ export class Run {
     this.waveDirector.load(stage, this.data.waves.WAVES[stage.id] || []);
 
     this.rerollsLeft = this.data.upgrades.LEVELUP.freeRerolls + (save.data.shrine.rerolls || 0);
-    this.banishesLeft = this.data.upgrades.LEVELUP.banishes + (save.data.shrine.banish || 0);
 
     this.player.xpToNext = this.xpNeeded(1);
 
@@ -531,14 +528,37 @@ export class Run {
       // ZERO COOLDOWN evolution it was written to stop. An escape that wants a
       // free press meters its own payload and declares the free ones here.
       this.player.flags.escapeFree = false;
+      // THE CHARGE IS SPENT BEFORE THE CAST RUNS, AND THAT ORDER IS LOAD-BEARING.
+      //
+      // `Cooldown.use()` assigns `t = duration` whenever the cooldown was FULL
+      // (core/timer.js) — it has to, that is what starting a cooldown means. But
+      // it also means anything the cast body gives BACK to `escape` on the same
+      // press is overwritten one line later and silently disappears. Karin's
+      // Voracity takes 0.7s off both cooldowns per blade and Shunpo sweeps up
+      // every blade where it lands, so her escape was refunding four or five
+      // seconds into a clock that was then stamped straight back to 5.0 — the
+      // half of her signature loop that pays for itself simply did not exist.
+      // (star4's Line Free works around this by deferring its refill to end();
+      // it does not need to any more, and still works.)
+      //
+      // Spending first means the cast reduces a clock that is already running,
+      // which is what every `p.escape.reduce()` in the game meant to do. The two
+      // saved fields are the exact rollback for a cast that REFUSES the press
+      // (`cast()` returning false — a hostile mirror, an escape with nothing to
+      // do): charges and t are the whole of a Cooldown's mutable state.
+      const escCharges = this.player.escape.charges;
+      const escT = this.player.escape.t;
+      this.player.escape.use();
       if (abilities.castEscape(this)) {
-        this.player.escape.use();
         if (!this.player.flags.escapeFree) {
           applyInvuln(this.player.st, this.escapeDef.iframes || 0.4);
           audio.play('escape');
           events.emit(EV.ESCAPE_CAST, this.escapeDef.id);
           this.relicHooks.fire('onEscape');
         }
+      } else {
+        this.player.escape.charges = escCharges;
+        this.player.escape.t = escT;
       }
     }
 
@@ -819,7 +839,6 @@ export class Run {
     if (!ws.full) {
       for (const def of this.data.weapons.WEAPONS) {
         if (ws.has(def.id)) continue;
-        if (this.banished.indexOf(def.id) >= 0) continue;
         return false;
       }
     }
@@ -833,7 +852,6 @@ export class Run {
     const B = this.data.upgrades.BUILD_SLOTS;
     const slots = this.buildSlots();
     for (const up of this.data.upgrades.UPGRADES) {
-      if (this.banished.indexOf(up.id) >= 0) continue;
       if (p.isMaxed(up.id)) continue;
       if ((p.upgrades[up.id] || 0) > 0) return false;
       const bucket = B.bucketOf(up);
@@ -1277,7 +1295,6 @@ export class Run {
     const weights = [];
     const luck = 1 + p.stats.luck * 0.02;
     for (const up of this.data.upgrades.UPGRADES) {
-      if (this.banished.indexOf(up.id) >= 0) continue;
       if (p.isMaxed(up.id)) continue;
       // A full bucket stops offering NEW upgrades from that bucket, but never
       // stops offering to level the ones already taken.
@@ -1368,9 +1385,9 @@ export class Run {
    *                  calls this more than once and must not offer the same
    *                  weapon twice.
    *
-   * An expansion screen with nothing left to expand into — every weapon owned,
-   * or every one of them banished — falls through to a level rather than
-   * wasting the screen's one weapon card on nothing.
+   * An expansion screen with nothing left to expand into — every weapon already
+   * owned — falls through to a level rather than wasting the screen's one weapon
+   * card on nothing.
    */
   _rollWeaponCard(allowNew, onScreen) {
     const pool = [];
@@ -1381,7 +1398,6 @@ export class Run {
     if (allowNew && !this.weapons.full) {
       for (const def of this.data.weapons.WEAPONS) {
         if (this.weapons.has(def.id)) continue;
-        if (this.banished.indexOf(def.id) >= 0) continue;
         if (weaponOnScreen(onScreen, def.id)) continue;
         pool.push({ kind: 'newWeapon', def });
         weights.push((def.weight || 100) * luck);
@@ -1514,7 +1530,6 @@ export class Run {
     const weights = [];
     const luck = 1 + this.player.stats.luck * 0.02;
     for (const def of all) {
-      if (this.banished.indexOf(def.id) >= 0) { weights.push(0); continue; }
       const w = this.weapons.get(def.id);
       if (!w) { weights.push(this.weapons.full ? 0 : (def.weight || 100) * luck); continue; }
       const spent = this.weapons.isMaxed(w) || w.evolved;
@@ -1553,20 +1568,6 @@ export class Run {
     this.rerollsLeft--;
     this.levelUpChoices = this.rollUpgradeChoices();
     audio.play('uiMove');
-    return true;
-  }
-
-  banishUpgrade(index) {
-    if (this.banishesLeft <= 0) return false;
-    const c = this.levelUpChoices && this.levelUpChoices[index];
-    // A weapon you have not taken yet can be banished exactly like a stat card;
-    // one you already carry cannot, because banishing it would strand it at the
-    // level it is at with no way to ever improve it again.
-    const id = c && (c.kind === 'upgrade' ? c.up.id : c.kind === 'newWeapon' ? c.def.id : null);
-    if (!id) return false;
-    this.banishesLeft--;
-    this.banished.push(id);
-    this.levelUpChoices = this.rollUpgradeChoices();
     return true;
   }
 

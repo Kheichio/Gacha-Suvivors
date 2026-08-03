@@ -1219,12 +1219,58 @@ const ENEMY_OVERRIDES = {
   slime_kouhai:       { body: 'blob' },
   tiny_slime:         { body: 'blob', gridW: 15, gridH: 15 },
   crow_familiar:      { body: 'ghost', eyes: '#ff3a5e', ears: 'horns' },
-  // Naked, doughy and far too cheerful about it — so no boots and no hair.
-  husk_wanderer:      { body: 'humanoid', hair: 'none', eyes: '#e8ecf5',
-                        barefoot: true, belt: false },
-  crawler_husk:       { body: 'beast', eyes: '#e8ecf5' },
-  sprinting_husk:     { body: 'humanoid', hair: 'none', eyes: '#ff3a5e',
-                        barefoot: true, belt: false, weapon: 'none' },
+
+  // ==========================================================================
+  // STAGE 3 — THE TITANS, AND THEY ARE ALL ONE BODY PLAN NOW.
+  //
+  // Four of these six were `humanoid` or `beast` and two had no override at
+  // all, which meant Stage 3's horde was drawn out of the SAME two silhouettes
+  // as the school, the street, the village and the reef. The stage whose entire
+  // premise is "something very large stepped over the wall" was fielding bald
+  // office workers and the same hunched quadruped a coral crab uses.
+  //
+  // `titan` is the plan that says it, and none of it needed a new drawer:
+  //
+  //   DISPROPORTIONATE HEAD   drawTitan sizes the skull off the grid WIDTH
+  //     (headR = W * 0.13) and everything else off its HEIGHT, so the head is
+  //     0.26 * W/H of the figure. At a square grid that is 26% — a four-heads-
+  //     tall body, which is the whole read — and pushing W past H pushes it
+  //     further. The humanoid plan is 21% of a much taller figure.
+  //   OVER-LONG ARMS          arms are H * 0.34 hung from H * 0.32, so the
+  //     fists land at the hip line with nothing at the wrist to break them up.
+  //   EXPOSED MUSCULATURE     the torso carries a sternum line and three rib
+  //     bands in `c.dark`, which is sink() of the flesh colour — darker, MORE
+  //     saturated, rotated cool — so on the pale doughy tones in enemies.js it
+  //     comes out raw red-brown rather than as shading.
+  //   NO CLOTHING             the plan has no coat, no boots, no belt loop and
+  //     no weapon hand. There is nothing to switch off because there was never
+  //     anything there.
+  //   UNEVEN GAIT             FRAME_PLAN gives `titan` TWO walk beats, not
+  //     four: it takes the contact beats and skips the passing lift entirely,
+  //     because nothing this heavy picks a foot up cleanly.
+  //
+  // THE GRIDS ARE THE CHARACTERISATION. Same plan, six proportions, and they
+  // are chosen against the HITBOX rather than for looks alone: on-screen height
+  // is `visual.size * 2.6` whatever the grid says, and the width follows the
+  // grid's aspect — so a 1.6:1 grid is a sprite half again wider than the thing
+  // it is drawn on, and you get hit by a shoulder that was never there. Every
+  // one below lands inside 1.05-1.3x of its own collision diameter, which is
+  // where the humanoid and beast versions already sat.
+  //
+  //   husk_wanderer   36x36  square — the ordinary four-metre one, head at 26%
+  //   crawler_husk    36x32  wide and low — 29%, dragging itself
+  //   sprinting_husk  32x42  gaunt, small-headed at 20%, all limb: the abnormal
+  //   splinter_husk   26x24  knee-high, head at 33% — mouth first
+  //   rubble_golem    38x36  broad, and it keeps the tank's crown of horns
+  //   siege_husk      40x44  the biggest of them, and the only one with a core
+  //
+  // The eyes are the family resemblance: blank white on the vacant ones, red on
+  // the two that have decided something.
+  // ==========================================================================
+  husk_wanderer:      { body: 'titan', gridW: 36, gridH: 36, eyes: '#e8ecf5' },
+  crawler_husk:       { body: 'titan', gridW: 36, gridH: 32, eyes: '#e8ecf5' },
+  sprinting_husk:     { body: 'titan', gridW: 32, gridH: 42, eyes: '#ff3a5e' },
+  splinter_husk:      { body: 'titan', gridW: 26, gridH: 24, eyes: '#e8ecf5' },
   // A gym uniform stuck mid-relay: team bib, whistle on a lanyard, one arm out.
   gym_uniform_ghoul:  { body: 'humanoid', hair: 'buzz', eyes: '#7bf59a',
                         chest: '#ff5f6e', harness: '#c8c2ba', sash: true },
@@ -1265,8 +1311,36 @@ const ENEMY_OVERRIDES = {
                         skirt: '#3a2a5a', halo: '#c8b8ff' },
   trap_scroll:        { body: 'mech', gridW: 18, gridH: 18, noBob: true },
   eel_swarm:          { body: 'ghost', eyes: '#7bf59a' },
-  rubble_golem:       { body: 'beast', gridW: 34, gridH: 34, pauldrons: true,
-                        eyes: '#3a3f4a' },
+  /**
+   * The wall got up, and it brought the wall.
+   *
+   * `ears: 'none'` OVERRIDES BEHAVIOR_STYLE.tank's `greatHorns` on purpose, and
+   * it was rendered both ways before choosing. drawTitan draws a horn as a
+   * 1px blade running 5px out and 6px up from the skull; on a 38px grid that is
+   * two long thin diagonals off a small head, and side by side with the Coral
+   * Crab and the Oni Bruiser — who legitimately have them — it reads as INSECT
+   * ANTENNAE, not as masonry. On a thing made of stone that is simply the wrong
+   * animal.
+   *
+   * `cape` is what replaces it. On the titan plan a cape is not cloth: it is a
+   * dark taper drawn BEHIND the torso, wider than the body and hanging past the
+   * hips, in `shade(c.deep, -0.2)` — so on a grey golem it is a slab of wall
+   * still sitting on its back, and it makes this the broadest silhouette of the
+   * six, which is what the heaviest thing on the stage should be. The value is
+   * ignored by drawTitan (it derives the colour from the body); `true` is the
+   * honest way to say "on".
+   */
+  rubble_golem:       { body: 'titan', gridW: 38, gridH: 36, eyes: '#3a3f4a',
+                        ears: 'none', cape: true },
+  // "Architecture that has decided to move." This one had NO override at all
+  // and `mortar` is missing from BODY_FOR_BEHAVIOR, so the heaviest, slowest,
+  // longest-ranged thing on the stage resolved to a featureless bald humanoid
+  // — the single least characterised sprite in the game, on the mob the stage
+  // fields twenty of. `chest` is the one lit thing on any of these six: the
+  // furnace it lobs its shells out of, and the only way to pick it out of a
+  // wall of husks at a glance.
+  siege_husk:         { body: 'titan', gridW: 40, gridH: 44, eyes: '#c8462a',
+                        chest: '#e07a3f' },
   ambusher:           { body: 'humanoid', hair: 'hood', weapon: 'claws' },
   // Crew tee, lanyard, and a coil of cable over the shoulder trailing like a tail.
   drowned_roadie:     { body: 'humanoid', hair: 'none', eyes: '#7bf59a',

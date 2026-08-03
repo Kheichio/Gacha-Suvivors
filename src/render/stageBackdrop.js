@@ -110,6 +110,42 @@ function tone3(d, a) { return a < 0.70 ? d.tile : (a < 0.92 ? d.mid : d.far); }
 const PAVE_LIT = '#7d6576';
 const PAVE_DARK = '#584154';
 
+/**
+ * STAGE 3's PAVING TONES, and they exist for exactly the reason the courtyard's
+ * pair above does — the town made the same mistake, and it took a 1:1 render of
+ * a street to see it.
+ *
+ * `ruined_town` repurposes `far` as PACKED EARTH INSIDE A HOUSE PLOT, and then
+ * paved its roads and its market square with `tone3`, which returns `far` for
+ * one hash byte in twelve. So one sett in twelve, and one 188px square slab in
+ * twelve, came out the colour of bare soil: scattered across the whole map that
+ * does not read as a worn stone, it reads as HOLES punched in the road.
+ *
+ * `pave` is `tone3` with the third tone replaced by two of the paving's own:
+ *   RELAID  lift(mid, 0.08)   a sett somebody put back, still pale
+ *   WORN    sink(tile, 0.18)  one nobody did — darker, more saturated, rotated
+ *                             cool, which is what a shadow does in this project
+ *                             and what shade()-toward-black does not
+ * Both are mixed off `tile`/`mid` at module scope, so the variation on a street
+ * can only ever be grain and can never be another material.
+ */
+const COBBLE_RELAID = '#42474f';
+const COBBLE_WORN = '#23272f';
+function pave(d, a) {
+  if (a < 0.62) return d.tile;
+  if (a < 0.84) return d.mid;
+  return a < 0.93 ? COBBLE_RELAID : COBBLE_WORN;
+}
+
+/**
+ * The colour of a burnt-out patch of ground on Stage 3 — `midEdge` (#191b1f,
+ * the arena apron) mixed 22% toward the fallen-roof-tile terracotta. Soot on
+ * stone is brown-black, never neutral black, and this is the one place on the
+ * map where that distinction is doing the whole job: a neutral blot at the
+ * alpha a scorch mark needs is indistinguishable from a hole in the road.
+ */
+const SCORCH = '#2e2423';
+
 const GRID = {
   // 200 makes the arena exactly a 20x20 board, which is what lets the courtyard
   // plan below be written as whole-cell rows and columns instead of fractions.
@@ -121,6 +157,13 @@ const GRID = {
   rooftop: { cell: 200, joints: true },
   wet_street: { cell: 220, joints: false },
   ruins: { cell: 210, joints: true },
+  // Stage 3's town is the same 20x20 board the courtyard and Akihabara use, for
+  // the same reason: the obstacle layout is written in whole cells and a street
+  // has to land on the same world coordinate the houses were placed against.
+  // `joints: false` because the shared mortar grid draws ONE 200px lattice
+  // across the whole map, and this floor is three different laid surfaces —
+  // cobbled road, dressed square, bare earth inside a plot. Each lays its own.
+  ruined_town: { cell: 200, joints: false },
   village: { cell: 190, joints: false },
   halls: { cell: 200, joints: true },
   reef: { cell: 200, joints: false },
@@ -810,9 +853,221 @@ export class StageBackdrop {
           }
 
           // ================================================================
-          // STAGE 3 — it was a town. There were bakeries. Also the fallback,
-          // because a stage with an unknown `kind` should be a dull floor
-          // rather than no floor; data/index.js validate() reports the key.
+          // STAGE 3 — A TIMBER-FRAMED TOWN SOMETHING STEPPED OVER, AS A PLAN.
+          //
+          // This stage used to draw the generic `ruins` surface below, which is
+          // a very good FLOOR and not a PLACE. A hash can say "old paving with
+          // some of it missing"; it cannot say "this is the market square, that
+          // is a house plot, and the 400px between them is a street" — and the
+          // whole promise of Stage 3 is a town, with bakeries in it.
+          //
+          // So it is a fixed plan, on the same 20x20 board the courtyard and
+          // Akihabara use, and OBSTACLE_SETS.wall_amaris_ruins is authored
+          // against these exact cells:
+          //
+          //     0-1, 5-6, 9-10, 13-14, 18-19   STREET, on both axes, 400px
+          //     2-4, 7-8, 11-12, 15-17         HOUSE BLOCK, where both axes are
+          //     7..12 on BOTH axes             the MARKET SQUARE — 1200px, and
+          //                                    it overrides the four blocks
+          //                                    that would sit inside it
+          //
+          // Twelve plots ringing a square, which is what a market town is, and
+          // the player spawns dead centre of the square.
+          //
+          // THREE SURFACES OUT OF ONE WALK. The square is DRESSED stone — one
+          // 188px slab to a cell. The streets are COBBLED — four 94px setts to
+          // a cell, so the road reads as the rough surface and the market as
+          // the formal one without a second pass. A plot is bare EARTH, because
+          // its walls are obstacles standing on top of this and what is drawn
+          // here is the yard, the passage, and the floor of the room whose roof
+          // is now in the street.
+          //
+          // And all of it is sooted, scorched and covered in fallen roof tile,
+          // which is the only warm colour on the map and the thing that says
+          // which country the town was in. Nothing is drawn off the floor.
+          // ================================================================
+          case 'ruined_town': {
+            // The plan, as one predicate each. `band` is true for the columns
+            // and rows a block occupies; a cell is a block only where BOTH axes
+            // are a band and it is not inside the square. The kerbs below test
+            // the same predicate from the road side, exactly the way
+            // Akihabara's do — a pavement drawn on the wrong side of that line
+            // is a house with its doorstep in the carriageway.
+            const band = (k) => (k >= 2 && k <= 4) || k === 7 || k === 8 ||
+                                k === 11 || k === 12 || (k >= 15 && k <= 17);
+            const sqAt = (bi, bj) => bi >= 7 && bi <= 12 && bj >= 7 && bj <= 12;
+            const blockAt = (bi, bj) => band(bi) && band(bj) && !sqAt(bi, bj);
+            const inSquare = sqAt(i, j);
+            // Soot, at DISTRICT scale, because smoke does not stop at a
+            // property line. It is the one treatment here that crosses the
+            // street/plot boundary, and it is what stops the plan reading as a
+            // clean architectural drawing of a town that is supposed to be
+            // ruined.
+            const sooty = dq < 0.34;
+            // What is still alight. Slow — a fire seen from directly overhead
+            // is a pool of light on the ground, not a flicker — and phased per
+            // district so the map is never uniformly lit.
+            const pulse = 0.5 + 0.5 * Math.sin(t * 0.9 + dq * 6.283);
+
+            if (blockAt(i, j)) {
+              // --- A HOUSE PLOT -------------------------------------------
+              r.drawRect(x, y, cell, cell, d.far, 1);
+              if (sooty) r.drawRect(x, y, cell, cell, d.midEdge, 0.55);
+              // FALLEN ROOF TILE — three chips of terracotta per plot cell. A
+              // steep tiled roof is the entire silhouette of one of these
+              // houses, so when the roof comes off this is what is on the
+              // ground, and it is the only warm thing lying on the map.
+              for (let k = 0; k < 3; k++) {
+                const tq = ((h >>> (k * 5)) & 31) / 31;
+                r.drawRect(x + 14 + tq * (cell - 48),
+                           y + 12 + ((k * 61 + a * 40) % (cell - 40)),
+                           16 + tq * 12, 9, d.farLit, 0.50 + tq * 0.28);
+              }
+              // A frame member, burnt through and lying flat, at the angle this
+              // cell owns. Keyed on the cell's own grain rather than on a
+              // district, so a run of plots is a jumble and not a fence.
+              const ba = a * 6.283;
+              const mx = x + cell * 0.5, my = y + cell * 0.5;
+              r.drawLine(mx - Math.cos(ba) * cell * 0.34, my - Math.sin(ba) * cell * 0.34,
+                         mx + Math.cos(ba) * cell * 0.34, my + Math.sin(ba) * cell * 0.34,
+                         d.farEdge, 7, 0.85);
+              if (bq > this.sSome) {
+                r.drawRect(x + c * (cell - 22) + 6, y + a * (cell - 22) + 6, 7, 7,
+                           this.litter, 0.50);
+              }
+              break;
+            }
+
+            // --- PAVING ---------------------------------------------------
+            // Mortar first, slabs inset off it — the same construction every
+            // laid surface in this file uses.
+            r.drawRect(x, y, cell, cell, d.seam, 1);
+            if (inSquare) {
+              r.drawRect(x + 6, y + 6, cell - 12, cell - 12, pave(d, a), 1);
+              // A 188px dressed slab is big enough to have cracked, and every
+              // one of them has. One crack per cell, at the cell's own angle.
+              const sa = bq * 6.283;
+              const cx2 = x + cell * 0.5, cy2 = y + cell * 0.5;
+              r.drawLine(cx2 - Math.cos(sa) * cell * 0.40, cy2 - Math.sin(sa) * cell * 0.40,
+                         cx2 + Math.cos(sa) * cell * 0.32, cy2 + Math.sin(sa) * cell * 0.32,
+                         d.midEdge, 3, 0.60);
+              // THE STALL PITCHES — the reason this is a MARKET square and not
+              // just the widest paving on the map.
+              //
+              // A 1200px expanse of 188px slabs with one hairline crack each is
+              // the flattest surface in the game, and the player spawns dead
+              // centre of it and fights there for the first minute of the run.
+              // A market town's square is not blank: the pitches are let, they
+              // are marked out on the stone, and centuries of boots wear the
+              // rectangle in. Two rules and a worn floor, drawn FLAT — a stall
+              // with any height to it would be a thing hovering over the arena,
+              // which is the bug that cost this file its parallax layer.
+              //
+              // Keyed on `bq` and NOT on `a`, which is the byte the slab tone
+              // above already spent: keying both on one byte would make every
+              // pitch land on the same colour of stone, and a market that only
+              // ever lets its dark slabs is a pattern, not a place.
+              if (bq > 0.45) {
+                const pw = cell * 0.56, ph = cell * 0.40;
+                const px = x + 18 + c * (cell - pw - 36);
+                const py = y + 18 + a * (cell - ph - 36);
+                r.drawRect(px, py, pw, ph, COBBLE_WORN, 0.60);
+                r.drawRect(px, py, pw, 3, d.detail, 0.30);
+                r.drawRect(px, py + ph - 3, pw, 3, d.detail, 0.30);
+              }
+            } else {
+              // Cobbles: four setts to a cell, each taking its own tone, so the
+              // road has grain at half the scale of the square's slabs.
+              const half = cell * 0.5;
+              r.drawRect(x + 4, y + 4, half - 6, half - 6, pave(d, a), 1);
+              r.drawRect(x + half + 2, y + 4, half - 6, half - 6, pave(d, bq), 1);
+              r.drawRect(x + 4, y + half + 2, half - 6, half - 6, pave(d, c), 1);
+              r.drawRect(x + half + 2, y + half + 2, half - 6, half - 6,
+                         pave(d, (a + c) * 0.5), 1);
+              // THE GUTTER — the Rinnstein down the centre line of each street
+              // band, keyed on i or j ALONE so it runs the whole length of the
+              // road and lands at a fixed world coordinate with no second pass.
+              // The bands are pairs (0-1, 5-6, 9-10, 13-14, 18-19), so the
+              // centre line is their shared edge and the LOWER cell draws it.
+              if (i === 0 || i === 5 || i === 9 || i === 13 || i === 18) {
+                r.drawRect(x + cell - 7, y, 14, cell, d.seam, 0.85);
+                r.drawRect(x + cell - 4, y, 8, cell, d.midEdge, 0.55);
+              }
+              if (j === 0 || j === 5 || j === 9 || j === 13 || j === 18) {
+                r.drawRect(x, y + cell - 7, cell, 14, d.seam, 0.85);
+                r.drawRect(x, y + cell - 4, cell, 8, d.midEdge, 0.55);
+              }
+            }
+            if (sooty) r.drawRect(x, y, cell, cell, d.midEdge, 0.30);
+
+            // --- KERBS ----------------------------------------------------
+            // Drawn on the ROAD side of every frontage, so the pavement belongs
+            // to the street and the plot keeps its whole footprint. 22px of
+            // lime dust with a 4px lip: on a stage where a house wall can be
+            // 400px down the block, this line is the only thing on the floor
+            // that says where somebody's front door used to be.
+            const KERB = 22;
+            if (blockAt(i, j - 1)) {
+              r.drawRect(x, y, cell, KERB, d.detail, 0.26);
+              r.drawRect(x, y + KERB, cell, 4, d.detail, 0.45);
+            }
+            if (blockAt(i, j + 1)) {
+              r.drawRect(x, y + cell - KERB, cell, KERB, d.detail, 0.26);
+              r.drawRect(x, y + cell - KERB - 4, cell, 4, d.detail, 0.45);
+            }
+            if (blockAt(i - 1, j)) {
+              r.drawRect(x, y, KERB, cell, d.detail, 0.26);
+              r.drawRect(x + KERB, y, 4, cell, d.detail, 0.45);
+            }
+            if (blockAt(i + 1, j)) {
+              r.drawRect(x + cell - KERB, y, KERB, cell, d.detail, 0.26);
+              r.drawRect(x + cell - KERB - 4, y, 4, cell, d.detail, 0.45);
+            }
+
+            // --- WHAT THE FIRE LEFT ---------------------------------------
+            // A scorch mark is a SOOT BLOT WITH A WARM CORE, and both halves are
+            // FLAT ON THE PAVING. The stage's hazard lights real fires on top of
+            // this; these are the ones that have already burnt out, and they are
+            // what makes a fresh one read as "here we go again" instead of as a
+            // decal that arrived from nowhere.
+            //
+            // THE SOOT IS 0.55 OF A CHARRED BROWN, not 0.80 of `midEdge`. The
+            // first version was 80% of near-black (#191b1f) over a #2d3037
+            // street, which arrives at (24,26,31) — darker than anything else on
+            // the map including the plot earth. Rendered wide and looked at,
+            // fourteen percent of every cell on the map was a hard black
+            // rectangle, and the street read as paving with holes punched
+            // through it rather than as paving somebody set fire to. Soot on
+            // stone is brown-black and it FEATHERS, so this is a big soft blot
+            // with a smaller, harder centre inside it, and the burnt core is
+            // warm because the thing that made it was.
+            if (c > this.sFew) {
+              const sx = x + bq * (cell - 78) + 18, sy = y + a * (cell - 78) + 18;
+              const sw = 42 + c * 22, sh = 30 + bq * 18;
+              r.drawRect(sx, sy, sw, sh, SCORCH, 0.55);
+              r.drawRect(sx + 7, sy + 6, sw - 14, sh - 12, SCORCH, 0.45);
+              r.drawRect(sx + 6, sy + 5, 28 + c * 14, 18 + bq * 10, d.glow,
+                         0.11 + 0.07 * pulse * flashK);
+            }
+            // And one district in seven is still properly alight underfoot.
+            if (dq > 0.86) {
+              r.drawRect(x + 12, y + 12, cell - 24, cell - 24, d.glow,
+                         0.05 + 0.05 * pulse * flashK);
+            }
+            // Ash. It has been falling long enough that people call it the sky.
+            if (bq > this.sSome) {
+              r.drawRect(x + c * (cell - 20) + 6, y + a * (cell - 20) + 6, 7, 7,
+                         this.litter, 0.45);
+            }
+            break;
+          }
+
+          // ================================================================
+          // THE GENERIC RUIN FLOOR — old hand-laid flagstone with some of the
+          // paving gone. Stage 3 used to be drawn on it and is not any more;
+          // it stays because it is ALSO the `default:`, so a stage with an
+          // unknown `kind` gets a dull floor rather than no floor.
+          // data/index.js validate() reports the key.
           // ================================================================
           case 'ruins':
           default: {

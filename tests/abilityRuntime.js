@@ -20,6 +20,7 @@ import { input, ACT } from '../src/core/input.js';
 import { save } from '../src/core/save.js';
 import { storage } from '../src/core/storage.js';
 import { camera } from '../src/render/camera.js';
+import { effects } from '../src/render/effects.js';
 import { CONFIG } from '../src/core/config.js';
 
 const DT = CONFIG.TICK_DT;
@@ -58,6 +59,58 @@ function step(run, ticks) {
 function press(action) { input.press(action); }
 function clearPresses() {
   for (const a of [ACT.SPECIAL, ACT.ESCAPE]) { input._pressed[a] = false; input._latched[a] = false; }
+}
+
+// --- Karin's blades ----------------------------------------------------------
+// Her whole kit is "plant, retrieve, reset", and both halves of the retrieval
+// used to be broken in ways nothing could see: the escape's own refund was
+// thrown away by run.js, and a collected dagger kept drawing for the rest of its
+// nine seconds. These helpers are what make either observable.
+
+/** Voracity's refund, quoted from characters.js and star9.js's BLADE_REFUND. */
+const BLADE_REFUND = 0.7;
+/** BLADE_LIFE / BLADE_SLOTS from star9.js — the ring's size and a blade's life. */
+const BLADE_SLOTS = 28;
+
+/**
+ * How many planted daggers are currently BEING DRAWN.
+ *
+ * There is exactly one draw path for a blade on the floor — a `fallSprite` prop
+ * effect — and the pool is a process-global singleton, so this can be read from
+ * outside. The signature is `a sprite effect that lives longer than 5 seconds`:
+ * every other prop effect in the game is a drop or a telegraph and the longest
+ * of them is the carrot's 1.2s fuse, so nothing else can be confused for one.
+ */
+function drawnBlades() {
+  const items = effects.pool.items;
+  let n = 0;
+  for (let i = 0; i < effects.count; i++) {
+    const e = items[i];
+    if (e.sprite && e.life > 5) n++;
+  }
+  return n;
+}
+
+/**
+ * Advance with the arena EMPTIED every tick.
+ *
+ * Her auto needs a target, so with nothing to shoot at she plants nothing — and
+ * a measurement of "how many daggers are on the floor" is only meaningful if the
+ * floor stops changing underneath it. Long enough also flushes the 0.26s
+ * scheduled landings still in flight from the warm-up.
+ */
+function quietly(run, ticks) {
+  for (let i = 0; i < ticks; i++) { run.enemies.clear(); step(run, 1); }
+}
+
+/** A Karin run with a floor full of her own property. */
+function karinWithBlades(seed) {
+  freshSave(5);
+  const run = makeRun('karin', seed);
+  input.moveX = 0; input.moveY = 0;
+  step(run, 600);        // 10s of autos: one blade every 0.42s, each alive for 9s
+  quietly(run, 40);
+  return run;
 }
 
 describe('abilities / live execution at star 5 (S3 + S5 branches active)', () => {
@@ -569,11 +622,12 @@ describe('abilities / live execution at star 5 (S3 + S5 branches active)', () =>
     const run = makeRun('rin', 61);
     const known = Object.keys(run.player.stats);
     const bridged = ['pickupRadiusMult', 'moveSpeedMult', 'maxHpMult', 'armorMult', 'regenMult'];
-    // Shrine rows consumed directly by run.js (rerolls, banishes, enemy count)
-    // never touch the stat pipeline. Those are legitimate — they are read from
+    // Shrine rows consumed directly by run.js (rerolls, enemy count) never touch
+    // the stat pipeline. Those are legitimate — they are read from
     // save.data.shrine at run start — but they must be DECLARED as such so this
     // test can tell them apart from a typo that silently does nothing.
-    const runScoped = ['freeRerolls', 'banishes', 'countMult'];
+    // `banishes` was a third until BANISH was removed.
+    const runScoped = ['freeRerolls', 'countMult'];
     const bad = [];
     for (const up of data.upgrades.UPGRADES) {
       if (known.indexOf(up.stat) < 0 && bridged.indexOf(up.stat) < 0) {
@@ -608,10 +662,14 @@ describe('abilities / live execution at star 5 (S3 + S5 branches active)', () =>
     const plainGold = plain.stats.gold, plainXp = plain.stats.xp;
     plain.dispose();
 
+    // `banish: 3` is still written here ON PURPOSE even though the row is gone:
+    // a legacy save carries it, and start-of-run must ignore an unknown key
+    // rather than throw or let it leak into the stat pipeline.
     save.data.shrine = { rerolls: 3, banish: 3, curse: 5 };
     const run = makeRun('rin', 65);
     assert.atLeast(run.rerollsLeft, 3, 'Shrine Rerolls granted no rerolls');
-    assert.atLeast(run.banishesLeft, 3, 'Shrine Banish granted no banishes');
+    assert.equal(run.banishesLeft, undefined,
+                 'run still tracks banishes — the feature was removed');
     assert.ok(run.difficultyMult.count > 1, 'Shrine Curse did not raise enemy count');
     run.grantGold(1000);
     run.grantXp(1000);
@@ -631,7 +689,7 @@ describe('abilities / live execution at star 5 (S3 + S5 branches active)', () =>
     freshSave(1);
     const base = makeRun('rin', 70);
     const before = JSON.stringify(base.player.stats);
-    const beforeRun = [base.rerollsLeft, base.banishesLeft,
+    const beforeRun = [base.rerollsLeft,
                        base.difficultyMult.count, base.difficultyMult.reward].join('|');
     base.dispose();
 
@@ -642,7 +700,7 @@ describe('abilities / live execution at star 5 (S3 + S5 branches active)', () =>
       save.data.shrine[u.id] = u.maxLevel;
       const run = makeRun('rin', seed++);
       const after = JSON.stringify(run.player.stats);
-      const afterRun = [run.rerollsLeft, run.banishesLeft,
+      const afterRun = [run.rerollsLeft,
                         run.difficultyMult.count, run.difficultyMult.reward].join('|');
       if (before === after && beforeRun === afterRun) dead.push(u.id);
       run.dispose();
@@ -832,5 +890,201 @@ describe('abilities / live execution at star 5 (S3 + S5 branches active)', () =>
     assert.equal(sa.kills, sb.kills, 'an intervening run changed the replay of a seeded run');
     assert.close(sa.damageDealt, sb.damageDealt, 0.01, 'an intervening run changed the damage dealt');
     assert.equal(sa.level, sb.level, 'an intervening run changed the level reached');
+  });
+
+  // === KARIN: PLANT, RETRIEVE, RESET =========================================
+  // Three defects lived here at once, and every existing test passed through all
+  // of them: nothing throws when a refund is silently discarded, and nothing
+  // throws when a picture of a dagger outlives the dagger.
+
+  it('a stale effect handle cancels nothing — the pool recycles underneath it', () => {
+    // `EffectSystem.kill()` is what lets a blade take its own sprite down, and
+    // the serial is not politeness, it is the whole contract. `Pool` recycles
+    // objects with no generation counter (core/pool.js), a planted dagger holds
+    // its handle for NINE SECONDS, and DEATH LOTUS churns ~40 effects a second
+    // through 160 slots — so that handle is very likely pointing at a stranger
+    // by the time the dagger is picked up. Without the compare, walking over a
+    // dagger would silently cancel some other ability's shockwave, which is a
+    // bug that would only ever be seen as "the screen flickers sometimes".
+    effects.clear();
+    const mine = effects.impact(0, 0, '#ffffff', { life: 1 });
+    const mySerial = mine.serial;
+    assert.atLeast(mySerial, 1, 'a spawned effect was never stamped with a serial');
+    assert.equal(effects.kill(mine, mySerial), true, 'kill() refused an effect it owns');
+    assert.equal(effects.count, 0, 'kill() did not actually release the effect');
+
+    // The pool hands the very same object straight back out: same object,
+    // different tenant. This is the race, reproduced in three lines.
+    const theirs = effects.impact(0, 0, '#ffffff', { life: 1 });
+    assert.equal(theirs, mine, 'the pool did not recycle the slot — this proves nothing');
+    assert.notEqual(theirs.serial, mySerial, 'a recycled slot kept the previous serial');
+    assert.equal(effects.kill(mine, mySerial), false,
+                 'a stale handle was allowed to cancel a stranger\'s effect');
+    assert.equal(effects.count, 1, 'the innocent bystander was released anyway');
+    effects.clear();
+  });
+
+  it('an overflowing effect pool evicts the one closest to dying, not the longest-lived', () => {
+    // THE BUG IN THE OTHER DIRECTION. 160 slots, and something has to go when the
+    // 161st effect arrives. It used to be `pool.releaseOldest()`, which releases
+    // `items[0]` — and after a few hundred swap-and-pops `items[0]` is not the
+    // oldest, it is whichever effect has survived longest WITHOUT being swapped,
+    // i.e. the longest-LIVED one. Karin's daggers live 9s against flashes that
+    // live 0.3s, so they were the standing eviction victim: deleted off the
+    // floor while still live, still in the ring and still collectable.
+    //
+    // NOTE this cannot be caught by a run-driven test: `effects.update()` is
+    // driven from main.js's frame loop, not from `run.update()`, so nothing ages
+    // at all in the headless harness and every effect sits at age 0 forever.
+    // The ages have to be advanced by hand, which is what this does.
+    effects.clear();
+    const long = effects.impact(0, 0, '#ffffff', { life: 9 });
+    const longSerial = long.serial;
+    for (let i = 1; i < effects.max; i++) effects.impact(0, 0, '#ffffff', { life: 0.3 });
+    assert.equal(effects.count, effects.max, 'the pool did not fill — nothing will be evicted');
+
+    // The short ones are now 93% dead; the 9s one is 3% dead.
+    effects.update(0.28);
+    assert.equal(effects.count, effects.max, 'something expired early — retune the lives');
+
+    effects.impact(0, 0, '#ffffff', { life: 0.3 });   // the 161st: somebody dies
+    assert.equal(long.active && long.serial === longSerial, true,
+                 'the pool threw away the effect with 8.7 of its 9 seconds left and ' +
+                 'kept 159 that were 93% finished');
+    effects.clear();
+  });
+
+  it('picking a blade up with the PASSIVE takes 0.7s off both cooldowns', () => {
+    // The proximity-poll half of Voracity. This one always worked; it is here as
+    // the control for the Shunpo test below, because "both paths pay the same"
+    // is the actual contract — `collectBlade` is one funnel precisely so the
+    // payout cannot depend on which of the two got there.
+    const run = karinWithBlades(4242);
+    const p = run.player;
+    const floor = drawnBlades();
+    assert.atLeast(floor, 1, 'no blades on the floor — 10s of autos planted nothing');
+
+    // Reach past the whole arena for exactly one tick, so the poll sweeps up
+    // everything she owns and the sample size is the whole floor.
+    p.stats.pickupRadius = 5000;
+    // Both clocks primed with more time than the refund can possibly cancel, so
+    // the refund reads as a plain subtraction and no charge is handed back —
+    // a granted charge adds `duration` back onto `t` and hides the size of it.
+    const primed = BLADE_REFUND * BLADE_SLOTS + 3;
+    p.special.charges = 0; p.special.t = primed;
+    p.escape.charges = 0;  p.escape.t = primed;
+
+    const st = p.state('voracity');
+    const stacks0 = st.stacks | 0;
+    step(run, 1);
+    const picked = (st.stacks | 0) - stacks0;
+    assert.atLeast(picked, 1, 'the passive poll collected nothing with a 10000px reach');
+
+    // player.update() ticks the cooldowns BEFORE abilities.tick() runs the poll,
+    // so exactly one DT of natural decay plus 0.7s per blade is missing.
+    assert.close(primed - p.special.t, BLADE_REFUND * picked + DT, 1e-6,
+                 `${picked} blades should take ${(BLADE_REFUND * picked).toFixed(2)}s off SPECIAL`);
+    assert.close(primed - p.escape.t, BLADE_REFUND * picked + DT, 1e-6,
+                 `${picked} blades should take ${(BLADE_REFUND * picked).toFixed(2)}s off ESCAPE`);
+    run.dispose();
+  });
+
+  it('retrieving a blade WITH SHUNPO refunds the dash itself, not just the special', () => {
+    // THE BUG THE OWNER FELT. Shunpo sweeps blades inside its own cast(), and
+    // run.js used to spend the escape charge AFTERWARDS — `Cooldown.use()`
+    // assigns `t = duration` whenever the cooldown was full, so every second
+    // Voracity refunded into the dash on the dash's own frame was overwritten
+    // one line later. Her escape paid for the retrieval and got nothing back.
+    //
+    // The full-charges case is the broken one (`wasFull === true`), so this
+    // presses from a full bar deliberately.
+    const run = karinWithBlades(4242);
+    const p = run.player;
+    assert.atLeast(drawnBlades(), 1, 'no blades on the floor for Shunpo to fetch');
+
+    p.escape.charges = p.escape.maxCharges;
+    p.escape.t = 0;
+    const specialPrimed = BLADE_REFUND * BLADE_SLOTS + 3;
+    p.special.charges = 0; p.special.t = specialPrimed;
+
+    const st = p.state('voracity');
+    const stacks0 = st.stacks | 0;
+    press(ACT.ESCAPE);
+    step(run, 1);
+    clearPresses();
+    const picked = (st.stacks | 0) - stacks0;
+
+    assert.atLeast(picked, 1, 'Shunpo swept up no blade at all — this proves nothing');
+    assert.equal(p.escape.charges, p.escape.maxCharges - 1,
+                 'the press did not spend exactly one escape charge');
+    // Nothing else on this frame can touch the escape clock: the cooldowns are
+    // ticked before the press block and `use()` stamps a full `duration` onto
+    // it. So everything missing from `duration` is Voracity's refund, and it is
+    // 0.7s per blade or it is the bug. Before the fix this was exactly 0.
+    assert.close(p.escape.duration - p.escape.t, BLADE_REFUND * picked, 1e-6,
+                 `Shunpo collected ${picked} blades and refunded ` +
+                 `${(p.escape.duration - p.escape.t).toFixed(3)}s of its own cooldown`);
+    // And the special, which was never broken, still gets the same payout.
+    assert.close(specialPrimed - p.special.t, BLADE_REFUND * picked + DT, 1e-6,
+                 'the SPECIAL half of the refund changed');
+    run.dispose();
+  });
+
+  it('a collected dagger stops being drawn on the frame it is collected', () => {
+    // `plantBlade` spawned a 9-second `fallSprite` and threw the handle away, so
+    // a blade picked up 0.4s after landing stayed fully drawn for another 8.6s.
+    // The floor of a character whose entire loop is "is that one worth walking
+    // to" was showing daggers that were not there.
+    const run = karinWithBlades(4242);
+    const p = run.player;
+    const floor = drawnBlades();
+    assert.atLeast(floor, 3, `only ${floor} blades on the floor — too few to measure`);
+
+    p.stats.pickupRadius = 5000;   // one tick of arena-wide reach: take them ALL
+    const st = p.state('voracity');
+    const stacks0 = st.stacks | 0;
+    step(run, 1);
+
+    assert.atLeast((st.stacks | 0) - stacks0, floor,
+                   'the poll did not collect every blade on the floor');
+    assert.equal(drawnBlades(), 0,
+                 `every blade was picked up, yet ${drawnBlades()} dagger sprites are still ` +
+                 'standing in the floor');
+    run.dispose();
+  });
+
+  it('DEATH LOTUS wrapping the 28-slot ring orphans no dagger sprites', () => {
+    // The other half of the same bug. The spin throws 3-4 blades every 0.22s for
+    // 2.4-3.4s — a full wrap of the 28-slot ring in about two seconds — and
+    // `plantBlade` overwrote a still-live record without cancelling its sprite.
+    // The record was gone, so nothing could ever pick that dagger up or expire
+    // it: a permanent, uncollectable ghost for the rest of its nine seconds.
+    freshSave(5);
+    const run = makeRun('karin', 909);
+    input.moveX = 0; input.moveY = 0;
+    step(run, 300);
+
+    // Arena emptied from here on, which stops her AUTO (it needs a target) and
+    // stops the spin's damage doing anything. The only blades planted for the
+    // rest of this test are the spin's own — that is what wraps the ring.
+    press(ACT.SPECIAL);
+    let peak = 0;
+    for (let i = 0; i < 420; i++) {
+      run.enemies.clear();
+      step(run, 1);
+      clearPresses();
+      const n = drawnBlades();
+      if (n > peak) peak = n;
+    }
+
+    // The floor is fed by ONE ring of 28 records, so 28 is the ceiling on how
+    // many daggers can exist. Anything above it is a sprite with no record
+    // behind it.
+    assert.atLeast(peak, 20, `only ${peak} blades ever on the floor — the ring never filled, ` +
+                             'so this test never exercised a wrap');
+    assert.atMost(peak, BLADE_SLOTS,
+                  `${peak} daggers drawn at once against a ${BLADE_SLOTS}-slot ring — ` +
+                  `${peak - BLADE_SLOTS} of them are orphans nobody can pick up`);
+    run.dispose();
   });
 });

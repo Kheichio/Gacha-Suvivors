@@ -1,6 +1,9 @@
 // GENERIC LEVEL-UP UPGRADES, IN-RUN PICKUPS, XP GEMS AND CHEST TABLES.
-// Pure data. No functions, no logic (the two `Object.fromEntries` lookups at the
-// bottom are boot-time index builds, not runtime behaviour).
+// Pure data, plus the two-line pair of pure functions that says what a row is
+// WORTH at a level (totalAt/deltaAt — see their comment; they exist because
+// `levelTotals` would otherwise be a convention four files each implemented
+// slightly differently). The two `Object.fromEntries` lookups at the bottom are
+// boot-time index builds, not runtime behaviour.
 //
 // SPEC: SECTION 10 (prompt lines 1387-1473). Every number here is verbatim from
 // lines 1408-1450 unless a DECISIONS.md ruling is cited inline.
@@ -20,6 +23,17 @@
 //   tier        common | rare | epic — drives card frame colour and draw weight.
 //   stat        the single stat key the engine applies this to.
 //   perLevel    the amount applied per level. Signed (see quick_recovery).
+//   levelTotals OPTIONAL, and only on the healing rows. The ACCUMULATED value at
+//               each level — entry N is what you HAVE after N cards, not what the
+//               Nth card gave you — so a row can ramp instead of paying the same
+//               amount every time. Absent means flat, i.e. `perLevel * level`,
+//               which is every other row and is unchanged.
+//               `perLevel` is still authored on a ramped row and is always
+//               levelTotals[0], so the first card, the chest reveal and every
+//               test that reads perLevel keep reading a true number.
+//               ALWAYS read it through totalAt()/deltaAt() below. Indexing it by
+//               hand is how a level past the end of the array becomes `undefined`
+//               and the stat becomes NaN with no error anywhere.
 //   mode        how perLevel folds into the stat:
 //                 'add'  additive into a multiplier bucket:  final = base * (1 + Σ)
 //                 'mult' true multiplicative:                final = base * Π(1 + v)
@@ -134,27 +148,66 @@ export const UPGRADES = [
     codex: 'Broken in by roughly nine thousand consecutive tutorial laps.',
   },
   {
+    // RAMPED, for the reason written out in full on second_wind below. Iron Body
+    // is the sharper case of the same bug, because it is not only a bigger pool:
+    // player.js heals you by the amount gained on every recompute that raises max
+    // HP, so each card is ALSO an instant heal. At a flat +18 on Mochi's 100 HP
+    // that was an 18% heal on demand, eight times a run — 144 HP of healing you
+    // choose the moment you need it, more than a whole extra health bar, off the
+    // joint-highest draw weight in the pool.
+    //
+    // Ramping the GAIN ramps the heal for free: the heal is whatever the
+    // recompute gained, so player.js needed no change for this half at all. The
+    // first card is +7 (7% of Mochi's bar, down from 18%), the eighth is +32, and
+    // the run total is still exactly 144.
     id: 'iron_body', name: 'Iron Body', icon: '💪',
     maxLevel: 8, tier: 'common',
-    stat: 'maxHp', perLevel: 18, mode: 'flat', unit: 'flat',
+    stat: 'maxHp', perLevel: 7, mode: 'flat', unit: 'flat',
+    //             +7  +9  +12 +15 +19 +23 +27  +32   <- what each card gives
+    levelTotals: [7, 16, 28, 43, 62, 85, 112, 144],
     fmt: '+{v} max HP', totalFmt: '+{v} max HP total',
-    desc: 'Raises your maximum HP and HEALS you by the amount gained, right now.',
+    desc: 'Raises your maximum HP and HEALS you by the amount gained, right now. Each level gives more than the last: +7 for the first, +32 for the eighth.',
     weight: 100,
-    codex: 'Eighteen more HP. Eighteen more chances to say "I meant to do that".',
+    codex: 'Seven more HP. Then nine, then twelve. Grit compounds, apparently.',
   },
   {
-    // 0.4 -> 0.7 per level. At 0.4 the first level restored one contact hit
-    // every thirty seconds, against enemies that hit for 8-20 — indistinguishable
-    // from nothing, which is exactly what it was reported as. The HUD now also
-    // draws a green band showing where the bar will be in three seconds, and
-    // every whole point restored throws a countable `+1`.
+    // WHY THIS ROW RAMPS, AND WHY THE TOP OF IT DID NOT MOVE.
+    //
+    // Max HP does not scale with player level — player.js:165 takes it straight
+    // off the character def, and the only in-run growth is Iron Body — while
+    // enemy damage grows +6%/minute (stages.js SCALING) and density runs 12 ->
+    // 360 (waveDirector DENSITY). A FLAT +0.7 HP/s is therefore the same fraction
+    // of the same health bar at minute 0 as at minute 15, against an incoming
+    // curve that climbs an order of magnitude. Flat regen is at its strongest
+    // relative to the stage on the FIRST level-up and decays from there, which is
+    // precisely the "too powerful low level" that was reported.
+    //
+    // MEASURED IN TREE, not read off BALANCE.md: stage 1 deals 0.32-0.47 HP/s in
+    // the opening minutes and stage 2 deals 0.84. One point at 0.7 covered 149%
+    // to 220% of everything stage 1 does to you. A single common card at weight
+    // 100 made the player net-HP-positive, and that is not a heal, it is immunity
+    // with a delay on it.
+    //
+    // So the TOTAL is untouched and the SHAPE is inverted: level 8 is 5.6 HP/s,
+    // bit-identical to what it has always been, and level 1 is 0.2, which covers
+    // 43-63% of the same incoming instead of out-running it.
+    //
+    // This reshapes DECISIONS.md §43's 0.4 -> 0.7 buff rather than reverting it,
+    // and §43's own text is the licence: it says the fix that mattered was
+    // VISIBILITY — the banked `+1`, the motes, the HUD's green three-second band
+    // — not the magnitude. At 0.2 HP/s on a 110 HP pool that band is still 1.5px
+    // of a 280px bar (hud.js needs > 1px to draw it) and a countable `+1` still
+    // lands every five seconds. At 0.4 it drew nothing and said nothing; that is
+    // the difference, and it is not the number.
     id: 'second_wind', name: 'Second Wind', icon: '🌿',
     maxLevel: 8, tier: 'common',
-    stat: 'regen', perLevel: 0.7, mode: 'flat', unit: 'flat', decimals: 1,
+    stat: 'regen', perLevel: 0.2, mode: 'flat', unit: 'flat', decimals: 1,
+    //             +0.2 +0.3 +0.5 +0.6 +0.8 +0.9 +1.1 +1.2  <- what each card gives
+    levelTotals: [0.2, 0.5, 1.0, 1.6, 2.4, 3.3, 4.4, 5.6],
     fmt: '+{v} HP/s regeneration', totalFmt: '+{v} HP/s total',
-    desc: 'You heal continuously, in and out of combat. The green band on your HP bar is where it will be in three seconds.',
+    desc: 'You heal continuously, in and out of combat, and each level is worth more than the last — +0.2 HP/s for the first, +1.2 for the eighth. The green band on your HP bar is where it will be in three seconds.',
     weight: 100,
-    codex: 'The training arc pays out slowly, but it never once stops paying.',
+    codex: 'The training arc pays out slowly at first. It never once stops paying.',
   },
   {
     id: 'guardian_plate', name: 'Guardian Plate', icon: '🛡',
@@ -232,11 +285,31 @@ export const UPGRADES = [
     codex: 'Technically you were never there. Several enemies quietly disagree.',
   },
   {
+    // RAMPED TOO, and the gentlest of the three on purpose. Lifesteal is already
+    // back-loaded by the DPS curve rather than by its own number — measured, wren
+    // deals 24 dps at minute 1 and 495 at minute 9, so one point was worth 0.36
+    // HP/s early and 7.4 HP/s late without anything in this file changing. It was
+    // never the low-level offender the other two were.
+    //
+    // It is ramped anyway because the nerf has to hold across the WHOLE utility
+    // bucket. BUILD_SLOTS.utility is 3: leaving one healing card flat while the
+    // other two ramp does not remove the early free lunch, it just tells the
+    // player which of the three cards to take first, and the problem moves rather
+    // than going away.
+    //
+    // A straight arithmetic ramp — +0.2% more each level than the level before —
+    // so the first card is 0.8% instead of 1.5% and the cap is still exactly 12%.
+    // Deliberately not the 3x cut Second Wind takes at level 1: at minute-2 DPS
+    // one point of lifesteal is already a fraction of an HP per second, and a
+    // card that heals nothing perceptible is the failure DECISIONS.md §43 exists
+    // to have fixed.
     id: 'bloodthirst', name: 'Bloodthirst', icon: '🩸',
     maxLevel: 8, tier: 'rare',
-    stat: 'lifesteal', perLevel: 0.015, mode: 'flat', unit: 'percent', decimals: 1,
+    stat: 'lifesteal', perLevel: 0.008, mode: 'flat', unit: 'percent', decimals: 1,
+    //             +0.8% +1.0% +1.2% +1.4% +1.6% +1.8% +2.0% +2.2%
+    levelTotals: [0.008, 0.018, 0.030, 0.044, 0.060, 0.078, 0.098, 0.120],
     fmt: '+{v}% lifesteal', totalFmt: '+{v}% total',
-    desc: 'You heal for a slice of all damage you deal. Scales with how much you are killing, not with how big your hits are.',
+    desc: 'You heal for a slice of all damage you deal, and each level adds a bigger slice than the last — 0.8% for the first, 2.2% for the eighth. Scales with how much you are killing, not with how big your hits are.',
     weight: 60,
     codex: 'Healthcare, but you have to hit something first.',
   },
@@ -279,6 +352,43 @@ export const UPGRADES = [
 /** DECISIONS.md §4. Asserted in tests/data.test.js against the sum of maxLevel. */
 export const TOTAL_UPGRADE_LEVELS = 163;
 
+/**
+ * WHAT A ROW IS WORTH AT A LEVEL. The single definition of `levelTotals`.
+ *
+ * Four places need this answer and they must all give the same one: the stat
+ * pipeline (player.js, for both the in-run upgrades and the shrine rows), the
+ * level-up card, the chest reveal, and the Shrine's own shop preview. Before the
+ * healing ramp every one of them wrote `perLevel * level` inline, which was
+ * correct for a flat row and is a LIE for a ramped one — and a lie nothing would
+ * have caught, because no test compares a card's printed total against the stat
+ * the player actually ends up with.
+ *
+ * So the arithmetic lives here, next to the schema it reads, and every caller
+ * asks rather than computes. It is a pure function of its two arguments: no
+ * state, no RNG, no clock, safe to call from a seeded replay.
+ *
+ * It takes any object carrying `perLevel` and optionally `levelTotals`, which is
+ * deliberately looser than "an UPGRADES row": SHRINE_UPGRADES rows have the same
+ * two fields, and a shrine row with `effects` carries them one level down on each
+ * entry. One shape, one function, no per-file variants (DECISIONS.md §36).
+ *
+ * A level ABOVE the table clamps to the last entry rather than reading past the
+ * end — maxLevel already stops the player there, and `undefined` would silently
+ * become NaN in the stat pipeline instead of throwing anywhere useful.
+ */
+export function totalAt(row, level) {
+  const lv = level > 0 ? Math.floor(level) : 0;
+  if (lv <= 0) return 0;
+  const t = row.levelTotals;
+  if (!t || !t.length) return row.perLevel * lv;
+  return t[Math.min(lv, t.length) - 1];
+}
+
+/** What the level-th card ADDS — the number the level-up screen prints big. */
+export function deltaAt(row, level) {
+  return totalAt(row, level) - totalAt(row, level - 1);
+}
+
 // ---------------------------------------------------------------------------
 // IN-RUN MAP PICKUPS — spawned by the world, not offered on level-up.
 // SECTION 10 lines 1431-1444.
@@ -293,8 +403,18 @@ export const TOTAL_UPGRADE_LEVELS = 163;
 
 export const PICKUPS = [
   {
-    id: 'heart', name: 'Heart', emoji: '❤', effect: 'healPercent', value: 0.20,
-    weight: 22, desc: 'Heals 20% of your max HP.',
+    // 0.20 -> 0.12 of max HP. The one healing source in the game with NO level to
+    // ramp against — a world pickup has no upgrade level and pickup.js reads a
+    // single `value` — so it takes a straight cut instead, and it has to take one:
+    // at 24% of the world spawn table a 20% heal was an on-demand fifth of the
+    // bar, worth roughly forty seconds of everything stage 1 does to you, and
+    // leaving it flat while the three level-up rows ramp would just make the
+    // Heart the early-game healing the nerf was supposed to remove.
+    //
+    // If it should ramp too, the only honest axis it has is RUN TIME rather than
+    // level, which is a change in pickup.js, not here — see the report.
+    id: 'heart', name: 'Heart', emoji: '❤', effect: 'healPercent', value: 0.12,
+    weight: 22, desc: 'Heals 12% of your max HP.',
     visual: { shape: 'circle', color: '#ff5f7e', accent: '#ffd0d8', size: 11, emoji: '❤' },
   },
   {
@@ -483,10 +603,14 @@ export const XP_CURVE = {
   hardGrowth: 1.16,
 };
 
-// Level-up presentation. `banishes` starts at 0: the spec lists BANISH as a
-// feature (line 1404) but grants none at run start — Shrine upgrades award them,
-// exactly as they award extra rerolls. A character passive may raise `choices`
-// to 4 from its own data object (DECISIONS.md §36 — no per-character branches).
+// Level-up presentation. A character passive may raise `choices` to 4 from its
+// own data object (DECISIONS.md §36 — no per-character branches).
+//
+// There was a `banishes: 0` here. The spec listed BANISH as a feature (line 1404)
+// and the Shrine awarded them the way it awards rerolls, but the button never
+// worked — see the shrine.js header for the index bug — so the whole feature is
+// gone rather than fixed. The key is removed rather than left at zero because a
+// zero reads as "off by default", which would invite someone to turn it on.
 /**
  * BUILD SLOTS — how many DISTINCT upgrades you may hold in one run.
  *
@@ -533,7 +657,7 @@ const OFFENSIVE_STATS = [
   'projectileSpeedMult', 'pierce', 'critChance', 'critMult', 'momentumBonus',
 ];
 
-export const LEVELUP = { choices: 3, freeRerolls: 1, banishes: 0, skipGold: 30 };
+export const LEVELUP = { choices: 3, freeRerolls: 1, skipGold: 30 };
 
 /**
  * HOW OFTEN A WEAPON IS ALLOWED ONTO THE LEVEL-UP SCREEN.

@@ -129,7 +129,24 @@ export const ENEMIES = [
     hp: 20, damage: 8, speed: 40, weight: 3, xp: 2, goldChance: 0.05,
     behavior: 'chaser',
     element: 'spirit',
-    visual: { shape: 'capsule', color: '#d8c2a6', accent: '#6a4a33', emoji: '🙂', size: 18 },
+    /**
+     * THE HUSK PALETTE, and the accent is doing anatomy now.
+     *
+     * All six of Stage 3's husks are drawn on the `titan` body plan
+     * (data/sprites.js), and that plan builds its whole surface out of these
+     * two hex codes: `color` is the flesh and pixelArt's `ramp()` sinks it for
+     * the sternum line and the three rib bands, so a pale doughy tone comes out
+     * with raw red-brown musculature under it for free. `accent` is then the
+     * ONLY other colour on the figure — the horns, the hip crease and the mark
+     * at the pelvis — and it used to be a leather brown, which drew a belt
+     * across a creature that is not wearing anything.
+     *
+     * So every husk's accent is now a deep SHADOW of its own flesh: darker,
+     * more saturated, rotated cool, which is `sink(color, 0.45)` from
+     * core/math.js rounded by hand. The line across the hips stops being a belt
+     * and becomes the crease it always should have been.
+     */
+    visual: { shape: 'capsule', color: '#d8c2a6', accent: '#a8502a', emoji: '🙂', size: 18 },
     params: {},
     codex: 'Walks at 40 pixels per second. Has all the time in the world.',
   },
@@ -208,7 +225,8 @@ export const ENEMIES = [
     hp: 16, damage: 7, speed: 136, weight: 1, xp: 1, goldChance: 0.04,
     behavior: 'swarmer',
     element: 'spirit',
-    visual: { shape: 'triangle', color: '#d0bda4', accent: '#5c4230', emoji: '😬', size: 8 },
+    // Same flesh-and-shadow pair as the Husk Wanderer — see the note there.
+    visual: { shape: 'triangle', color: '#d0bda4', accent: '#9e532f', emoji: '😬', size: 8 },
     // The deliberate counterweight to Stage 3's entire thesis. That stage is
     // built out of 26-to-40 speed walls of Husk Wanderers and Crawler Husks; a
     // knee-high one at 136 is the same silhouette family arriving four times
@@ -400,7 +418,7 @@ export const ENEMIES = [
     hp: 26, damage: 12, speed: 26, weight: 4, xp: 3, goldChance: 0.05,
     behavior: 'swarmer',
     element: 'spirit',
-    visual: { shape: 'capsule', color: '#cbb49a', accent: '#5c4230', emoji: '😬', size: 20 },
+    visual: { shape: 'capsule', color: '#cbb49a', accent: '#984c2d', emoji: '😬', size: 20 },
     // Deliberately NOT ceiling_crawler. Slowest enemy in the game that still
     // moves, lowest HP of any large. Tagged `large` on purpose: Stage 3's
     // "Titan's Shadow" doubles its HP to 52 and triples its XP, which turns a
@@ -572,7 +590,8 @@ export const ENEMIES = [
     hp: 70, damage: 24, speed: 145, weight: 3, xp: 12, goldChance: 0.16,
     behavior: 'chaser',
     element: 'spirit',
-    visual: { shape: 'capsule', color: '#d8c2a6', accent: '#7a2f2f', emoji: '😀', size: 21 },
+    // Hotter than the others' shadow: this is the one husk with blood moving.
+    visual: { shape: 'capsule', color: '#d8c2a6', accent: '#a33a2a', emoji: '😀', size: 21 },
     // The tier-3 member of the same problem: 145 speed, `chaser`, and large
     // enough (radius 24) that twenty of them parked on the player is a wall of
     // sprites as well as a wall of hitboxes. Same treatment, wider lock because
@@ -655,7 +674,10 @@ export const ENEMIES = [
     hp: 190, damage: 26, speed: 30, weight: 16, xp: 15, goldChance: 0.20,
     behavior: 'tank',
     element: 'steel',
-    visual: { shape: 'hex', color: '#8d8f95', accent: '#2c2e33', emoji: '🧱', size: 24 },
+    // Stone, not flesh, so the shadow is the cool blue-grey sink() gives a
+    // near-neutral rather than the husks' red-brown. It is what the crown of
+    // broken lintels over its head is drawn in.
+    visual: { shape: 'hex', color: '#8d8f95', accent: '#3f4350', emoji: '🧱', size: 24 },
     // Heaviest weight in the game — knockback builds simply do not move it, and
     // on Stage 3 it inherits "Titan's Shadow" for 380 effective HP. The wall you
     // were hiding behind is now the thing chasing you.
@@ -713,7 +735,9 @@ export const ENEMIES = [
     hp: 210, damage: 24, speed: 22, weight: 15, xp: 16, goldChance: 0.22,
     behavior: 'mortar',
     element: 'steel',
-    visual: { shape: 'hex', color: '#7d848f', accent: '#241f1a', emoji: '🪨', size: 27 },
+    // The accent was a warm leather brown, which put this one outside its own
+    // stage's family; it is the Rubble Golem's cool masonry shadow now.
+    visual: { shape: 'hex', color: '#7d848f', accent: '#38404f', emoji: '🪨', size: 27 },
     // The slowest thing in the game that still moves — 4 under the Crawler Husk,
     // which held that title — and the longest reach, at 560 against the Kunai
     // Bat's 350. Together those are the entire design: it cannot catch you and

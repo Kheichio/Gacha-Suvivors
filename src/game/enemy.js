@@ -69,6 +69,22 @@ export function makeEnemy() {
     // ever needs to allocate a state object
     aiT: 0, aiT2: 0, aiState: 0,
     aiX: 0, aiY: 0, aiF: 0,
+    /**
+     * WHICH WAY ROUND THE THING IN FRONT OF ME, AND FOR HOW LONG.
+     *
+     * Owned by ObstacleField.steer, which is the only reader and the only
+     * writer. `avoidSide` is +1/-1 (a rotation sense around the piece, not a
+     * compass direction), `avoidT` counts the commitment down, `avoidKey`
+     * identifies the piece by position so the commitment lapses when the mob
+     * meets a different one.
+     *
+     * Three numbers, not a nested object: this template is preallocated
+     * CONFIG.MAX_ENEMIES (2,200) times and steer() runs on every one of them
+     * every tick. They MUST be reset in spawn() — a recycled slot that kept a
+     * dead mob's committed side sends a fresh one the long way round a block it
+     * has never seen.
+     */
+    avoidSide: 0, avoidT: 0, avoidKey: 0,
     params: null,
     affixes: null, affixT: 0, affixT2: 0,
     spawnT: 0,                            // spawn-in telegraph / fade
@@ -233,6 +249,13 @@ export class EnemySystem {
     e.contactCd = 0;
     e.aiT = runRng.range(0, 1); e.aiT2 = 0; e.aiState = 0;
     e.aiX = 0; e.aiY = 0; e.aiF = 0;
+    // Steering commitment. Cleared with the rest of the behaviour scratch and
+    // deliberately WITHOUT touching runRng: steer's only tiebreak is `uid & 1`
+    // precisely so a replayed seed routes the horde identically.
+    // Steering commitment. Cleared with the rest of the behaviour scratch and
+    // deliberately WITHOUT touching runRng: steer's only tiebreak is `uid & 1`
+    // precisely so a replayed seed routes the horde identically.
+    e.avoidSide = 0; e.avoidT = 0; e.avoidKey = 0;
     e.flashT = 0;
     e.facing = e.facingTarget = runRng.angle();
     e.spawnT = o.telegraph || 0;
@@ -412,7 +435,23 @@ export class EnemySystem {
       }
 
       // --- obstacles ---------------------------------------------------------
-      if (run.obstacles.count > 0 && !e.offscreen) run.obstacles.steer(e, dt);
+      // OFF-SCREEN MOBS ARE STEERED TOO, BUT ONLY WHERE THE GEOMETRY EARNS IT.
+      //
+      // Skipping steer() off screen is the same economy as the cheapened AI
+      // above and it is correct for scattered rubble: nothing out there can bury
+      // a mob deeper than a body-length, so the correction it gets on the frame
+      // it reappears is invisible. It is wrong the moment a single piece is
+      // deeper than the off-screen band is tall — `viewY` here is 480px at every
+      // resolution (BASE_H/2 + 120), and a stage whose blocks are 1000px square
+      // hides a mob's ENTIRE transit of one. It walks in unseen, and the tick it
+      // crosses into view the hard-resolve teleports it half a block sideways.
+      //
+      // `deepest` is geometry, measured by the field itself — never a stage id,
+      // which would be a special case pretending to be a rule. Six of the seven
+      // sets are nowhere near 480 and pay nothing but this compare.
+      if (run.obstacles.count > 0 && (!e.offscreen || run.obstacles.deepest > viewY)) {
+        run.obstacles.steer(e, dt);
+      }
 
       // --- arena bounds ------------------------------------------------------
       const b = run.bounds;
@@ -445,11 +484,32 @@ export class EnemySystem {
     const rx = viewX * 1.05, ry = viewY * 1.05;
     e.x = p.x + Math.cos(a) * rx;
     e.y = p.y + Math.sin(a) * ry;
-    e.px = e.x; e.py = e.y;
     e.kbx = 0; e.kby = 0;
     const b = this.run.bounds;
     e.x = clamp(e.x, b.minX, b.maxX);
     e.y = clamp(e.y, b.minY, b.maxY);
+    /**
+     * NOT INSIDE A BUILDING. `waveDirector._spawnBatch` already guards its own
+     * placement this way and says why; the recycle path fires far more often and
+     * was missed. The ellipse this lands on is 798x504 around the player, and on
+     * a city-block stage a large share of it is solid: Akihabara's four blocks
+     * occupy x and y [600,1600] and [2400,3400], which is a quarter of the
+     * arena. A mob dropped in the middle of one has nothing pushing it out until
+     * it drifts on screen, and then pops 516px sideways in a single tick.
+     *
+     * pushOut's tier-2 relaxation exits a box along its shallower axis in one
+     * push, so even dead centre of a 1000px block is one pass, not a ring walk.
+     */
+    if (this.run.obstacles.count > 0 &&
+        this.run.obstacles.pushOut(e.x, e.y, e.radius, FREE)) {
+      e.x = FREE.x; e.y = FREE.y;
+    }
+    // AFTER the correction, not before: px/py are the render's interpolation
+    // anchors and a teleport they did not see becomes a 500px smear.
+    e.px = e.x; e.py = e.y;
+    // A fresh position is a fresh problem — the piece it was rounding is now
+    // half a screen away.
+    e.avoidSide = 0; e.avoidT = 0; e.avoidKey = 0;
   }
 
   _moveToward(e, tx, ty, dt, mult) {
@@ -1346,6 +1406,9 @@ const EMPTY = {};
 const SEPARATION_SAMPLES = 6;
 /** Reused out-vector for separationPush — a separation pass may not allocate. */
 const SEP = { x: 0, y: 0 };
+
+/** Same rule for _recycle's pushOut. Never read across calls. */
+const FREE = { x: 0, y: 0 };
 
 /**
  * The Sower's field, as a module-level constant (house rule: no options bag is

@@ -725,8 +725,12 @@ describe('achievements / the gates DECISIONS.md §24 made real', () => {
 
 // ============================================================================
 describe('shrine', () => {
-  it('22 upgrades with growing costs', () => {
-    assert.equal(shrine.SHRINE_UPGRADES.length, 22);
+  it('21 upgrades with growing costs', () => {
+    // 22 until BANISH was removed. The count is asserted rather than derived so
+    // that adding or losing a row is a decision somebody had to write down.
+    assert.equal(shrine.SHRINE_UPGRADES.length, 21);
+    assert.equal(shrine.SHRINE_UPGRADES.filter(u => u.id === 'banish').length, 0,
+                 'the banish row is back — it was removed because the button never worked');
     for (const u of shrine.SHRINE_UPGRADES) {
       assert.atLeast(u.maxLevel, 1);
       assert.atLeast(u.baseCost, 1);

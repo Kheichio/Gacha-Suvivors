@@ -146,7 +146,9 @@ const PREVIEW_ROWS = [
   { stat: 'xpMult', label: 'XP gain', kind: 'pct' },
   { stat: 'luck', label: 'Starting luck', kind: 'flat' },
   { stat: 'freeRerolls', label: 'Level-up rerolls', kind: 'flat', base: 'freeRerolls' },
-  { stat: 'banishes', label: 'Level-up banishes', kind: 'flat', base: 'banishes' },
+  // A 'banishes' row sat here until BANISH was removed (see shrine.js header for
+  // the bug that made the button a no-op). The stat is gone from the pipeline, so
+  // a row naming it would print a permanent zero.
   { stat: 'revives', label: 'Starting revives', kind: 'flat', note: 'cap 3' },
   { stat: 'countMult', label: 'Enemy count', kind: 'pct', tone: 'bad' },
   { stat: 'rewardMult', label: 'All rewards', kind: 'pct', tone: 'good' },

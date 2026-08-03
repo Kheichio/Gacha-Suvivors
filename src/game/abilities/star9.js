@@ -125,7 +125,11 @@ const BLADE_DASH = 460;
 const BLADE_SLOTS = 28;
 const BLADES = [];
 for (let i = 0; i < BLADE_SLOTS; i++) {
-  BLADES.push({ run: null, live: false, x: 0, y: 0, t: 0 });
+  // `fx`/`fxId`: the floor sprite this record OWNS, and the serial proving it is
+  // still the same effect. See dropBladeFx() — a blade that has stopped being a
+  // blade has to take its picture down with it, or the player is looking at a
+  // floor of daggers that are not there.
+  BLADES.push({ run: null, live: false, x: 0, y: 0, t: 0, fx: null, fxId: 0 });
 }
 let bladeSlot = 0;
 
@@ -140,15 +144,51 @@ const BLADE_SPARK = { speed: 190, life: 0.3, size: 0.34, drag: 3, shape: 'shard'
 const BLADE_PICKUP_FX = { life: 0.3, size: 13 };
 const THROW_FX = { speed: 210, life: 0.2, size: 0.3, additive: true };
 
+/**
+ * TAKE A BLADE'S PICTURE DOWN.
+ *
+ * The dagger standing in the floor is a `fallSprite` effect with a nine-second
+ * life, and NOTHING used to own it: the handle was discarded at the spawn, so a
+ * blade collected 0.4s after it landed left a fully-drawn dagger standing there
+ * for another 8.6s. Walking over a dagger and having it stay is the single worst
+ * thing that can happen to a character whose entire loop is "decide whether that
+ * one on the floor is worth the walk" — it makes the floor unreadable.
+ *
+ * So every path that stops a blade being a blade comes through here: collected,
+ * expired, dropped with a dead run, or its ring slot recycled out from under it.
+ *
+ * `fxId` is the serial `EffectSystem` stamped on the effect when it spawned, and
+ * it is not defensive politeness. The effects pool recycles with no generation
+ * counter, and the two nine-second clocks here are driven by DIFFERENT loops:
+ * `b.t` counts down in the sim's fixed step, `e.age` counts up in main.js's
+ * frame loop. They drift, so for every blade that survives to full age there is
+ * a window where the effect has already expired and been handed to somebody
+ * else while the record is still live and still holding the pointer. `kill()`
+ * compares the serial and refuses a mismatch; without it, the next pickup would
+ * cancel an unrelated shockwave instead.
+ */
+function dropBladeFx(b) {
+  if (b.fx) H.effects.kill(b.fx, b.fxId);
+  b.fx = null;
+  b.fxId = 0;
+}
+
 /** A landing record, from the scheduler. Module-level: no closures. */
 function plantBlade(rec) {
   const run = rec.run;
   if (!run || run.over) return;
   const b = BLADES[bladeSlot];
   bladeSlot = (bladeSlot + 1) % BLADE_SLOTS;
+  // THE SLOT MAY STILL BE OCCUPIED. 28 slots against DEATH LOTUS's 3-4 blades
+  // every 0.22s is a full wrap in about two seconds of a 2.4s spin, so the ring
+  // routinely overwrites a blade that is still live — and the record it drops is
+  // the only thing that knew about that blade's sprite. Cancel it here or it
+  // becomes an uncollectable ghost dagger for the rest of its nine seconds.
+  if (b.live) dropBladeFx(b);
   b.run = run; b.live = true;
   b.x = rec.x; b.y = rec.y; b.t = BLADE_LIFE;
-  H.effects.fallSprite(rec.x, rec.y, SP_PLANTED, BLADE_LAND);
+  b.fx = H.effects.fallSprite(rec.x, rec.y, SP_PLANTED, BLADE_LAND);
+  b.fxId = b.fx ? b.fx.serial : 0;
   H.particles.burst(rec.x, rec.y, 3, C_KARIN_DARK, BLADE_SPARK);
 }
 
@@ -561,9 +601,11 @@ registerAll({
       ctx.stacks = 0;
       ctx.mods = { damageMult: 0 };
       p.addBuff('voracity', FOREVER, ctx.mods);
-      // Module scope is process-global; the harness runs many runs in one.
+      // Module scope is process-global; the harness runs many runs in one. The
+      // `fx` handle has to be released with the record, or a handle from run N
+      // outlives its own ring entry into run N+1.
       for (let i = 0; i < BLADE_SLOTS; i++) {
-        BLADES[i].live = false; BLADES[i].run = null;
+        BLADES[i].live = false; BLADES[i].run = null; dropBladeFx(BLADES[i]);
       }
       bladeSlot = 0; landingSlot = 0;
     },
@@ -575,9 +617,14 @@ registerAll({
         if (!b.live) continue;
         // A record from a dead run holds that run alive and desynchronises a
         // seeded replay. Drop it the moment it is noticed.
-        if (b.run !== run) { b.live = false; b.run = null; continue; }
+        if (b.run !== run) { b.live = false; b.run = null; dropBladeFx(b); continue; }
         b.t -= dt;
-        if (b.t <= 0) { b.live = false; b.run = null; continue; }
+        // EXPIRY. The record's 9s and the sprite's 9s were started on the same
+        // call, so they land within a frame of each other — but "within a frame"
+        // is the whole difference between a blade you can see and cannot pick up
+        // and one you can, so the record is authoritative and takes the sprite
+        // with it rather than trusting the two clocks to agree.
+        if (b.t <= 0) { b.live = false; b.run = null; dropBladeFx(b); continue; }
         if (H.dist2(p.x, p.y, b.x, b.y) <= pick2) collectBlade(run, p, b);
       }
     },
@@ -903,12 +950,22 @@ registerAll({
 function collectBlade(run, p, b) {
   b.live = false;
   b.run = null;
+  // IT IS OFF THE FLOOR, SO IT STOPS BEING DRAWN — this frame, not eight and a
+  // half seconds from now. The impact flash below is what replaces it.
+  dropBladeFx(b);
   const ctx = p.state('voracity');
   if (ctx.mods) {
     ctx.stacks = (ctx.stacks | 0) + 1;
     ctx.mods.damageMult = ctx.stacks * BLADE_STACK;
     p.recompute();
   }
+  // BOTH CLOCKS, ON BOTH PICKUP PATHS. This works from the passive's proximity
+  // poll because nothing is spending either cooldown on that frame — and it now
+  // works from inside Shunpo's own sweep because run.js spends the escape charge
+  // BEFORE calling cast(), so the clock this reduces is already running. It used
+  // to spend it afterwards, and `Cooldown.use()` stamps a full cooldown back to
+  // `duration`, so retrieving a blade WITH THE DASH refunded the dash nothing.
+  // If that ordering in run.js is ever reverted, this line goes silent again.
   p.special.reduce(BLADE_REFUND);
   p.escape.reduce(BLADE_REFUND);
   H.effects.impact(b.x, b.y, C_STEEL, BLADE_PICKUP_FX);

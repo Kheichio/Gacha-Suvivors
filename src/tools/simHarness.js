@@ -26,23 +26,47 @@ import { storage } from '../core/storage.js';
 import { CONFIG } from '../core/config.js';
 import { runRng } from '../core/rng.js';
 import { camera } from '../render/camera.js';
+import { events, EV } from '../core/events.js';
 import { dist2, clamp, TAU } from '../core/math.js';
 
 const DT = CONFIG.TICK_DT;
 
 /** Upgrades the "average player" reaches for, in preference order. */
-const BOT_PRIORITY = [
+export const BOT_PRIORITY = [
   'extra_shot', 'sharp_edge', 'rapid_fire', 'keen_eye', 'killing_blow',
   'wide_reach', 'piercing_will', 'iron_body', 'swift_boots', 'lodestone',
   'quick_recovery', 'second_wind', 'guardian_plate', 'scholar', 'bloodthirst',
+];
+
+/**
+ * THE SAME BOT, PLAYING FOR SURVIVAL INSTEAD OF FOR DAMAGE.
+ *
+ * BOT_PRIORITY ranks second_wind 12th and bloodthirst 15th of fifteen, and
+ * BUILD_SLOTS.utility is 3 — so the default bot mostly never takes a healing
+ * card at all. Verified: wren on stage 1 seed 42 finishes with
+ * {sharp_edge, rapid_fire, wide_reach, swift_boots, cursed_coin, quick_recovery}
+ * and not one point of regen, lifesteal or max HP. A/Bing a healing change on
+ * that ordering measures nothing and reads as "the nerf did nothing".
+ *
+ * So the three healing cards are lifted to just behind the top three damage
+ * stats — roughly where a player who has just been killed by attrition puts
+ * them — and the rest of the list keeps its order. This is OPT-IN, passed as
+ * `cfg.upgradePriority`: the stock ordering is what BALANCE.md's whole table is
+ * calibrated on and must not move underneath it.
+ */
+export const HEAL_PRIORITY = [
+  'extra_shot', 'sharp_edge', 'rapid_fire', 'iron_body', 'second_wind',
+  'bloodthirst', 'keen_eye', 'killing_blow', 'wide_reach', 'piercing_will',
+  'swift_boots', 'lodestone', 'quick_recovery', 'guardian_plate', 'scholar',
 ];
 
 /** Where "level a weapon" sits in BOT_PRIORITY's ranking. See chooseUpgrade(). */
 const WEAPON_LEVEL_RANK = 3;
 
 class Bot {
-  constructor(run) {
+  constructor(run, priority) {
     this.run = run;
+    this.priority = priority || BOT_PRIORITY;
     this.threatX = 0; this.threatY = 0;
     this.escapeT = 0;
   }
@@ -151,7 +175,7 @@ class Bot {
       let r;
       if (ch.kind === 'weapon') r = WEAPON_LEVEL_RANK;
       else if (ch.kind === 'upgrade') {
-        const rank = BOT_PRIORITY.indexOf(ch.up.id);
+        const rank = this.priority.indexOf(ch.up.id);
         r = rank < 0 ? 500 : rank;
       } else continue;
       if (r < bestRank) { bestRank = r; best = i; }
@@ -163,7 +187,8 @@ class Bot {
 /**
  * Run one simulation.
  * @param {object} data    the data layer
- * @param {object} cfg     { characterId, stageId, tierIndex, seed, maxSeconds, starLevel }
+ * @param {object} cfg     { characterId, stageId, tierIndex, seed, maxSeconds, starLevel,
+ *                           upgradePriority, shrine }
  * @returns {object} the run summary plus harness-specific metrics
  */
 export function simulate(data, cfg) {
@@ -171,7 +196,14 @@ export function simulate(data, cfg) {
   save.load();
   // The harness measures the CHARACTER, not the account, so meta progression is
   // zeroed — otherwise a well-invested shrine would flatter every result.
-  save.data.shrine = {};
+  //
+  // `cfg.shrine` is the deliberate exception, and it exists because zeroing the
+  // shrine meant one whole healing source had NEVER been measured by anything:
+  // the Mending row runs at up to +2 HP/s from the first second of every real
+  // run, and no number in this repo or in BALANCE.md has ever included it. Pass
+  // `{ mending: 10 }` to see it. Default stays {}, so every existing caller —
+  // sim.js, BALANCE.md's table, the tests — is bit-identical.
+  save.data.shrine = cfg.shrine ? Object.assign(Object.create(null), cfg.shrine) : {};
   for (const c of data.characters.CHARACTERS) {
     save.data.roster[c.id] = { owned: true, starLevel: cfg.starLevel || 1, letters: 0, bond: 0, runs: 0, kills: 0 };
   }
@@ -184,14 +216,33 @@ export function simulate(data, cfg) {
     tierIndex: cfg.tierIndex || 0,
     seed: cfg.seed >>> 0,
   });
-  const bot = new Bot(run);
+  const bot = new Bot(run, cfg.upgradePriority);
+
+  // HOW MUCH HP THIS RUN GOT BACK, AND FROM WHERE.
+  //
+  // `damageTaken` was the only survivability number the harness produced, which
+  // made every healing change invisible to it: a run that takes 2,278 HP and
+  // heals 3,221 of it back looks exactly like a run that takes 2,278 and heals
+  // none. Healing arrives by three different routes and none of them met until
+  // now — the regen tick writes `player.hp` directly, a max-HP gain heals inside
+  // recompute(), and everything else (lifesteal, hearts, relics, abilities)
+  // goes through healPlayer() and emits PLAYER_HEAL. All three are counted.
+  //
+  // The two player-side counters are read AFTER construction, not from zero:
+  // being born at full HP and then having star levels applied both run through
+  // the max-HP-gain branch, and neither is a heal.
+  const hp0Regen = run.player.healedByRegen;
+  const hp0MaxHp = run.player.healedByMaxHp;
+  let healedOther = 0;
+  const onHeal = (amount) => { healedOther += amount; };
+  events.on(EV.PLAYER_HEAL, onHeal);
 
   const maxSeconds = cfg.maxSeconds || run.stage.duration + 30;
   const maxSteps = Math.ceil(maxSeconds / DT);
 
   // Per-minute samples, which is what makes "weak early, monstrous late" visible.
   const perMinute = [];
-  let lastMinute = 0, lastDamage = 0, lastKills = 0;
+  let lastMinute = 0, lastDamage = 0, lastKills = 0, lastHealed = 0, lastTaken = 0;
 
   let steps = 0;
   const t0 = now();
@@ -208,23 +259,44 @@ export function simulate(data, cfg) {
 
     const minute = Math.floor(run.time / 60);
     if (minute > lastMinute) {
+      const healedNow = healedOther
+        + (run.player.healedByRegen - hp0Regen) + (run.player.healedByMaxHp - hp0MaxHp);
       perMinute.push({
         minute,
         dps: (run.stats.damageDealt - lastDamage) / 60,
         kps: (run.stats.kills - lastKills) / 60,
         level: run.player.level,
         hp: run.player.hp / run.player.maxHp,
+        // HP restored and HP taken in THIS minute, the pair that says whether
+        // healing is winning. Minute 1 is the whole argument: a healing source
+        // that covers more than 100% of a minute's incoming damage is not a
+        // heal, it is immunity with a delay on it.
+        healed: (healedNow - lastHealed) / 60,
+        taken: (run.stats.damageTaken - lastTaken) / 60,
         enemies: run.enemies.count,
       });
       lastMinute = minute;
       lastDamage = run.stats.damageDealt;
       lastKills = run.stats.kills;
+      lastHealed = healedNow;
+      lastTaken = run.stats.damageTaken;
     }
   }
   const wall = now() - t0;
+  events.off(EV.PLAYER_HEAL, onHeal);
 
   const summary = run.summary();
   summary.perMinute = perMinute;
+
+  // The three healing routes, reported separately: a nerf that moves the total
+  // but not the split has moved the wrong thing.
+  summary.healedRegen = run.player.healedByRegen - hp0Regen;
+  summary.healedMaxHp = run.player.healedByMaxHp - hp0MaxHp;
+  summary.healedOther = healedOther;
+  summary.healed = summary.healedRegen + summary.healedMaxHp + summary.healedOther;
+  summary.healPerSecond = run.time > 0 ? summary.healed / run.time : 0;
+  /** > 1 means the run out-healed everything the stage did to it. */
+  summary.healRatio = summary.damageTaken > 0 ? summary.healed / summary.damageTaken : 0;
   summary.wallMs = wall;
   summary.speedup = wall > 0 ? (run.time * 1000) / wall : 0;
   summary.died = run.state === RUN_STATE.DEFEAT;
@@ -266,6 +338,7 @@ export function sweep(data, opts) {
       runs.push(simulate(data, {
         characterId: id, stageId, tierIndex: o.tierIndex || 0,
         seed, maxSeconds: o.maxSeconds, starLevel: o.starLevel,
+        upgradePriority: o.upgradePriority, shrine: o.shrine,
       }));
     }
     const avg = (f) => runs.reduce((a, r) => a + f(r), 0) / runs.length;
@@ -280,8 +353,15 @@ export function sweep(data, opts) {
       level: avg((r) => r.level),
       kills: avg((r) => r.kills),
       damageTaken: avg((r) => r.damageTaken),
+      healed: avg((r) => r.healed),
+      healedRegen: avg((r) => r.healedRegen),
+      healedMaxHp: avg((r) => r.healedMaxHp),
+      healedOther: avg((r) => r.healedOther),
+      healPerSecond: avg((r) => r.healPerSecond),
+      healRatio: avg((r) => r.healRatio),
       wins: runs.filter((r) => r.victory).length,
       deaths: runs.filter((r) => r.died).length,
+      upgrades: runs[runs.length - 1].upgrades,
       earlyKps: avg((r) => r.earlyKps),
       lateKps: avg((r) => r.lateKps),
       runs: runs.length,
@@ -338,16 +418,21 @@ export function printRun(r, log) {
   log(`  damage dealt   ${Math.round(r.damageDealt).toLocaleString()}`);
   log(`  dps (all)      ${num(r.dpsTotal)}   peak ${num(r.dpsPeak)}`);
   log(`  damage taken   ${Math.round(r.damageTaken).toLocaleString()}`);
+  log(`  hp healed      ${Math.round(r.healed).toLocaleString()}   ` +
+      `(${num(r.healPerSecond, 2)}/s = ${num(r.healRatio * 100, 0)}% of what it took)`);
+  log(`    regen        ${Math.round(r.healedRegen).toLocaleString()}` +
+      `   max-hp gain ${Math.round(r.healedMaxHp).toLocaleString()}` +
+      `   lifesteal/pickups/kit ${Math.round(r.healedOther).toLocaleString()}`);
   log(`  relics         ${r.relics.join(', ') || '-'}`);
   log(`  evolutions     ${r.evolutions.join(', ') || '-'}`);
   log(`  headline       ${r.metric} = ${num(r.metricValue, 2)}`);
   log(`  sim speed      ${num(r.speedup, 0)}x realtime (${num(r.wallMs, 0)}ms)`);
   if (r.perMinute && r.perMinute.length) {
     log('');
-    log(`  min   dps        kills/s   lv   hp     enemies`);
+    log(`  min   dps        kills/s   lv   hp     heal/s  taken/s  enemies`);
     for (const m of r.perMinute) {
       log(`  ${pad(m.minute, 4)}  ${pad(num(m.dps, 0), 10)} ${pad(num(m.kps, 2), 9)} ${pad(m.level, 4)} ` +
-          `${pad(num(m.hp * 100, 0) + '%', 6)} ${m.enemies}`);
+          `${pad(num(m.hp * 100, 0) + '%', 6)} ${pad(num(m.healed, 2), 8)} ${pad(num(m.taken, 2), 8)} ${m.enemies}`);
     }
   }
 }
@@ -359,15 +444,16 @@ export function printSweep(res, log) {
   log(`  BALANCE SWEEP — ${res.stageId}, seeds [${res.seeds.join(', ')}]`);
   log(`  median survival ${num(res.median)}s;  SECTION 17 wants every character within ±35%`);
   log('');
-  log(`  ${pad('character', 20)}${pad('survived', 11)}${pad('Δmedian', 10)}${pad('dps(all)', 11)}${pad('kills/s', 10)}${pad('lv', 5)}flag`);
-  log(`  ${'-'.repeat(78)}`);
+  log(`  ${pad('character', 20)}${pad('survived', 11)}${pad('Δmedian', 10)}${pad('dps(all)', 11)}${pad('kills/s', 10)}${pad('lv', 5)}${pad('heal/s', 9)}${pad('heal%taken', 12)}flag`);
+  log(`  ${'-'.repeat(99)}`);
   const sorted = res.rows.slice().sort((a, b) => b.survived - a.survived);
   for (const r of sorted) {
     const d = (r.deltaFromMedian * 100);
     log(`  ${pad(r.character, 20)}${pad(num(r.survived) + 's', 11)}` +
         `${pad((d >= 0 ? '+' : '') + num(d, 0) + '%', 10)}` +
         `${pad(num(r.dpsTotal, 0), 11)}${pad(num(r.killsPerSecond, 2), 10)}` +
-        `${pad(Math.round(r.level), 5)}${r.outlier ? 'OUTLIER' : ''}`);
+        `${pad(Math.round(r.level), 5)}${pad(num(r.healPerSecond, 2), 9)}` +
+        `${pad(num(r.healRatio * 100, 0) + '%', 12)}${r.outlier ? 'OUTLIER' : ''}`);
   }
   const outliers = res.rows.filter((r) => r.outlier);
   log('');

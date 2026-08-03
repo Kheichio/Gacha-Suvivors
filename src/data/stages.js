@@ -193,8 +193,14 @@ export const STAGES = [
       grid: '#3a3f47', hazard: '#e07a3f',
     },
     ambience: {
+      // Ash, in square flecks, because that is what a burnt roof comes down as.
+      // The vignette is the one warm thing on the stage: the town has been
+      // burning for long enough that the edge of what you can see is the colour
+      // of smoke lit from underneath, not the flat blue-black the other stages
+      // fade to. 0.52 rather than 0.50 because a warm vignette reads lighter
+      // than a cold one at the same alpha.
       particleColor: '#9aa0a8', particleRate: 0.7, particleShape: 'square',
-      vignette: 'rgba(18,20,24,0.50)',
+      vignette: 'rgba(26,15,11,0.52)',
     },
     hazards: ['collapsing_walls'],
     modifier: 'titans_shadow',
@@ -220,15 +226,17 @@ export const STAGES = [
     firstClearReward: { starFragments: 50, relic: 'anchor_gear' },
     // Titan's Shadow already doubles LARGE HP; the flat knob stays gentle.
     hpMult: 1.1, xpMult: 1.05, goldMult: 1.0,
-    obstacles: 'rubble',
+    obstacles: 'wall_amaris_ruins',
     backdrop: 'ruined_town',
     events: ['hold_the_breach', 'supply_cache'],
     music: 'audio/stage3.ogg',
-    codex: 'It was a town. There were bakeries. The grey is not weather, it is what ' +
-      'is left of the roofs, and the smoke has been going long enough that people ' +
-      'just call it the sky now. Something very large stepped over the wall and ' +
-      'nobody has finished a sentence since. Watch your footing: the rubble is on ' +
-      'your side, right up until it boxes you in with the fast one.',
+    codex: 'It was a town. There were bakeries. Timber frames, steep tile roofs, a ' +
+      'market square with a well in it and four streets wide enough for a cart. ' +
+      'The grey is not weather, it is what is left of the roofs, and the smoke has ' +
+      'been going long enough that people just call it the sky now. Something very ' +
+      'large stepped over the wall and nobody has finished a sentence since. Watch ' +
+      'your footing twice: the rubble is on your side right up until it boxes you ' +
+      'in with the fast one, and the wreckage is still catching.',
   },
 
   {
@@ -507,10 +515,18 @@ export const HAZARDS = {
   },
 
   collapsing_walls: {
-    name: 'Collapsing Walls',
+    name: 'Collapsing Walls & Burning Wreckage',
     kind: 'debris',
+    // "UP TO two", and the two words are a measurement rather than hedging.
+    // Driven for five minutes of a real run: 20 volleys asked for 2 fires each
+    // and placed 33, because the 300px separation check drops a second mark
+    // that lands too close to the first (17.5% of them). The handler is
+    // deliberately bounded — it places fewer and moves on rather than spinning
+    // for room — so the honest number on the card is a ceiling, not an average.
     desc: 'Three 170px rubble zones every 9s, 0.35s apart and never on your feet. ' +
-      '60 damage, then 25s of cover that blocks enemies — and you.',
+      '60 damage, then 25s of cover that blocks enemies — and you. And the ruins ' +
+      'keep catching: up to two 118px fires light against the wreckage every ~6s ' +
+      'and burn for 8s at 26/s.',
     // 1.5s, AND IT IS READ NOW. game/hazards.js hardcoded feel.telegraphLethal
     // (1.0s) and this field was decoration — the same dead-data failure the
     // header of that file documents for the hazard kinds themselves. The floor
@@ -527,6 +543,48 @@ export const HAZARDS = {
       // The wreck is registered as a static blocker; enemies steer around it
       // rather than path around it (DECISIONS.md §18).
       obstacleRadius: 110, obstacleLifetime: 25, blocksPathing: true,
+
+      /**
+       * BURNING WRECKAGE — a sub-hazard, not a second stage hazard.
+       *
+       * THE SLOT IS SINGLE-OCCUPANCY. game/run.js wires `stage.hazards[0]` and
+       * nothing else, and the stage-select screen previews the same one index —
+       * so `hazards: ['collapsing_walls', 'ember_fires']` would be DEAD DATA
+       * that every existing test passes. The fires therefore ride on the hazard
+       * this stage already has, as an opt-in block any hazard of any kind may
+       * declare; game/hazards.js ticks it from `update()` beside the kind
+       * switch rather than from inside `case 'debris'`, so a future stage can
+       * set fire to its own scenery without being a debris stage.
+       *
+       * They are ANCHORED TO THE RUINS, not rolled on open ground: the handler
+       * picks a static blocker inside [minRange, maxRange] of the player and
+       * lights the ground just off its face. A stage whose geometry is a burnt
+       * town should burn where the town is, and the hazard's own dropped
+       * masonry counts as geometry too — a wall comes down and then it catches.
+       *
+       * TELEGRAPHED, because an untelegraphed damaging zone in a bullet heaven
+       * is a cheap death. Leaving a 118px disc from dead centre is 118/168
+       * (slowest character) = 0.70s + 0.07 accel + 0.25 to notice a new mark =
+       * 1.02s required; 1.2 clears it. `minRange` 300 is wider than the disc,
+       * so a fire never lights under your feet either — it is always something
+       * you walked into.
+       *
+       * `damagesEnemies: false` on purpose. A persistent field ticking four
+       * times a second across a 300-strong horde is a free damage source that
+       * scales with density, and it would quietly re-rank the whole stage in
+       * the balance sweep. The collapsing walls are the part that flattens the
+       * horde; the fire is the part that takes floor away from you.
+       */
+      fires: {
+        interval: 6, count: 2, telegraph: 1.2,
+        radius: 118, dps: 26, life: 8,
+        minRange: 300, maxRange: 900, spacing: 300,
+        // How far off a blocker's surface the ground catches. 46px puts the
+        // disc against the wall rather than inside it — a fire centred on a
+        // solid box is a fire you can never be standing in.
+        gap: 46,
+        damagesEnemies: false,
+      },
     },
   },
 
@@ -678,13 +736,52 @@ export const BACKDROPS = {
     density: 1.1,
   },
 
+  /**
+   * STAGE 3 — A NORTH-EUROPEAN TOWN THAT BURNED DOWN, AS A PLAN.
+   *
+   * It used to be `kind: 'ruins'` — a hashed flagstone surface that is also the
+   * `default:` case and the FALLBACK. That is a perfectly good FLOOR and it is
+   * not a PLACE: noise cannot say "this is the market square, that is a house
+   * plot, and the thing between them is a street". Stage 3's whole promise is a
+   * town somebody stepped over, so it gets the same treatment the courtyard and
+   * Akihabara got: a fixed 20x20 cell plan the obstacle set is authored against,
+   * cell for cell. `ruins` stays exactly as it was for the fallback.
+   *
+   *   cells 0-1, 5-6, 9-10, 13-14, 18-19   STREET, on both axes (400px each)
+   *   cells 2-4, 7-8, 11-12, 15-17         HOUSE BLOCK, where both axes are
+   *   cells 7..12 on BOTH axes             the MARKET SQUARE, 1200px, and it
+   *                                        overrides the four blocks inside it
+   *
+   * Twelve blocks ringing a square, which is what a market town is. The player
+   * spawns dead centre of the square.
+   *
+   * The roles are pointed at the materials a Fachwerk town is built from, and
+   * two of them are repurposed hard:
+   *   tile      the cobbled street       seam      mortar / the gutter
+   *   mid       a relaid slab            far       packed earth inside a plot
+   *
+   * BECAUSE `far` IS A DIFFERENT MATERIAL HERE, the paving does not go through
+   * the shared `tone3` — it has its own `pave()` and its own two extra stone
+   * tones in render/stageBackdrop.js. One sett in twelve came out the colour of
+   * bare soil otherwise, which reads as a hole in the road and not as a worn
+   * stone. Same trap the courtyard fell into, same fix.
+   *   farLit    FALLEN ROOF TILE — terracotta, and the only warm thing lying on
+   *             this map. A steep tiled roof is the whole silhouette of one of
+   *             these houses, so when the roof comes off the tiles are what is
+   *             on the ground and what says which country you are in.
+   *   farEdge   CHARRED TIMBER — the frame members, burnt through, lying flat.
+   *   midEdge   soot, and the arena apron
+   *   detail    lime dust and the kerb line   glow  what is still alight
+   */
   ruined_town: {
-    kind: 'ruins',
-    desc: 'Hand-laid flagstones, cracks, rubble, and stretches with no paving left.',
-    far: '#1f2227', farEdge: '#0f1113', farLit: '#3a3f47',
+    kind: 'ruined_town',
+    desc: 'Cobbled streets and a flagged market square with its stall pitches ' +
+          'still worn into the stone, twelve timber-framed house plots, and ' +
+          'soot, scorch and fallen roof tile over all of it.',
+    far: '#221d19', farEdge: '#2a1d14', farLit: '#7a4232',
     mid: '#33373e', midEdge: '#191b1f',
     tile: '#2d3037', seam: '#3a3f47',
-    detail: '#585d66', glow: '#e07a3f',
+    detail: '#6b6f78', glow: '#e07a3f',
     density: 1.0,
   },
 
@@ -1062,17 +1159,299 @@ export const OBSTACLE_SETS = {
     ],
   },
 
-  rubble: {
-    name: 'Fallen Masonry',
-    count: 26, spacing: 210, clearance: 430,
+  /**
+   * WALL AMARIS — A TIMBER-FRAMED TOWN, AND IT IS PLACED RATHER THAN SCATTERED.
+   *
+   * This replaces `rubble`, which was 26 rejection-sampled grey lumps called
+   * "Fallen Masonry". That is an honest description of debris and a useless
+   * description of a TOWN: scattered pieces cannot say that a street is a
+   * street, that four houses share a party wall, or that the thing in the
+   * middle of the map is a market square with a well in it — and the stage's
+   * codex has always promised bakeries.
+   *
+   * The plan is the same 20x20 cell grid render/stageBackdrop.js paints for
+   * `kind: 'ruined_town'`, so a house and the earth under it can never
+   * disagree. One cell is 0.05 of the arena:
+   *
+   *   STREET   cells 0-1, 5-6, 9-10, 13-14, 18-19 on both axes — 400px each
+   *   BLOCK    cells 2-4, 7-8, 11-12, 15-17 where both axes are a block
+   *   SQUARE   cells 7..12 both axes — 1200px, and it eats the four blocks
+   *            that would otherwise sit inside it
+   *
+   * STREETS ARE 400px AND NOTHING NARROWS THEM. This is a bullet heaven, not a
+   * maze, and DECISIONS.md §18 gave the horde STEERING rather than pathfinding:
+   * a chaser in a pinched alley hugs the wall instead of routing round it. The
+   * widest thing authored into a street is a 200px fallen beam, which still
+   * leaves 100px of clear road on both sides of it.
+   *
+   * THE HOUSES ARE FACHWERK. A block is not one slab — it is a terrace of
+   * gable-fronted houses with 60px gaps between them, plus a back range along
+   * the far side, arranged so every block presents its FRONTAGE to the street
+   * the player is actually running down. Three of the twelve blocks have burned
+   * or fallen, and those spill rubble out into the road; that is where the fire
+   * hazard finds most of its anchors.
+   *
+   * `count: 0` — nothing is scattered on top, for the same reason Akihabara
+   * scatters nothing: rejection sampling has no idea a house is solid. Its
+   * `spacing` test is centre-to-centre, so a piece 200px from a 400px terrace's
+   * centre passes the check and spawns inside somebody's parlour. `spacing` and
+   * `clearance` below are inert at count 0 and are kept as documentation of the
+   * tuning this layout was written to.
+   *
+   * KIND 0 IS THE SET'S OWN LOOK AND IT IS FRESH WRECKAGE, deliberately: the
+   * collapsing-walls hazard calls `addCircle` with no kind argument
+   * (game/hazards.js dropRubble), so every wall that comes down mid-run wears
+   * whatever this is. Making it a timber beam or a plaster wall would have the
+   * hazard dropping half a house out of a clear sky.
+   */
+  wall_amaris_ruins: {
+    name: 'Ruins of Wall Amaris',
+    count: 0, spacing: 210, clearance: 430, forms: [],
+    // Kind 0 — fresh grey wreckage, and what the hazard drops.
     detail: 'ribs',
-    // The one set that predates this table, so it keeps the engine's own
-    // hex chunk: the collapsing-walls hazard drops more of exactly these.
     visual: { shape: 'hex', color: '#5a5f6b', accent: '#0b0d16', size: 32, flash: false },
     box: { color: '#4b4f58', edge: '#191b1f' },
-    forms: [
-      { form: 'circle', weight: 5, r: [34, 58] },
-      { form: 'box', weight: 3, w: [40, 96], h: [24, 36] },
+    kinds: [
+      {
+        /**
+         * THE GABLE END — the narrow, steep-roofed front a Fachwerk house
+         * turns to the street, and the single most recognisable shape in a
+         * north-German town.
+         *
+         * `ribs` is not decoration here: it draws the two diagonals of the box,
+         * which from directly overhead is exactly the Andreaskreuz — the
+         * St Andrew's cross brace between the posts — and it is drawn in the
+         * box's `edge` colour, which is the oak. Pale lime panel, near-black
+         * timber frame: the whole material read is two colours and one detail
+         * pass, and it costs a rectangle.
+         */
+        id: 'gable', detail: 'ribs',
+        visual: { shape: 'girder', color: '#a89878', accent: '#2a1d14', size: 32, flash: false },
+        box: { color: '#a89878', edge: '#2a1d14' },
+      },
+      {
+        // THE LONG SIDE — the eaves wall and the back range. `slats` rules the
+        // horizontal courses (Schwelle, Rähm) across the face, which is what
+        // separates a 560px barn wall from a 144px gable at a glance. Half a
+        // shade dirtier than the gable so a terrace is not one flat tone.
+        id: 'timber_wall', detail: 'slats',
+        visual: { shape: 'girder', color: '#9a8a6a', accent: '#2a1d14', size: 32, flash: false },
+        box: { color: '#9a8a6a', edge: '#2a1d14' },
+      },
+      {
+        /**
+         * WHAT IS LEFT WHEN THE FRAME HAS GONE: the stone footing course, one
+         * storey of it, standing on its own.
+         *
+         * It was `#4b4f58` with no detail pass, and both halves of that were
+         * wrong in the same way — you could only see it by rendering the burnt
+         * block at 1:1, where it came out as a blank cool-grey slab that read
+         * as poured concrete on a timber-framed street.
+         *
+         * The colour is now WARM. `#4b4f58` is exactly kind 0, the fresh
+         * wreckage the collapsing-walls hazard drops, and this set is built on
+         * the player being able to tell "this has always been here" from "this
+         * landed nine seconds ago and there are two more coming" — two pieces
+         * that are the same grey cannot say that. Old masonry belongs to the
+         * `rubble` family it spilled, so it takes the same warm stone.
+         *
+         * `slats` is the COURSES. It rules two or three horizontal lines across
+         * the face, which from overhead is the one thing that separates a
+         * standing footing from the flat top of a fallen slab, and it costs
+         * nothing — obstacles.js draws the box either way.
+         */
+        id: 'ruin_wall', detail: 'slats',
+        visual: { shape: 'girder', color: '#57534a', accent: '#211d17', size: 32, flash: false },
+        box: { color: '#57534a', edge: '#211d17' },
+      },
+      {
+        // THE CHIMNEY STACK, which is the thing that survives. Brick, square
+        // from above, and the one warm vertical left standing on the block.
+        id: 'chimney', detail: 'none',
+        visual: { shape: 'square', color: '#7a4232', accent: '#25120c', size: 32, flash: false },
+        box: { color: '#5a3126', edge: '#a3705c' },
+      },
+      {
+        /**
+         * THE WELL in the market square, and it is a `ring` because `fountain`
+         * was a lie that only a screenshot could catch.
+         *
+         * `fountain` looks like the right answer on paper — a round stone basin
+         * seen from overhead — and its OVERLAY (render/spriteAtlas.js) paints
+         * the water in literals, not in this table's colours: rgba(96,168,214)
+         * for the body, near-white for eight radial jets, a foam ring and a
+         * white spout. Rendered at 1:1 on this stage, the single brightest and
+         * most saturated object on a burnt grey-brown map was a working, sunlit
+         * splash fountain in the middle of the market square. It read as a
+         * portal.
+         *
+         * `ring` has no overlay at all: it is an annulus, filled with the
+         * atlas's own vertical gradient off `color` and stroked in `accent`.
+         * At 0.019 of the arena that is a 76px well with a 24px dressed rim and
+         * a hole punched through it, and the hole is the shaft — the paving
+         * shows through, dark, which is what a dry well looks like from
+         * directly above. It is also the only ring-shaped silhouette on the
+         * stage, so it stays the landmark it has to be.
+         */
+        id: 'well', detail: 'none',
+        visual: { shape: 'ring', color: '#8a9098', accent: '#1b1f24', size: 32, flash: false },
+        box: { color: '#767c84', edge: '#23282e' },
+      },
+      {
+        // OLD rubble — the stuff that came down when the wall did, weeks ago.
+        // Warmer and paler than kind 0's fresh grey wreckage on purpose: the
+        // player has to be able to tell "this has always been here" from "this
+        // landed nine seconds ago and there are two more coming".
+        id: 'rubble', detail: 'ribs',
+        visual: { shape: 'hex', color: '#6e6a5e', accent: '#171410', size: 32, flash: false },
+        box: { color: '#5c584e', edge: '#171410' },
+      },
+      {
+        // A HANDCART, tipped. `bolts` is the four corner irons.
+        id: 'cart', detail: 'bolts',
+        visual: { shape: 'girder', color: '#5c3f28', accent: '#1e130c', size: 32, flash: false },
+        box: { color: '#5c3f28', edge: '#c0a081' },
+      },
+      {
+        /**
+         * A ROOF BEAM DOWN ACROSS THE STREET — and its `edge` is PALE, which
+         * looks like a mistake and is the opposite of one.
+         *
+         * ObstacleField.draw strokes every box in `box.edge`, and this is the
+         * one kind that is DARKER than the ground it lies on (#3b2c20 charcoal
+         * on a #2d3037 cobbled street). Akihabara already paid for this lesson
+         * once — a near-black rim round a near-black lamp post on a near-black
+         * road turned street furniture into manhole covers. A burnt beam still
+         * has ash on it, so the rim is ash.
+         */
+        id: 'beam', detail: 'slats',
+        visual: { shape: 'girder', color: '#3b2c20', accent: '#120c08', size: 32, flash: false },
+        box: { color: '#3b2c20', edge: '#8d8578' },
+      },
+    ],
+    /**
+     * Every number below is on the cell grid above. Blocks, by the cells they
+     * occupy — A/B/C/D across, P/Q/R/S down:
+     *
+     *   A  cells 2-4    x 0.10..0.25      P  cells 2-4    y 0.10..0.25
+     *   B  cells 7-8    x 0.35..0.45      Q  cells 7-8    y 0.35..0.45
+     *   C  cells 11-12  x 0.55..0.65      R  cells 11-12  y 0.55..0.65
+     *   D  cells 15-17  x 0.75..0.90      S  cells 15-17  y 0.75..0.90
+     *
+     * B/C x Q/R are inside the market square and carry no houses.
+     *
+     * `w` and `h` are FULL extents as arena fractions — ObstacleField.place
+     * halves them before addBox. (The header of this block says "half-extents"
+     * about `forms`, which is true of `forms` and NOT of `layout`.) `r` is a
+     * fraction of arena WIDTH and is not halved.
+     */
+    layout: [
+      // ==== BLOCK A x P — an intact terrace, frontage south =================
+      // Three gables 144px wide on 204px centres: 60px between neighbours, so
+      // the terrace reads as separate houses rather than one long wall.
+      { kind: 'gable', x: 0.125, y: 0.215, w: 0.036, h: 0.050 },
+      { kind: 'gable', x: 0.176, y: 0.215, w: 0.036, h: 0.050 },
+      { kind: 'gable', x: 0.227, y: 0.215, w: 0.036, h: 0.050 },
+      { kind: 'timber_wall', x: 0.175, y: 0.128, w: 0.130, h: 0.032 },
+      { kind: 'chimney', x: 0.145, y: 0.168, r: 0.007 },
+
+      // ==== BLOCK B x P — two houses, frontage south ========================
+      { kind: 'gable', x: 0.375, y: 0.215, w: 0.036, h: 0.050 },
+      { kind: 'gable', x: 0.426, y: 0.215, w: 0.036, h: 0.050 },
+      { kind: 'timber_wall', x: 0.400, y: 0.128, w: 0.085, h: 0.032 },
+      { kind: 'chimney', x: 0.400, y: 0.170, r: 0.007 },
+
+      // ==== BLOCK C x P — BURNT OUT, and it spilled into the street =========
+      { kind: 'gable', x: 0.575, y: 0.215, w: 0.036, h: 0.050 },
+      { kind: 'ruin_wall', x: 0.628, y: 0.212, w: 0.030, h: 0.020 },
+      { kind: 'rubble', x: 0.626, y: 0.250, r: 0.011 },
+      { kind: 'rubble', x: 0.660, y: 0.272, r: 0.009 },
+      { kind: 'rubble', x: 0.600, y: 0.262, r: 0.008 },
+      { kind: 'beam', x: 0.648, y: 0.300, w: 0.042, h: 0.010 },
+
+      // ==== BLOCK D x P — an intact terrace, frontage south =================
+      { kind: 'gable', x: 0.773, y: 0.215, w: 0.036, h: 0.050 },
+      { kind: 'gable', x: 0.824, y: 0.215, w: 0.036, h: 0.050 },
+      { kind: 'gable', x: 0.875, y: 0.215, w: 0.036, h: 0.050 },
+      { kind: 'timber_wall', x: 0.825, y: 0.128, w: 0.130, h: 0.032 },
+      { kind: 'chimney', x: 0.855, y: 0.168, r: 0.007 },
+
+      // ==== BLOCK A x Q — frontage EAST, onto the square's west approach ====
+      { kind: 'gable', x: 0.215, y: 0.375, w: 0.050, h: 0.036 },
+      { kind: 'gable', x: 0.215, y: 0.426, w: 0.050, h: 0.036 },
+      { kind: 'timber_wall', x: 0.128, y: 0.400, w: 0.032, h: 0.085 },
+      { kind: 'chimney', x: 0.170, y: 0.400, r: 0.007 },
+
+      // ==== BLOCK A x R — the same, mirrored south =========================
+      { kind: 'gable', x: 0.215, y: 0.574, w: 0.050, h: 0.036 },
+      { kind: 'gable', x: 0.215, y: 0.625, w: 0.050, h: 0.036 },
+      { kind: 'timber_wall', x: 0.128, y: 0.600, w: 0.032, h: 0.085 },
+      { kind: 'chimney', x: 0.170, y: 0.600, r: 0.007 },
+
+      // ==== BLOCK D x Q — HALF DOWN, spilling west into the road ============
+      { kind: 'gable', x: 0.785, y: 0.375, w: 0.050, h: 0.036 },
+      { kind: 'ruin_wall', x: 0.788, y: 0.432, w: 0.046, h: 0.018 },
+      { kind: 'timber_wall', x: 0.872, y: 0.400, w: 0.032, h: 0.085 },
+      { kind: 'rubble', x: 0.752, y: 0.452, r: 0.011 },
+      { kind: 'rubble', x: 0.726, y: 0.412, r: 0.009 },
+
+      // ==== BLOCK D x R ====================================================
+      { kind: 'gable', x: 0.785, y: 0.575, w: 0.050, h: 0.036 },
+      { kind: 'gable', x: 0.785, y: 0.626, w: 0.050, h: 0.036 },
+      { kind: 'timber_wall', x: 0.872, y: 0.600, w: 0.032, h: 0.085 },
+      { kind: 'chimney', x: 0.830, y: 0.600, r: 0.007 },
+
+      // ==== BLOCK A x S — frontage NORTH ===================================
+      { kind: 'gable', x: 0.125, y: 0.785, w: 0.036, h: 0.050 },
+      { kind: 'gable', x: 0.176, y: 0.785, w: 0.036, h: 0.050 },
+      { kind: 'gable', x: 0.227, y: 0.785, w: 0.036, h: 0.050 },
+      { kind: 'timber_wall', x: 0.175, y: 0.872, w: 0.130, h: 0.032 },
+      { kind: 'chimney', x: 0.145, y: 0.832, r: 0.007 },
+
+      // ==== BLOCK B x S ====================================================
+      { kind: 'gable', x: 0.375, y: 0.785, w: 0.036, h: 0.050 },
+      { kind: 'gable', x: 0.426, y: 0.785, w: 0.036, h: 0.050 },
+      { kind: 'timber_wall', x: 0.400, y: 0.872, w: 0.085, h: 0.032 },
+      { kind: 'chimney', x: 0.400, y: 0.830, r: 0.007 },
+
+      // ==== BLOCK C x S — the guild hall: one big footprint, not a terrace ==
+      { kind: 'timber_wall', x: 0.600, y: 0.790, w: 0.092, h: 0.044 },
+      { kind: 'gable', x: 0.600, y: 0.858, w: 0.044, h: 0.038 },
+      { kind: 'chimney', x: 0.634, y: 0.832, r: 0.007 },
+
+      // ==== BLOCK D x S — GONE. Two wall stubs, a stack, and the rest of it
+      //      lying in the street it fell into. ==============================
+      { kind: 'ruin_wall', x: 0.790, y: 0.782, w: 0.060, h: 0.018 },
+      { kind: 'ruin_wall', x: 0.868, y: 0.820, w: 0.018, h: 0.060 },
+      { kind: 'chimney', x: 0.828, y: 0.878, r: 0.008 },
+      { kind: 'rubble', x: 0.800, y: 0.830, r: 0.013 },
+      { kind: 'rubble', x: 0.845, y: 0.862, r: 0.011 },
+      { kind: 'rubble', x: 0.762, y: 0.740, r: 0.010 },
+
+      // ==== THE MARKET SQUARE ==============================================
+      // The player spawns at 0.5/0.5. The well is the only large piece inside
+      // the square and it sits 340px north of that — one screen's worth of
+      // clear ground in every direction on the frame the run starts.
+      { kind: 'well', x: 0.500, y: 0.415, r: 0.019 },
+      { kind: 'cart', x: 0.432, y: 0.568, w: 0.024, h: 0.014 },
+      { kind: 'cart', x: 0.572, y: 0.437, w: 0.014, h: 0.024 },
+      { kind: 'rubble', x: 0.640, y: 0.372, r: 0.010 },
+      { kind: 'rubble', x: 0.365, y: 0.640, r: 0.010 },
+      { kind: 'rubble', x: 0.638, y: 0.628, r: 0.009 },
+      { kind: 'beam', x: 0.500, y: 0.352, w: 0.050, h: 0.010 },
+
+      // ==== WHAT IS LYING IN THE STREETS ===================================
+      // Beams are 160-200px in a 400px street, so there is never less than
+      // 100px of clear road on either side of one.
+      { kind: 'beam', x: 0.300, y: 0.480, w: 0.010, h: 0.040 },
+      { kind: 'beam', x: 0.700, y: 0.520, w: 0.010, h: 0.040 },
+      { kind: 'beam', x: 0.300, y: 0.300, w: 0.040, h: 0.010 },
+      { kind: 'cart', x: 0.440, y: 0.300, w: 0.022, h: 0.014 },
+      { kind: 'cart', x: 0.560, y: 0.700, w: 0.022, h: 0.014 },
+      { kind: 'rubble', x: 0.060, y: 0.500, r: 0.012 },
+      { kind: 'rubble', x: 0.940, y: 0.500, r: 0.012 },
+      { kind: 'rubble', x: 0.500, y: 0.062, r: 0.012 },
+      { kind: 'rubble', x: 0.500, y: 0.940, r: 0.012 },
     ],
   },
 

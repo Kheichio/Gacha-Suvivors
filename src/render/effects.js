@@ -155,6 +155,25 @@ function hotOf(color) {
   return h;
 }
 
+/**
+ * THE GENERATION COUNTER, and why a pooled effect needs one.
+ *
+ * `Pool` recycles objects and has no notion of generations (core/pool.js), so a
+ * caller that KEEPS the handle `slash()` or `fallSprite()` handed it — Karin's
+ * planted daggers hold theirs for nine seconds — is holding a pointer that the
+ * pool is free to hand to somebody else the instant that effect expires. And it
+ * WILL expire out from under a long holder: ageing runs in main.js's frame loop
+ * while the sim runs on its own fixed step, so the two clocks drift and the
+ * holder's own record routinely outlives its picture by a frame or more. So
+ * every spawn is stamped with a serial that is only ever issued once, and
+ * `kill()` compares it: a stale handle then cancels NOTHING instead of
+ * cancelling an innocent bystander's shockwave.
+ *
+ * Never reset. One monotonic integer per process; at 40/s it takes ~7000 years
+ * to reach 2^53.
+ */
+let EFFECT_SERIAL = 0;
+
 function makeEffect() {
   return {
     active: false, _i: 0,
@@ -165,12 +184,16 @@ function makeEffect() {
     age: 0, pAge: 0, life: 0.3,
     alpha: 1, count: 10, phase: 0, extra: 0,
     color: WHITE, color2: WHITE,
+    /** Identity of the CURRENT occupant of this slot. See EFFECT_SERIAL. */
+    serial: 0,
     /** An atlas Sprite, for the two sprite kinds. Null for every other kind. */
     sprite: null,
   };
 }
 
-function resetEffect(e) { e.color = WHITE; e.color2 = WHITE; e.sprite = null; }
+// `serial = 0` is never issued (the counter pre-increments), so a released slot
+// has no identity at all and cannot be matched by a handle anybody still holds.
+function resetEffect(e) { e.color = WHITE; e.color2 = WHITE; e.sprite = null; e.serial = 0; }
 
 const finite = (v) => typeof v === 'number' && v - v === 0;
 
@@ -181,8 +204,46 @@ export class EffectSystem {
   }
 
   _take() {
-    if (this.pool.count >= this.max) this.pool.releaseOldest();
+    if (this.pool.count >= this.max) this._evict();
     return this.pool.spawn();
+  }
+
+  /**
+   * WHO GETS DROPPED WHEN THE 160 SLOTS ARE FULL.
+   *
+   * This was `pool.releaseOldest()`, and that name is a lie about what it does.
+   * It releases `items[0]`, and swap-and-pop only ever moves a different entity
+   * into slot 0 when slot 0 is itself released — so `items[0]` is not the oldest
+   * effect, it is the one that has survived LONGEST WITHOUT BEING RELEASED, i.e.
+   * the longest-LIVED. That is precisely backwards: it targets the props, which
+   * are the only effects the simulation leans on. Karin's planted daggers live
+   * 9s against flashes that live 0.2-0.4s, so once one lands in slot 0 it is the
+   * standing eviction victim — deleted off the floor while still live, still in
+   * her ring and still collectable.
+   *
+   * So the victim is instead the effect CLOSEST TO DYING ANYWAY, by fraction of
+   * its own life. A 0.3s impact at 92% loses one frame nobody can see; a 9s prop
+   * at 4% survives. One pass over at most 160 entries, only on a spawn that has
+   * actually overflowed.
+   *
+   * MEASURED, so the size of it is not overstated: six minutes into a crowded
+   * Karin run with DEATH LOTUS on cooldown-spam, the pool peaks at 41 of 160 and
+   * never overflows once in 3600 frames. Effects expire far faster than they are
+   * spawned, so this is a latent hazard rather than something a player is
+   * hitting today — it is fixed because the rule was backwards and correcting it
+   * costs nothing measurable (a full sim run times identically either way).
+   */
+  _evict() {
+    const items = this.pool.items;
+    const n = this.pool.count;
+    if (n === 0) return;
+    let victim = items[0], most = -1;
+    for (let i = 0; i < n; i++) {
+      const e = items[i];
+      const f = e.life > 0 ? e.age / e.life : 1;
+      if (f > most) { most = f; victim = e; }
+    }
+    this.pool.release(victim);
   }
 
   /** Shared spawn spine: geometry validation, tier, colours, phase, lifetime. */
@@ -205,6 +266,9 @@ export class EffectSystem {
     e.color2 = o.color2 || (e.tier ? GOLD : hotOf(e.color));
     // ONE cosmetic random per spawn, from the throwaway stream.
     e.phase = fxRng.raw() * TAU;
+    // Identity for this occupancy of the slot, so a caller can hold the handle
+    // across frames and still prove it is looking at its own effect. See kill().
+    e.serial = ++EFFECT_SERIAL;
     return e;
   }
 
@@ -511,6 +575,33 @@ export class EffectSystem {
       else if (e.kind === K_GHOST) drawGhostBody(r, e, t);
     }
     r.setAlpha(1);
+  }
+
+  /**
+   * END AN EFFECT EARLY — the only way to un-draw something already spawned.
+   *
+   * Everything else here is fire-and-forget, and for a flash that is right. It
+   * is wrong for a PROP that stands in for an object the simulation owns: a
+   * planted dagger is drawn by a 9s `fallSprite`, and the moment Karin picks the
+   * dagger up the sim's object is gone while the picture of it keeps standing
+   * there for another eight seconds. The owner of the object has to be able to
+   * take its picture down.
+   *
+   * `serial` is NOT defensive politeness, it is the contract. The pool recycles
+   * (core/pool.js: swap-and-pop, no generations), so by the time a nine-second
+   * holder calls this its handle may be a completely different effect. Pass the
+   * serial that was read off the handle at spawn; a mismatch means "mine is
+   * already gone" and this does nothing.
+   *
+   * Safe to call from sim code — it is never inside update()'s or draw()'s own
+   * iteration over the pool.
+   *
+   * @returns {boolean} true if THIS caller's effect was the one released
+   */
+  kill(e, serial) {
+    if (!e || !e.active || e.serial !== serial || !serial) return false;
+    this.pool.release(e);
+    return true;
   }
 
   clear() { this.pool.clear(); }

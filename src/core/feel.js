@@ -113,9 +113,42 @@ export const feel = {
   /** SPEC: soft separation so hordes spread into readable blobs. RANGE 0-260 */
   separationForce: 92,
   separationRadius: 22,
-  /** How hard enemies steer around static obstacles (DECISIONS.md §18). */
+  /**
+   * How hard enemies steer around static obstacles (DECISIONS.md §18).
+   *
+   * `avoidanceForce` is a CEILING on the sideways speed the steering may impart,
+   * not the speed it always uses: a mob slides along a wall at its OWN pace and
+   * only a dasher at 240 px/s ever hits the cap. RANGE 0-600.
+   */
   avoidanceForce: 200,
+  /**
+   * The probe distance for a piece with no size — a bin, a lamp post. Every
+   * blocker on six of the seven stages is inside 60px on its short axis and 46px
+   * of warning is a full body-length of runway for a 62 px/s mob.
+   */
   avoidanceLookahead: 46,
+  /**
+   * ...AND HOW MUCH FURTHER A BIG PIECE IS SEEN FROM. Multiplied by the piece's
+   * LONGEST half-extent and added to the lookahead, because the runway a mob
+   * needs is set by how far it may have to walk ALONG the thing, not by how
+   * close it is allowed to get.
+   *
+   * Akihabara's city blocks are 1000px square. A flat 46px probe is 6% of one
+   * face and 8.1x short of the 500px mid-face-to-corner traverse an escape
+   * actually costs, so the horde met the wall with no warning at all and ground
+   * along it. At 0.45 a block is seen from 287px out and a 22px lamp post from
+   * 72px — the small furniture is within a pixel of what it was. RANGE 0-1.2.
+   */
+  avoidanceSizeScale: 0.45,
+  /**
+   * HOW LONG A MOB HOLDS THE WAY ROUND IT PICKED, as a multiple of the time the
+   * traverse should take. The side used to be re-derived every tick from the
+   * instantaneous chase vector, whose deciding dot product is exactly 0 at a
+   * face centre — so the horde dithered +/-3.33px a tick and integrated to
+   * nothing. 1.4 gives a 1000px block ~2.8s and a lamp post ~0.2s, both
+   * comfortably longer than the ambiguity they have to survive. RANGE 0-4.
+   */
+  avoidanceCommitScale: 1.4,
   /** SPEC: shielders must be flankable — DECISIONS.md §31. */
   shielderTurnRate: Math.PI / 2,   // 90 deg/s
   shielderFacingLag: 0.4,
@@ -176,6 +209,9 @@ export const FEEL_RANGES = {
   separationForce: [0, 400, 5],
   separationRadius: [8, 60, 1],
   avoidanceForce: [0, 600, 10],
+  avoidanceLookahead: [0, 200, 2],
+  avoidanceSizeScale: [0, 1.2, 0.01],
+  avoidanceCommitScale: [0, 4, 0.05],
   telegraphLethal: [0.3, 2.5, 0.05],
   telegraphCharge: [0.2, 2, 0.05],
   particleLife: [0.1, 2, 0.05],
